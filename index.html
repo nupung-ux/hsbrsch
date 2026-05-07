@@ -506,14 +506,15 @@
                     const isToday = dateStr === todayStr;
                     const holidayName = HOLIDAYS[dateStr];
 
-                    let rowBgClass = "hover:bg-blue-50 transition-colors border-b border-gray-200 ";
-                    if (isToday) rowBgClass += "bg-[#FEF08A] ";
-                    else if (isHoliWeek) rowBgClass += "bg-[#FFF0F5] ";
-                    else rowBgClass += "bg-white ";
+                    let rowBgClassBase = "hover:bg-blue-50 transition-colors border-b ";
+                    if (isToday) rowBgClassBase += "bg-[#FEF08A] ";
+                    else if (isHoliWeek) rowBgClassBase += "bg-[#FFF0F5] ";
+                    else rowBgClassBase += "bg-white ";
 
                     if (dayEvents.length === 0) {
+                      const finalRowClass = rowBgClassBase + "border-[#7F7F7F] ";
                       return (
-                        <tr key={dateStr} id={`row-${dateStr}`} className={`${rowBgClass} cursor-pointer group`} onClick={() => handleRowClick(dateStr)}>
+                        <tr key={dateStr} id={`row-${dateStr}`} className={`${finalRowClass} cursor-pointer group`} onClick={() => handleRowClick(dateStr)}>
                           <td className="py-3 px-3 font-medium text-gray-600 whitespace-nowrap text-center">{dateStr.split('-').slice(1).join('/')}</td>
                           <td className={`py-3 px-2 text-center whitespace-nowrap ${dayName === '일' ? 'text-red-500' : dayName === '토' ? 'text-blue-500' : ''}`}>{dayName}</td>
                           <td className="py-3 px-3 text-gray-400 whitespace-nowrap"></td>
@@ -525,38 +526,43 @@
                       );
                     }
 
-                    return dayEvents.map((ev, idx) => (
-                      <tr key={ev.id} id={idx === 0 ? `row-${dateStr}` : undefined} className={`${rowBgClass} ${ev.isImportant ? 'font-semibold text-blue-900' : ''}`} onClick={(e) => {
-                        if(e.target.closest('.action-btn')) return;
-                        handleRowClick(dateStr);
-                      }}>
-                        {idx === 0 ? (
-                          <>
-                            <td className="py-3 px-3 font-medium text-gray-700 whitespace-nowrap text-center" rowSpan={dayEvents.length}>{dateStr.split('-').slice(1).join('/')}</td>
-                            <td className={`py-3 px-2 text-center whitespace-nowrap ${dayName === '일' ? 'text-red-500' : dayName === '토' ? 'text-blue-500' : ''}`} rowSpan={dayEvents.length}>{dayName}</td>
-                          </>
-                        ) : null}
-                        
-                        <td className="py-3 px-3 whitespace-nowrap text-center">{ev.time}</td>
-                        <td className="py-3 px-4">
-                          <div className="flex items-center">
-                            {ev.isImportant && <Star size={14} className="mr-1.5 text-yellow-500 fill-current shrink-0" />}
-                            {holidayName && idx === 0 && <span className="mr-2 text-red-500 whitespace-nowrap">[{holidayName}]</span>}
-                            <span>{ev.activity}</span>
-                            {ev.groupId && <span className="ml-2 text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded border border-blue-200 whitespace-nowrap" title="반복일정">반복</span>}
-                          </div>
-                        </td>
-                        <td className="py-3 px-3 text-gray-600 whitespace-nowrap text-center">{ev.manager}</td>
-                        <td className="py-3 px-3 text-gray-600 text-center">{ev.location}</td>
-                        <td className="py-3 px-3 text-gray-500 text-xs text-center">{ev.note}</td>
-                        <td className="py-3 px-2 text-center whitespace-nowrap">
-                          <div className="flex justify-center space-x-2 action-btn">
-                            <button onClick={(e) => { e.stopPropagation(); startEdit(ev); }} className="text-gray-400 hover:text-blue-600" title="수정"><Edit2 size={16}/></button>
-                            <button onClick={(e) => { e.stopPropagation(); promptDelete(ev); }} className="text-gray-400 hover:text-red-600" title="삭제"><Trash2 size={16}/></button>
-                          </div>
-                        </td>
-                      </tr>
-                    ));
+                    return dayEvents.map((ev, idx) => {
+                      const isLastEventOfDay = idx === dayEvents.length - 1;
+                      const finalRowClass = rowBgClassBase + (isLastEventOfDay ? "border-[#7F7F7F] " : "border-gray-200 ");
+                      
+                      return (
+                        <tr key={ev.id} id={idx === 0 ? `row-${dateStr}` : undefined} className={`${finalRowClass} ${ev.isImportant ? 'font-semibold text-blue-900' : ''}`} onClick={(e) => {
+                          if(e.target.closest('.action-btn')) return;
+                          handleRowClick(dateStr);
+                        }}>
+                          {idx === 0 ? (
+                            <>
+                              <td className="py-3 px-3 font-medium text-gray-700 whitespace-nowrap text-center" rowSpan={dayEvents.length}>{dateStr.split('-').slice(1).join('/')}</td>
+                              <td className={`py-3 px-2 text-center whitespace-nowrap ${dayName === '일' ? 'text-red-500' : dayName === '토' ? 'text-blue-500' : ''}`} rowSpan={dayEvents.length}>{dayName}</td>
+                            </>
+                          ) : null}
+                          
+                          <td className="py-3 px-3 whitespace-nowrap text-center">{ev.time}</td>
+                          <td className="py-3 px-4">
+                            <div className="flex items-center">
+                              {ev.isImportant && <Star size={14} className="mr-1.5 text-yellow-500 fill-current shrink-0" />}
+                              {holidayName && idx === 0 && <span className="mr-2 text-red-500 whitespace-nowrap">[{holidayName}]</span>}
+                              <span>{ev.activity}</span>
+                              {ev.groupId && <span className="ml-2 text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded border border-blue-200 whitespace-nowrap" title="반복일정">반복</span>}
+                            </div>
+                          </td>
+                          <td className="py-3 px-3 text-gray-600 whitespace-nowrap text-center">{ev.manager}</td>
+                          <td className="py-3 px-3 text-gray-600 text-center">{ev.location}</td>
+                          <td className="py-3 px-3 text-gray-500 text-xs text-center">{ev.note}</td>
+                          <td className="py-3 px-2 text-center whitespace-nowrap">
+                            <div className="flex justify-center space-x-2 action-btn">
+                              <button onClick={(e) => { e.stopPropagation(); startEdit(ev); }} className="text-gray-400 hover:text-blue-600" title="수정"><Edit2 size={16}/></button>
+                              <button onClick={(e) => { e.stopPropagation(); promptDelete(ev); }} className="text-gray-400 hover:text-red-600" title="삭제"><Trash2 size={16}/></button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    });
                   })}
                 </tbody>
               </table>
