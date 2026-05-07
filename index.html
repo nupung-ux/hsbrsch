@@ -1,0 +1,704 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
+import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, writeBatch, query } from 'firebase/firestore';
+import { Calendar, Clock, MapPin, User, FileText, Download, Star, Edit2, Trash2, ChevronLeft, ChevronRight, AlertCircle, CheckCircle2 } from 'lucide-react';
+
+// --- Firebase Initialization (Strict adherence to rules) ---
+// 선생님의 개인 Firebase 프로젝트 설정값
+const myFirebaseConfig = {
+  apiKey: "AIzaSyDeV51pP4BQqxReIfBmXPEST9zeok5aAOs",
+  authDomain: "school-calendar-6789a.firebaseapp.com",
+  projectId: "school-calendar-6789a",
+  storageBucket: "school-calendar-6789a.firebasestorage.app",
+  messagingSenderId: "697249862283",
+  appId: "1:697249862283:web:4b75b2deb2693d771b7a8e"
+};
+
+// Canvas 환경에서 제공하는 임시 DB가 있으면 그걸 쓰고, 아니면 선생님의 DB를 쓰도록 설정
+const firebaseConfig = typeof __firebase_config !== 'undefined' && Object.keys(JSON.parse(__firebase_config)).length > 0 
+  ? JSON.parse(__firebase_config) 
+  : myFirebaseConfig;
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+// 앱 ID도 선생님 학교만의 고유한 이름으로 지정하면 좋습니다.
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'hwaseong-barun-calendar';
+
+// --- Utility Functions ---
+const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
+
+const formatDate = (date) => {
+  const d = new Date(date);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const getDayName = (dateStr) => {
+  const d = new Date(dateStr);
+  return WEEKDAYS[d.getDay()];
+};
+
+// 2026년 주요 법정공휴일 (간이 데이터)
+const HOLIDAYS = {
+  '2026-01-01': '신정', '2026-02-16': '설날 연휴', '2026-02-17': '설날', '2026-02-18': '설날 연휴',
+  '2026-03-01': '삼일절', '2026-05-05': '어린이날', '2026-05-24': '부처님오신날', '2026-06-06': '현충일',
+  '2026-08-15': '광복절', '2026-09-24': '추석 연휴', '2026-09-25': '추석', '2026-09-26': '추석 연휴',
+  '2026-10-03': '개천절', '2026-10-09': '한글날', '2026-12-25': '기독탄신일'
+};
+
+export default function App() {
+  // --- State Management ---
+  const [user, setUser] = useState(null);
+  const [events, setEvents] = useState([]);
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+  
+  // Form State
+  const initialFormState = {
+    date: formatDate(new Date()),
+    endDate: formatDate(new Date()),
+    isRepeating: false,
+    repeatDays: [], // 0: Sun, 1: Mon, ...
+    excludeWeekends: false, // 주말 제외 상태 추가
+    activity: '',
+    time: '',
+    manager: '',
+    location: '',
+    note: '',
+    isImportant: false,
+    groupId: null,
+  };
+  const [formData, setFormData] = useState(initialFormState);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+
+  // Modal State for Repeating Events
+  const [repeatModal, setRepeatModal] = useState({ isOpen: false, action: null, event: null, updatedData: null });
+  const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
+
+  const showToast = (message, type = 'success') => {
+    setToast({ show: true, message, type });
+    setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 3000);
+  };
+
+  // --- Auth & Data Fetching ---
+  useEffect(() => {
+    const initAuth = async () => {
+      try {
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          await signInAnonymously(auth);
+        }
+      } catch (err) {
+        console.error("Auth error:", err);
+        showToast("인증에 실패했습니다. 새로고침 해주세요.", "error");
+      }
+    };
+    initAuth();
+    const unsubscribe = onAuthStateChanged(auth, setUser);
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    // Rule 1: Strict path for public shared data
+    const eventsRef = collection(db, 'artifacts', appId, 'public', 'data', 'school_events');
+    const q = query(eventsRef); // Rule 2: Simple query, filter in memory
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const fetchedEvents = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setEvents(fetchedEvents);
+    }, (error) => {
+      console.error("Fetch error:", error);
+      showToast("데이터를 불러오는데 실패했습니다.", "error");
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
+  // --- Derived Data ---
+  const todayStr = formatDate(new Date());
+  
+  // 현재 보고 있는 달의 모든 날짜 생성
+  const daysInViewMonth = useMemo(() => {
+    const year = currentMonth.getFullYear();
+    const month = currentMonth.getMonth();
+    const numDays = new Date(year, month + 1, 0).getDate();
+    return Array.from({ length: numDays }, (_, i) => {
+      const d = new Date(year, month, i + 1);
+      return formatDate(d);
+    });
+  }, [currentMonth]);
+
+  // 시간순 정렬 헬퍼 함수 (시간이 있으면 오름차순, 없으면 뒤로)
+  const sortEventsByTime = (a, b) => {
+    if (a.time && b.time) return a.time.localeCompare(b.time);
+    if (a.time && !b.time) return -1;
+    if (!a.time && b.time) return 1;
+    return 0;
+  };
+
+  // 현재 화면(달)에 보여질 일정들 필터링 및 날짜/시간순 정렬
+  const currentMonthEvents = useMemo(() => {
+    const prefix = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}`;
+    return events.filter(e => e.date.startsWith(prefix)).sort((a, b) => {
+      if (a.date !== b.date) return a.date.localeCompare(b.date);
+      return sortEventsByTime(a, b);
+    });
+  }, [events, currentMonth]);
+
+  // 오늘의 일정 (전체 데이터 중 오늘 날짜 및 시간순 정렬)
+  const todaysEvents = useMemo(() => {
+    return events.filter(e => e.date === todayStr).sort(sortEventsByTime);
+  }, [events, todayStr]);
+
+
+  // --- Form Handling ---
+  const handleInputChange = (e) => {
+    const { name, value, type, checked } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: type === 'checkbox' ? checked : value
+    }));
+  };
+
+  const toggleRepeatDay = (dayIndex) => {
+    setFormData(prev => {
+      const days = [...prev.repeatDays];
+      if (days.includes(dayIndex)) {
+        return { ...prev, repeatDays: days.filter(d => d !== dayIndex) };
+      } else {
+        return { ...prev, repeatDays: [...days, dayIndex].sort() };
+      }
+    });
+  };
+
+  const handleRowClick = (dateStr) => {
+    if (isEditing) return; // 수정 중일 때는 날짜 클릭 무시
+    setFormData({
+      ...initialFormState,
+      date: dateStr,
+      endDate: dateStr
+    });
+  };
+
+  const generateUUID = () => {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+      const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+  };
+
+  const saveEvent = async (e) => {
+    e.preventDefault();
+    if (!user) return;
+    if (!formData.date || !formData.activity) {
+      showToast("날짜와 교육활동내용은 필수입니다.", "error");
+      return;
+    }
+
+    try {
+      if (isEditing) {
+        // 수정 모드
+        if (formData.groupId) {
+          // 반복 일정 수정 시 모달 띄우기
+          setRepeatModal({ isOpen: true, action: 'edit', event: { id: editingId, ...formData }, updatedData: formData });
+        } else {
+          // 단일 일정 수정
+          const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'school_events', editingId);
+          await setDoc(docRef, { ...formData, updatedAt: new Date().toISOString() }, { merge: true });
+          showToast("일정이 수정되었습니다.");
+          resetForm();
+        }
+      } else {
+        // 새 일정 등록
+        if (formData.isRepeating) {
+          // 기간 일정 등록 (Batch)
+          const batch = writeBatch(db);
+          const startDate = new Date(formData.date);
+          const endDate = new Date(formData.endDate);
+          const newGroupId = generateUUID();
+          let count = 0;
+
+          for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+            const day = d.getDay();
+            const isWeekend = day === 0 || day === 6;
+
+            // 주말 제외 체크 시 토, 일요일 건너뜀
+            if (formData.excludeWeekends && isWeekend) continue;
+
+            // 요일 반복이 없거나(length === 0) 선택한 요일에 해당하는 경우 추가
+            if (formData.repeatDays.length === 0 || formData.repeatDays.includes(day)) {
+              const docRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'school_events'));
+              batch.set(docRef, {
+                ...formData,
+                date: formatDate(d),
+                groupId: newGroupId,
+                createdAt: new Date().toISOString()
+              });
+              count++;
+            }
+          }
+          if (count > 0) {
+            await batch.commit();
+            showToast(`${count}개의 일정이 등록되었습니다.`);
+          } else {
+            showToast("선택한 기간에 해당하는 날짜가 없습니다.", "error");
+            return;
+          }
+        } else {
+          // 단일 일정 등록
+          const docRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'school_events'));
+          await setDoc(docRef, {
+            ...formData,
+            isRepeating: false,
+            groupId: null,
+            createdAt: new Date().toISOString()
+          });
+          showToast("일정이 등록되었습니다.");
+        }
+        resetForm();
+      }
+    } catch (error) {
+      console.error("Save error:", error);
+      showToast("저장 중 오류가 발생했습니다.", "error");
+    }
+  };
+
+  const startEdit = (eventToEdit) => {
+    setIsEditing(true);
+    setEditingId(eventToEdit.id);
+    setFormData({
+      ...eventToEdit,
+      isRepeating: !!eventToEdit.groupId, // groupId가 있으면 반복 그룹의 일부로 간주
+      endDate: eventToEdit.date, // 단일 수정 시 혼란 방지 위해 일단 현재 날짜로
+    });
+  };
+
+  const promptDelete = (eventToDelete) => {
+    if (eventToDelete.groupId) {
+      setRepeatModal({ isOpen: true, action: 'delete', event: eventToDelete });
+    } else {
+      executeDelete(eventToDelete.id);
+    }
+  };
+
+  const executeDelete = async (id) => {
+    try {
+      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'school_events', id));
+      showToast("삭제되었습니다.");
+      if (isEditing && editingId === id) resetForm();
+    } catch (err) {
+      showToast("삭제 실패", "error");
+    }
+  };
+
+  // 반복 일정(수정/삭제) 일괄 처리 로직
+  const handleRepeatAction = async (scope) => {
+    const { action, event, updatedData } = repeatModal;
+    setRepeatModal({ isOpen: false, action: null, event: null, updatedData: null });
+    if (!event) return;
+
+    try {
+      const batch = writeBatch(db);
+      // 같은 그룹의 전체 일정을 가져옴 (메모리에서 필터링)
+      const groupEvents = events.filter(e => e.groupId === event.groupId);
+      let targetEvents = [];
+
+      if (scope === 'single') {
+        targetEvents = [event];
+      } else if (scope === 'future') {
+        targetEvents = groupEvents.filter(e => e.date >= event.date);
+      } else if (scope === 'all') {
+        targetEvents = groupEvents;
+      }
+
+      if (action === 'delete') {
+        targetEvents.forEach(e => {
+          const ref = doc(db, 'artifacts', appId, 'public', 'data', 'school_events', e.id);
+          batch.delete(ref);
+        });
+        await batch.commit();
+        showToast(`${targetEvents.length}개의 일정이 삭제되었습니다.`);
+        if (isEditing && targetEvents.some(e => e.id === editingId)) resetForm();
+      } else if (action === 'edit') {
+        targetEvents.forEach(e => {
+          const ref = doc(db, 'artifacts', appId, 'public', 'data', 'school_events', e.id);
+          // 날짜는 유지하되, 나머지 정보는 업데이트. 단, single이 아니면 날짜를 덮어쓰면 안됨.
+          const dataToSave = { ...updatedData, updatedAt: new Date().toISOString() };
+          if (scope !== 'single') {
+             delete dataToSave.date; // 다른 날짜 일정들의 date를 현재 폼의 date로 덮어쓰지 않도록 보호
+          }
+          batch.update(ref, dataToSave);
+        });
+        await batch.commit();
+        showToast(`${targetEvents.length}개의 일정이 수정되었습니다.`);
+        resetForm();
+      }
+    } catch (err) {
+      console.error("Batch error:", err);
+      showToast("처리 중 오류가 발생했습니다.", "error");
+    }
+  };
+
+  const resetForm = () => {
+    setIsEditing(false);
+    setEditingId(null);
+    setFormData(initialFormState);
+  };
+
+  // --- Excel Export ---
+  const exportToCSV = () => {
+    // BOM for UTF-8 Excel compatibility
+    let csvContent = "\uFEFF"; 
+    csvContent += "날짜,요일,시간,교육활동내용,담당자,장소,비고,중요여부\n";
+    
+    // 화면에 보이는 달의 데이터만 내보냄
+    daysInViewMonth.forEach(dateStr => {
+      const dayEvents = currentMonthEvents.filter(e => e.date === dateStr);
+      const isHoliday = HOLIDAYS[dateStr];
+      const dayName = getDayName(dateStr);
+      
+      if (dayEvents.length === 0) {
+        // 빈 날짜도 출력
+        const activityText = isHoliday ? isHoliday : '';
+        csvContent += `${dateStr},${dayName},,${activityText},,,,\n`;
+      } else {
+        dayEvents.forEach(e => {
+          const escapeCsv = (str) => `"${(str || '').replace(/"/g, '""')}"`;
+          csvContent += `${dateStr},${dayName},${escapeCsv(e.time)},${escapeCsv(e.activity)},${escapeCsv(e.manager)},${escapeCsv(e.location)},${escapeCsv(e.note)},${e.isImportant ? 'O' : ''}\n`;
+        });
+      }
+    });
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `월간운영계획_${currentMonth.getFullYear()}년${currentMonth.getMonth() + 1}월.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // --- Helpers for Rendering ---
+  const changeMonth = (offset) => {
+    setCurrentMonth(prev => {
+      const next = new Date(prev);
+      next.setMonth(prev.getMonth() + offset);
+      return next;
+    });
+  };
+
+  const goToToday = () => {
+    setCurrentMonth(new Date());
+    setTimeout(() => {
+      const todayRow = document.getElementById(`row-${todayStr}`);
+      if (todayRow) {
+        todayRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 100);
+  };
+
+  const isWeekendOrHoliday = (dateStr) => {
+    const d = new Date(dateStr);
+    return d.getDay() === 0 || d.getDay() === 6 || !!HOLIDAYS[dateStr];
+  };
+
+  return (
+    <div className="h-screen w-full flex bg-gray-50 font-sans text-gray-800 overflow-hidden">
+      
+      {/* Toast Notification */}
+      {toast.show && (
+        <div className={`fixed top-4 left-1/2 transform -translate-x-1/2 z-50 px-4 py-2 rounded shadow-lg flex items-center space-x-2 text-white ${toast.type === 'error' ? 'bg-red-500' : 'bg-green-500'}`}>
+          {toast.type === 'error' ? <AlertCircle size={18} /> : <CheckCircle2 size={18} />}
+          <span>{toast.message}</span>
+        </div>
+      )}
+
+      {/* Repeat Action Modal */}
+      {repeatModal.isOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
+          <div className="bg-white p-6 rounded-lg shadow-xl w-96">
+            <h3 className="text-lg font-bold mb-4">반복 일정 {repeatModal.action === 'edit' ? '수정' : '삭제'}</h3>
+            <p className="text-sm text-gray-600 mb-6">이 일정은 반복되는 일정입니다. 어떻게 처리하시겠습니까?</p>
+            <div className="space-y-3">
+              <button onClick={() => handleRepeatAction('single')} className="w-full text-left px-4 py-3 bg-gray-50 hover:bg-gray-100 rounded border border-gray-200">
+                <span className="font-semibold block text-blue-600">이 일정만</span>
+                <span className="text-xs text-gray-500">선택한 날짜의 일정만 {repeatModal.action === 'edit' ? '수정' : '삭제'}합니다.</span>
+              </button>
+              <button onClick={() => handleRepeatAction('future')} className="w-full text-left px-4 py-3 bg-gray-50 hover:bg-gray-100 rounded border border-gray-200">
+                <span className="font-semibold block text-blue-600">이 일정 및 향후 일정</span>
+                <span className="text-xs text-gray-500">이 날짜를 포함하여 이후의 반복 일정을 모두 변경합니다.</span>
+              </button>
+              <button onClick={() => handleRepeatAction('all')} className="w-full text-left px-4 py-3 bg-gray-50 hover:bg-gray-100 rounded border border-gray-200">
+                <span className="font-semibold block text-blue-600">전체 반복 일정</span>
+                <span className="text-xs text-gray-500">그룹으로 묶인 모든 일정을 {repeatModal.action === 'edit' ? '수정' : '삭제'}합니다.</span>
+              </button>
+            </div>
+            <div className="mt-4 flex justify-end">
+              <button onClick={() => setRepeatModal({ isOpen: false, action: null, event: null, updatedData: null })} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">취소</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- Left Column: Calendar View --- */}
+      <div className="w-2/3 h-full flex flex-col border-r border-gray-200 bg-white">
+        
+        {/* Top: Header & Today's Important Events (Fixed) */}
+        <div className="p-6 border-b border-gray-200 shrink-0 bg-white shadow-sm z-20">
+          <div className="flex justify-between items-center mb-4">
+            <h1 className="text-2xl font-bold text-gray-900 flex items-center">
+              <Calendar className="mr-3 text-blue-600" />
+              화성바른초 월간 운영 계획
+            </h1>
+            <button onClick={exportToCSV} className="flex items-center px-3 py-1.5 bg-green-50 text-green-700 hover:bg-green-100 rounded border border-green-200 transition-colors text-sm font-medium">
+              <Download size={16} className="mr-1.5" /> 엑셀 다운로드
+            </button>
+          </div>
+          
+          <div className="bg-blue-50 rounded-lg p-4 border border-blue-100">
+            <h2 className="text-sm font-bold text-blue-800 mb-2 flex items-center">
+              <Star size={16} className="mr-1 text-yellow-500 fill-current" /> 오늘의 일정 ({todayStr})
+            </h2>
+            {todaysEvents.length > 0 ? (
+              <ul className="space-y-1">
+                {todaysEvents.map(ev => (
+                  <li key={`imp-${ev.id}`} className={`text-sm flex items-start ${ev.isImportant ? 'font-bold text-blue-900' : 'text-gray-800'}`}>
+                    {ev.time && <span className="font-semibold mr-2 whitespace-nowrap">{ev.time}</span>}
+                    <span>{ev.isImportant && <Star size={12} className="inline mr-1 text-yellow-500 fill-current" />}{ev.activity}</span>
+                    {ev.location && <span className="text-gray-500 ml-2 text-xs font-normal">({ev.location})</span>}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-gray-500 italic">오늘 등록된 일정이 없습니다.</p>
+            )}
+          </div>
+        </div>
+
+        {/* Bottom: Monthly Table (Scrollable) */}
+        <div className="flex-1 overflow-y-auto relative">
+          
+          {/* Table Header Area with Month Navigation */}
+          <div className="sticky top-0 bg-white z-10 border-b border-gray-300 shadow-sm pt-4 pb-2 px-6 flex justify-between items-center">
+            <div className="flex items-center space-x-2">
+              <button onClick={() => changeMonth(-1)} className="p-1 hover:bg-gray-100 rounded"><ChevronLeft size={20}/></button>
+              <h2 className="text-xl font-bold">{currentMonth.getFullYear()}년 {currentMonth.getMonth() + 1}월</h2>
+              <button onClick={() => changeMonth(1)} className="p-1 hover:bg-gray-100 rounded"><ChevronRight size={20}/></button>
+            </div>
+            <button onClick={goToToday} className="px-3 py-1.5 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 rounded shadow-sm text-sm font-medium transition-colors">
+              오늘
+            </button>
+          </div>
+
+          <table className="w-full text-left border-collapse">
+            <thead className="sticky top-[61px] bg-gray-100 shadow-sm z-10 text-sm text-gray-600">
+              <tr>
+                <th className="py-3 px-3 border-b border-gray-300 w-20 text-center whitespace-nowrap">날짜</th>
+                <th className="py-3 px-2 border-b border-gray-300 w-14 text-center whitespace-nowrap">요일</th>
+                <th className="py-3 px-3 border-b border-gray-300 w-28 text-center whitespace-nowrap">시간</th>
+                <th className="py-3 px-4 border-b border-gray-300 w-full min-w-[200px]">교육활동내용</th>
+                <th className="py-3 px-3 border-b border-gray-300 w-24 text-center whitespace-nowrap">담당자</th>
+                <th className="py-3 px-3 border-b border-gray-300 w-40 min-w-[80px] text-center">장소</th>
+                <th className="py-3 px-3 border-b border-gray-300 w-40 min-w-[80px] text-center">비고</th>
+                <th className="py-3 px-2 border-b border-gray-300 w-20 text-center whitespace-nowrap">관리</th>
+              </tr>
+            </thead>
+            <tbody className="text-sm">
+              {daysInViewMonth.map((dateStr) => {
+                const dayEvents = currentMonthEvents.filter(e => e.date === dateStr);
+                const dayName = getDayName(dateStr);
+                const isHoliWeek = isWeekendOrHoliday(dateStr);
+                const isToday = dateStr === todayStr;
+                const holidayName = HOLIDAYS[dateStr];
+
+                // 행 배경색 결정 로직 (오늘이 우선순위 높음)
+                let rowBgClass = "hover:bg-blue-50 transition-colors border-b border-gray-200 ";
+                if (isToday) rowBgClass += "bg-[#FEF08A] "; // 연한 노란색
+                else if (isHoliWeek) rowBgClass += "bg-[#FFF0F5] "; // 연한 분홍색
+                else rowBgClass += "bg-white ";
+
+                // 일정이 없는 날 (빈 행 렌더링하여 클릭 유도)
+                if (dayEvents.length === 0) {
+                  return (
+                    <tr key={dateStr} id={`row-${dateStr}`} className={`${rowBgClass} cursor-pointer group`} onClick={() => handleRowClick(dateStr)}>
+                      <td className="py-3 px-3 font-medium text-gray-600 whitespace-nowrap">{dateStr.split('-').slice(1).join('/')}</td>
+                      <td className={`py-3 px-2 text-center whitespace-nowrap ${dayName === '일' ? 'text-red-500' : dayName === '토' ? 'text-blue-500' : ''}`}>{dayName}</td>
+                      <td className="py-3 px-3 text-gray-400 whitespace-nowrap"></td>
+                      <td className="py-3 px-4 text-gray-500">
+                        {holidayName ? <span className="text-red-500 font-semibold">{holidayName}</span> : <span className="opacity-0 group-hover:opacity-100 text-xs text-blue-400">+ 클릭하여 일정 추가</span>}
+                      </td>
+                      <td className="py-3 px-3 whitespace-nowrap"></td><td className="py-3 px-3"></td><td className="py-3 px-3"></td><td className="py-3 px-2 whitespace-nowrap"></td>
+                    </tr>
+                  );
+                }
+
+                // 일정이 있는 날 (여러 개면 여러 행 렌더링)
+                return dayEvents.map((ev, idx) => (
+                  <tr key={ev.id} id={idx === 0 ? `row-${dateStr}` : undefined} className={`${rowBgClass} ${ev.isImportant ? 'font-semibold text-blue-900' : ''}`} onClick={(e) => {
+                    // 관리 버튼 클릭 시에는 행 클릭(추가) 무시
+                    if(e.target.closest('.action-btn')) return;
+                    handleRowClick(dateStr);
+                  }}>
+                    {idx === 0 ? (
+                      // 같은 날짜의 첫 번째 일정에만 날짜와 요일 표시
+                      <>
+                        <td className="py-3 px-3 font-medium text-gray-700 whitespace-nowrap" rowSpan={dayEvents.length}>{dateStr.split('-').slice(1).join('/')}</td>
+                        <td className={`py-3 px-2 text-center whitespace-nowrap ${dayName === '일' ? 'text-red-500' : dayName === '토' ? 'text-blue-500' : ''}`} rowSpan={dayEvents.length}>{dayName}</td>
+                      </>
+                    ) : null}
+                    
+                    <td className="py-3 px-3 whitespace-nowrap">{ev.time}</td>
+                    <td className="py-3 px-4">
+                      <div className="flex items-center">
+                        {ev.isImportant && <Star size={14} className="mr-1.5 text-yellow-500 fill-current shrink-0" />}
+                        {holidayName && idx === 0 && <span className="mr-2 text-red-500 whitespace-nowrap">[{holidayName}]</span>}
+                        <span>{ev.activity}</span>
+                        {ev.groupId && <span className="ml-2 text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded border border-blue-200 whitespace-nowrap" title="반복일정">반복</span>}
+                      </div>
+                    </td>
+                    <td className="py-3 px-3 text-gray-600 whitespace-nowrap">{ev.manager}</td>
+                    <td className="py-3 px-3 text-gray-600">{ev.location}</td>
+                    <td className="py-3 px-3 text-gray-500 text-xs">{ev.note}</td>
+                    <td className="py-3 px-2 text-center whitespace-nowrap">
+                      <div className="flex justify-center space-x-2 action-btn">
+                        <button onClick={(e) => { e.stopPropagation(); startEdit(ev); }} className="text-gray-400 hover:text-blue-600" title="수정"><Edit2 size={16}/></button>
+                        <button onClick={(e) => { e.stopPropagation(); promptDelete(ev); }} className="text-gray-400 hover:text-red-600" title="삭제"><Trash2 size={16}/></button>
+                      </div>
+                    </td>
+                  </tr>
+                ));
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* --- Right Column: Input Form (Fixed) --- */}
+      <div className="w-1/3 bg-white shadow-[-4px_0_15px_-3px_rgba(0,0,0,0.05)] z-30 flex flex-col h-full border-l border-gray-200">
+        <div className="p-6 border-b border-gray-200 bg-gray-50 flex justify-between items-center shrink-0">
+          <h2 className="text-lg font-bold text-gray-800 flex items-center">
+            {isEditing ? <Edit2 className="mr-2 text-blue-600" size={20} /> : <FileText className="mr-2 text-blue-600" size={20} />}
+            {isEditing ? '일정 수정' : '새 일정 등록'}
+          </h2>
+          {isEditing && (
+            <button onClick={resetForm} className="text-sm text-gray-500 hover:text-gray-700 underline">취소</button>
+          )}
+        </div>
+
+        <div className="p-6 overflow-y-auto flex-1">
+          <form onSubmit={saveEvent} className="space-y-5">
+            
+            {/* Date Section */}
+            <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-4">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">날짜 <span className="text-red-500">*</span></label>
+                <div className="flex items-center space-x-2">
+                  <input type="date" name="date" value={formData.date} onChange={handleInputChange} required className="flex-1 p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm" />
+                  {formData.isRepeating && (
+                    <>
+                      <span className="text-gray-500">~</span>
+                      <input type="date" name="endDate" value={formData.endDate} onChange={handleInputChange} required className="flex-1 p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm" />
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {!isEditing && ( // 새 등록일 때만 기간 반복 UI 제공 (수정 시에는 모달로 처리하므로 UI 단순화)
+                <div>
+                  <label className="flex items-center space-x-2 cursor-pointer mb-2">
+                    <input type="checkbox" name="isRepeating" checked={formData.isRepeating} onChange={handleInputChange} className="rounded text-blue-600 focus:ring-blue-500" />
+                    <span className="text-sm font-medium text-gray-700">기간 선택 (요일 미선택 시 매일 반복)</span>
+                  </label>
+                  
+                  {formData.isRepeating && (
+                    <div className="space-y-3 mt-3 px-1">
+                      <label className="flex items-center space-x-2 cursor-pointer">
+                        <input type="checkbox" name="excludeWeekends" checked={formData.excludeWeekends} onChange={handleInputChange} className="rounded text-red-500 focus:ring-red-500" />
+                        <span className="text-sm font-medium text-red-600">주말(토, 일) 제외</span>
+                      </label>
+                      <div className="flex justify-between">
+                        {WEEKDAYS.map((day, idx) => (
+                          <button
+                            key={day}
+                            type="button"
+                            onClick={() => toggleRepeatDay(idx)}
+                            disabled={formData.excludeWeekends && (idx === 0 || idx === 6)}
+                            className={`w-8 h-8 rounded-full text-xs font-medium flex items-center justify-center transition-colors ${
+                              formData.excludeWeekends && (idx === 0 || idx === 6)
+                                ? 'bg-gray-100 text-gray-300 cursor-not-allowed border border-gray-200'
+                                : formData.repeatDays.includes(idx) 
+                                  ? 'bg-blue-600 text-white shadow-md' 
+                                  : 'bg-white border border-gray-300 text-gray-600 hover:bg-gray-100'
+                            }`}
+                          >
+                            {day}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Core Info */}
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1">교육활동내용 <span className="text-red-500">*</span></label>
+              <input type="text" name="activity" value={formData.activity} onChange={handleInputChange} required placeholder="예: 1학기 학부모 총회" className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm" />
+            </div>
+
+            {/* Optional Info Grid */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center"><Clock size={14} className="mr-1"/> 시간</label>
+                <input type="text" name="time" value={formData.time} onChange={handleInputChange} placeholder="예: 14:00~16:00" className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center"><User size={14} className="mr-1"/> 담당자</label>
+                <input type="text" name="manager" value={formData.manager} onChange={handleInputChange} placeholder="예: 교무부장" className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm" />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center"><MapPin size={14} className="mr-1"/> 장소</label>
+              <input type="text" name="location" value={formData.location} onChange={handleInputChange} placeholder="예: 시청각실" className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm" />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">비고</label>
+              <textarea name="note" value={formData.note} onChange={handleInputChange} rows="2" placeholder="추가 전달사항" className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm resize-none"></textarea>
+            </div>
+
+            {/* Important Flag */}
+            <div className="bg-yellow-50 p-3 rounded border border-yellow-200">
+              <label className="flex items-center space-x-2 cursor-pointer">
+                <input type="checkbox" name="isImportant" checked={formData.isImportant} onChange={handleInputChange} className="rounded text-yellow-500 focus:ring-yellow-500 w-4 h-4" />
+                <span className="text-sm font-bold text-yellow-800 flex items-center">
+                  <Star size={16} className="mr-1 fill-current" /> 중요 일정으로 표시
+                </span>
+              </label>
+            </div>
+
+            {/* Submit Button */}
+            <div className="pt-4 border-t border-gray-200">
+              <button type="submit" className="w-full bg-[#2563EB] hover:bg-blue-700 text-white font-bold py-3 px-4 rounded shadow transition-colors flex justify-center items-center">
+                {isEditing ? '변경사항 저장' : '일정 등록하기'}
+              </button>
+            </div>
+
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+}
