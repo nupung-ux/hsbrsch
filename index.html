@@ -30,7 +30,7 @@
 
   <script type="text/babel" data-type="module">
     // --- 1. 라이브러리 및 아이콘 불러오기 ---
-    import React, { useState, useEffect, useMemo } from 'react';
+    import React, { useState, useEffect, useMemo, useRef } from 'react';
     import { createRoot } from 'react-dom/client';
     import { Calendar, Clock, MapPin, User, FileText, Download, Star, Edit2, Trash2, ChevronLeft, ChevronRight, AlertCircle, CheckCircle2 } from 'lucide-react';
     import { initializeApp } from 'firebase/app';
@@ -80,6 +80,7 @@
       const [user, setUser] = useState(null);
       const [events, setEvents] = useState([]);
       const [currentMonth, setCurrentMonth] = useState(new Date());
+      const hasScrolledRef = useRef(false);
       
       const initialFormState = {
         date: formatDate(new Date()),
@@ -396,10 +397,40 @@
         setTimeout(() => {
           const todayRow = document.getElementById(`row-${todayStr}`);
           if (todayRow) {
-            todayRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            const container = todayRow.closest('.overflow-y-auto');
+            if (container) {
+              // 상단 고정 헤더 영역을 피해 보기 좋은 상단 위치(140px 여백)로 스크롤 이동
+              container.scrollTo({
+                top: todayRow.offsetTop - 140,
+                behavior: 'smooth'
+              });
+            } else {
+              // 혹시 컨테이너를 못 찾을 경우의 예비 동작
+              todayRow.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
           }
         }, 100);
       };
+
+      // --- 자동 스크롤 로직 ---
+      // 1. 서버에서 일정 데이터를 성공적으로 불러왔을 때 (표 높이가 맞춰진 직후)
+      useEffect(() => {
+        if (!hasScrolledRef.current && events.length > 0) {
+          setTimeout(goToToday, 100);
+          hasScrolledRef.current = true; // 스크롤 완료 처리
+        }
+      }, [events]);
+
+      // 2. 만약 등록된 일정이 하나도 없는 빈 표일 경우를 대비하여 0.8초 후 무조건 자동 이동
+      useEffect(() => {
+        const timer = setTimeout(() => {
+          if (!hasScrolledRef.current) {
+            goToToday();
+            hasScrolledRef.current = true;
+          }
+        }, 800);
+        return () => clearTimeout(timer);
+      }, []);
 
       const isWeekendOrHoliday = (dateStr) => {
         const d = new Date(dateStr);
