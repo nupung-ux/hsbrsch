@@ -129,8 +129,8 @@
 
         const unsubscribe = onSnapshot(q, (snapshot) => {
           const fetchedEvents = snapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data()
+            ...doc.data(),
+            id: doc.id // 버그 수정: DB의 잘못된 id 값에 덮어씌워지지 않도록 무조건 마지막에 덮어씌움
           }));
           setEvents(fetchedEvents);
         }, (error) => {
@@ -216,20 +216,24 @@
         }
 
         try {
+          // 버그 수정: DB 오염 방지를 위해 저장 전 고유 id 필드를 명시적으로 제거
+          const cleanFormData = { ...formData };
+          delete cleanFormData.id;
+
           if (isEditing) {
-            if (formData.groupId) {
-              setRepeatModal({ isOpen: true, action: 'edit', event: { id: editingId, ...formData }, updatedData: formData });
+            if (cleanFormData.groupId) {
+              setRepeatModal({ isOpen: true, action: 'edit', event: { id: editingId, ...cleanFormData }, updatedData: cleanFormData });
             } else {
               const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'school_events', editingId);
-              await setDoc(docRef, { ...formData, updatedAt: new Date().toISOString() }, { merge: true });
+              await setDoc(docRef, { ...cleanFormData, updatedAt: new Date().toISOString() }, { merge: true });
               showToast("일정이 수정되었습니다.");
               resetForm();
             }
           } else {
-            if (formData.isRepeating) {
+            if (cleanFormData.isRepeating) {
               const batch = writeBatch(db);
-              const startDate = new Date(formData.date);
-              const endDate = new Date(formData.endDate);
+              const startDate = new Date(cleanFormData.date);
+              const endDate = new Date(cleanFormData.endDate);
               const newGroupId = generateUUID();
               let count = 0;
 
@@ -237,12 +241,12 @@
                 const day = d.getDay();
                 const isWeekend = day === 0 || day === 6;
 
-                if (formData.excludeWeekends && isWeekend) continue;
+                if (cleanFormData.excludeWeekends && isWeekend) continue;
 
-                if (formData.repeatDays.length === 0 || formData.repeatDays.includes(day)) {
+                if (cleanFormData.repeatDays.length === 0 || cleanFormData.repeatDays.includes(day)) {
                   const docRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'school_events'));
                   batch.set(docRef, {
-                    ...formData,
+                    ...cleanFormData,
                     date: formatDate(d),
                     groupId: newGroupId,
                     createdAt: new Date().toISOString()
@@ -260,7 +264,7 @@
             } else {
               const docRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'school_events'));
               await setDoc(docRef, {
-                ...formData,
+                ...cleanFormData,
                 isRepeating: false,
                 groupId: null,
                 createdAt: new Date().toISOString()
@@ -333,6 +337,7 @@
             targetEvents.forEach(e => {
               const ref = doc(db, 'artifacts', appId, 'public', 'data', 'school_events', e.id);
               const dataToSave = { ...updatedData, updatedAt: new Date().toISOString() };
+              delete dataToSave.id; // 확실히 제거
               if (scope !== 'single') {
                  delete dataToSave.date;
               }
