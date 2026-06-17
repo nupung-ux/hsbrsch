@@ -13,6 +13,7 @@
     {
       "imports": {
         "react": "https://esm.sh/react@18",
+        "react/jsx-runtime": "https://esm.sh/react@18/jsx-runtime",
         "react-dom/client": "https://esm.sh/react-dom@18/client",
         "lucide-react": "https://esm.sh/lucide-react@0.344.0?deps=react@18,react-dom@18",
         "firebase/app": "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js",
@@ -130,7 +131,7 @@
         const unsubscribe = onSnapshot(q, (snapshot) => {
           const fetchedEvents = snapshot.docs.map(doc => ({
             ...doc.data(),
-            id: doc.id // 버그 수정: DB의 잘못된 id 값에 덮어씌워지지 않도록 무조건 마지막에 덮어씌움
+            id: doc.id 
           }));
           setEvents(fetchedEvents);
         }, (error) => {
@@ -216,7 +217,6 @@
         }
 
         try {
-          // 버그 수정: DB 오염 방지를 위해 저장 전 고유 id 필드를 명시적으로 제거
           const cleanFormData = { ...formData };
           delete cleanFormData.id;
 
@@ -337,7 +337,7 @@
             targetEvents.forEach(e => {
               const ref = doc(db, 'artifacts', appId, 'public', 'data', 'school_events', e.id);
               const dataToSave = { ...updatedData, updatedAt: new Date().toISOString() };
-              delete dataToSave.id; // 확실히 제거
+              delete dataToSave.id; 
               if (scope !== 'single') {
                  delete dataToSave.date;
               }
@@ -404,29 +404,24 @@
           if (todayRow) {
             const container = todayRow.closest('.overflow-y-auto');
             if (container) {
-              // 상단 고정 헤더 영역을 피해 보기 좋은 상단 위치(140px 여백)로 스크롤 이동
               container.scrollTo({
                 top: todayRow.offsetTop - 140,
                 behavior: 'smooth'
               });
             } else {
-              // 혹시 컨테이너를 못 찾을 경우의 예비 동작
               todayRow.scrollIntoView({ behavior: 'smooth', block: 'start' });
             }
           }
         }, 100);
       };
 
-      // --- 자동 스크롤 로직 ---
-      // 1. 서버에서 일정 데이터를 성공적으로 불러왔을 때 (표 높이가 맞춰진 직후)
       useEffect(() => {
         if (!hasScrolledRef.current && events.length > 0) {
           setTimeout(goToToday, 100);
-          hasScrolledRef.current = true; // 스크롤 완료 처리
+          hasScrolledRef.current = true; 
         }
       }, [events]);
 
-      // 2. 만약 등록된 일정이 하나도 없는 빈 표일 경우를 대비하여 0.8초 후 무조건 자동 이동
       useEffect(() => {
         const timer = setTimeout(() => {
           if (!hasScrolledRef.current) {
@@ -530,7 +525,7 @@
                     <th className="py-3 px-4 border-b border-gray-300 w-full min-w-[200px]">교육활동내용</th>
                     <th className="py-3 px-3 border-b border-gray-300 w-24 text-center whitespace-nowrap">담당자</th>
                     <th className="py-3 px-3 border-b border-gray-300 w-40 min-w-[80px] text-center">장소</th>
-                    <th className="py-3 px-3 border-b border-gray-300 w-96 min-w-[160px] text-center">비고</th>
+                    <th className="py-3 px-3 border-b border-gray-300 w-96 min-w-[80px] text-center">비고</th>
                     <th className="py-3 px-2 border-b border-gray-300 w-20 text-center whitespace-nowrap">관리</th>
                   </tr>
                 </thead>
