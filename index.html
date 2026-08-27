@@ -78,14 +78,14 @@
 
     // 부서 목록 (배경색 / 글씨색 / 테두리색)
     const DEPARTMENTS = [
-      { name: '전체',   bg: '#111827', text: '#FFFFFF', border: '#374151' },
-      { name: '교무',   bg: '#3730A3', text: '#FFFFFF', border: '#4F46E5' },
-      { name: '연구',   bg: '#9D174D', text: '#FFFFFF', border: '#BE185D' },
-      { name: '생활',   bg: '#166534', text: '#FFFFFF', border: '#15803D' },
-      { name: '안전',   bg: '#B91C1C', text: '#FFFFFF', border: '#DC2626' },
-      { name: '체육',   bg: '#C2410C', text: '#FFFFFF', border: '#EA580C' },
-      { name: '정보',   bg: '#155E75', text: '#FFFFFF', border: '#0E7490' },
-      { name: '미래',   bg: '#7E22CE', text: '#FFFFFF', border: '#9333EA' },
+      { name: '전체',   bg: '#4B5563', text: '#FFFFFF', border: '#6B7280' },
+      { name: '교무',   bg: '#4F46E5', text: '#FFFFFF', border: '#6366F1' },
+      { name: '연구',   bg: '#DB2777', text: '#FFFFFF', border: '#EC4899' },
+      { name: '생활',   bg: '#15803D', text: '#FFFFFF', border: '#22C55E' },
+      { name: '안전',   bg: '#DC2626', text: '#FFFFFF', border: '#EF4444' },
+      { name: '체육',   bg: '#EA580C', text: '#FFFFFF', border: '#F97316' },
+      { name: '정보',   bg: '#0E7490', text: '#FFFFFF', border: '#0891B2' },
+      { name: '미래',   bg: '#9333EA', text: '#FFFFFF', border: '#A855F7' },
       { name: '유치원', bg: '#CCFBF1', text: '#0F766E', border: '#5EEAD4' },
       { name: '1학년',  bg: '#FFE4E6', text: '#BE123C', border: '#FDA4AF' },
       { name: '2학년',  bg: '#FFEDD5', text: '#C2410C', border: '#FDBA74' },
@@ -692,7 +692,6 @@
                               {ev.isImportant && <Star size={14} className="mr-1.5 text-yellow-500 fill-current shrink-0" />}
                               {holidayName && idx === 0 && <span className="mr-2 text-red-500 whitespace-nowrap">[{holidayName}]</span>}
                               <span>{ev.activity}</span>
-                              {ev.groupId && <span className="ml-2 text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded border border-blue-200 whitespace-nowrap" title="반복일정">반복</span>}
                             </div>
                           </td>
                           <td className="py-3 px-3 text-gray-600 whitespace-nowrap text-center">{ev.manager}</td>
