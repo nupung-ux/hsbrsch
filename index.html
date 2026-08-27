@@ -33,7 +33,7 @@
     // --- 1. 라이브러리 및 아이콘 불러오기 ---
     import React, { useState, useEffect, useMemo, useRef } from 'react';
     import { createRoot } from 'react-dom/client';
-    import { Calendar, Clock, MapPin, User, FileText, Download, Star, Edit2, Trash2, ChevronLeft, ChevronRight, AlertCircle, CheckCircle2, Plus, X } from 'lucide-react';
+    import { Calendar, Clock, MapPin, User, FileText, Download, Star, Edit2, Trash2, ChevronLeft, ChevronRight, AlertCircle, CheckCircle2, Plus, X, Settings, ArrowUp, ArrowDown, RotateCcw, Lock, KeyRound } from 'lucide-react';
     import { initializeApp } from 'firebase/app';
     import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
     import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, writeBatch, query } from 'firebase/firestore';
@@ -76,8 +76,8 @@
       '2026-10-03': '개천절', '2026-10-09': '한글날', '2026-12-25': '기독탄신일'
     };
 
-    // 부서 목록 (배경색 / 글씨색 / 테두리색)
-    const DEPARTMENTS = [
+    // 기본 부서 목록 (관리자가 수정하기 전 초기값)
+    const DEFAULT_DEPARTMENTS = [
       { name: '전체',   bg: '#585D67', text: '#FFFFFF', border: '#4B4F58' },
       { name: '교무',   bg: '#7872C0', text: '#FFFFFF', border: '#6661A3' },
       { name: '연구',   bg: '#D193AC', text: '#FFFFFF', border: '#B27D92' },
@@ -98,16 +98,56 @@
       { name: '늘봄',   bg: '#EDE0D4', text: '#7C4A21', border: '#D6BFA8' },
     ];
 
-    const DEPT_MAP = DEPARTMENTS.reduce((acc, d) => { acc[d.name] = d; return acc; }, {});
+    // --- 관리자 암호 해시 (암호 원문은 저장하지 않음) ---
+    const fallbackHash = (text) => {
+      let h = 5381;
+      for (let i = 0; i < text.length; i++) h = ((h << 5) + h + text.charCodeAt(i)) | 0;
+      return 'fb:' + (h >>> 0).toString(16);
+    };
+
+    const sha256Hash = async (text) => {
+      const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+      return 'sha256:' + Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+    };
+
+    const hashPassword = async (text) => {
+      try {
+        if (window.crypto && window.crypto.subtle) return await sha256Hash(text);
+      } catch (e) { /* 보안 컨텍스트가 아니면 아래로 */ }
+      return fallbackHash(text);
+    };
+
+    const verifyPassword = async (input, stored) => {
+      if (!stored) return false;
+      if (stored.startsWith('fb:')) return fallbackHash(input) === stored;
+      try {
+        return (await sha256Hash(input)) === stored;
+      } catch (e) {
+        return false;
+      }
+    };
+
+    // 배경색보다 살짝 어두운 테두리색 자동 생성
+    const shadeColor = (hex, ratio = 0.85) => {
+      const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || '');
+      if (!m) return hex || '#CCCCCC';
+      const v = [1, 2, 3].map(i => Math.max(0, Math.min(255, Math.round(parseInt(m[i], 16) * ratio))));
+      return '#' + v.map(n => n.toString(16).padStart(2, '0')).join('').toUpperCase();
+    };
+
+    const makeDeptMap = (list) => (list || []).reduce((acc, d) => { acc[d.name] = d; return acc; }, {});
+
+    // 삭제된 부서가 일정에 남아 있을 때 쓰는 기본 스타일
+    const UNKNOWN_DEPT = { bg: '#F1F5F9', text: '#64748B', border: '#CBD5E1' };
 
     // 일정표 / 오늘의 일정에 표시되는 부서 배지
-    const DeptBadge = ({ name, small }) => {
-      const d = DEPT_MAP[name];
-      if (!d) return null;
+    const DeptBadge = ({ name, map, small }) => {
+      if (!name) return null;
+      const d = (map && map[name]) || UNKNOWN_DEPT;
       return (
         <span
           className={`inline-block rounded-full font-semibold whitespace-nowrap border ${small ? 'px-1.5 py-0 text-[10px]' : 'px-2 py-0.5 text-xs'}`}
-          style={{ backgroundColor: d.bg, color: d.text, borderColor: d.border }}
+          style={{ backgroundColor: d.bg, color: d.text, borderColor: d.border || shadeColor(d.bg) }}
         >
           {name}
         </span>
@@ -121,6 +161,11 @@
       const [currentMonth, setCurrentMonth] = useState(new Date());
       const [deptFilter, setDeptFilter] = useState([]);
       const [isFormOpen, setIsFormOpen] = useState(false); // 모바일에서 등록 패널 표시 여부
+      const [departments, setDepartments] = useState(DEFAULT_DEPARTMENTS);
+      const [deptAdmin, setDeptAdmin] = useState({ isOpen: false, list: [], saving: false });
+      const [adminHash, setAdminHash] = useState(null);      // 저장된 관리자 암호 해시
+      const [isUnlocked, setIsUnlocked] = useState(false);   // 이번 접속에서 인증 여부
+      const [gate, setGate] = useState({ isOpen: false, mode: 'verify', pw: '', pw2: '', error: '', busy: false });
       const hasScrolledRef = useRef(false);
       
       const initialFormState = {
@@ -183,6 +228,33 @@
         return () => unsubscribe();
       }, [user]);
 
+      // 부서 목록 실시간 구독 (관리자가 바꾸면 모든 사용자에게 반영)
+      useEffect(() => {
+        if (!user) return;
+        const settingsRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'departments');
+        const unsubscribe = onSnapshot(settingsRef, (snap) => {
+          const list = snap.exists() ? snap.data().list : null;
+          if (Array.isArray(list) && list.length > 0) setDepartments(list);
+        }, (error) => {
+          console.error("Departments fetch error:", error);
+        });
+        return () => unsubscribe();
+      }, [user]);
+
+      // 관리자 암호 해시 구독
+      useEffect(() => {
+        if (!user) return;
+        const adminRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'admin');
+        const unsubscribe = onSnapshot(adminRef, (snap) => {
+          setAdminHash(snap.exists() ? (snap.data().passwordHash || null) : null);
+        }, (error) => {
+          console.error("Admin settings fetch error:", error);
+        });
+        return () => unsubscribe();
+      }, [user]);
+
+      const deptMap = useMemo(() => makeDeptMap(departments), [departments]);
+
       const todayStr = formatDate(new Date());
       
       const daysInViewMonth = useMemo(() => {
@@ -214,6 +286,172 @@
         if (deptFilter.length === 0) return currentMonthEvents;
         return currentMonthEvents.filter(e => deptFilter.includes(e.department || '미지정'));
       }, [currentMonthEvents, deptFilter]);
+
+      // --- 관리자 암호 ---
+      const openGate = (mode) => setGate({ isOpen: true, mode, pw: '', pw2: '', error: '', busy: false });
+      const closeGate = () => setGate({ isOpen: false, mode: 'verify', pw: '', pw2: '', error: '', busy: false });
+
+      const requestDeptAdmin = () => {
+        if (isUnlocked) { openDeptAdmin(); return; }
+        openGate(adminHash ? 'verify' : 'setup');
+      };
+
+      const submitGate = async () => {
+        const pw = gate.pw.trim();
+        setGate(prev => ({ ...prev, busy: true, error: '' }));
+
+        try {
+          if (gate.mode === 'verify') {
+            const ok = await verifyPassword(pw, adminHash);
+            if (!ok) {
+              setGate(prev => ({ ...prev, busy: false, pw: '', error: '암호가 일치하지 않습니다.' }));
+              return;
+            }
+            setIsUnlocked(true);
+            closeGate();
+            openDeptAdmin();
+            return;
+          }
+
+          // setup(최초 설정) / change(변경)
+          if (pw.length < 4) {
+            setGate(prev => ({ ...prev, busy: false, error: '암호는 4자 이상으로 정해주세요.' }));
+            return;
+          }
+          if (pw !== gate.pw2.trim()) {
+            setGate(prev => ({ ...prev, busy: false, error: '두 번 입력한 암호가 서로 다릅니다.' }));
+            return;
+          }
+
+          const adminRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'admin');
+          await setDoc(adminRef, { passwordHash: await hashPassword(pw), updatedAt: new Date().toISOString() });
+
+          const wasSetup = gate.mode === 'setup';
+          setIsUnlocked(true);
+          closeGate();
+          showToast(wasSetup ? "관리자 암호를 설정했습니다." : "관리자 암호를 변경했습니다.");
+          if (wasSetup) openDeptAdmin();
+        } catch (error) {
+          console.error("Admin password error:", error);
+          setGate(prev => ({ ...prev, busy: false, error: '처리 중 오류가 발생했습니다.' }));
+        }
+      };
+
+      const lockAdmin = () => {
+        setIsUnlocked(false);
+        closeDeptAdmin();
+        showToast("관리자 모드를 잠갔습니다.");
+      };
+
+      // --- 부서 관리(관리자) ---
+      const openDeptAdmin = () => {
+        setDeptAdmin({
+          isOpen: true,
+          saving: false,
+          list: departments.map(d => ({ name: d.name, bg: d.bg, text: d.text || '#FFFFFF', _orig: d.name }))
+        });
+      };
+
+      const closeDeptAdmin = () => setDeptAdmin({ isOpen: false, list: [], saving: false });
+
+      const updateDeptDraft = (idx, key, value) => {
+        setDeptAdmin(prev => ({
+          ...prev,
+          list: prev.list.map((d, i) => (i === idx ? { ...d, [key]: value } : d))
+        }));
+      };
+
+      const moveDeptDraft = (idx, offset) => {
+        setDeptAdmin(prev => {
+          const next = [...prev.list];
+          const target = idx + offset;
+          if (target < 0 || target >= next.length) return prev;
+          [next[idx], next[target]] = [next[target], next[idx]];
+          return { ...prev, list: next };
+        });
+      };
+
+      const removeDeptDraft = (idx) => {
+        setDeptAdmin(prev => ({ ...prev, list: prev.list.filter((_, i) => i !== idx) }));
+      };
+
+      const addDeptDraft = () => {
+        setDeptAdmin(prev => ({
+          ...prev,
+          list: [...prev.list, { name: '', bg: '#94A3B8', text: '#FFFFFF', _orig: null }]
+        }));
+      };
+
+      const restoreDefaultDepts = () => {
+        setDeptAdmin(prev => ({
+          ...prev,
+          list: DEFAULT_DEPARTMENTS.map(d => ({ name: d.name, bg: d.bg, text: d.text, _orig: null }))
+        }));
+      };
+
+      const saveDepartments = async () => {
+        const draft = deptAdmin.list.map(d => ({ ...d, name: (d.name || '').trim() }));
+
+        if (draft.length === 0) {
+          showToast("부서는 최소 1개 이상이어야 합니다.", "error");
+          return;
+        }
+        if (draft.some(d => !d.name)) {
+          showToast("이름이 비어 있는 부서가 있습니다.", "error");
+          return;
+        }
+        const names = draft.map(d => d.name);
+        const dup = names.find((n, i) => names.indexOf(n) !== i);
+        if (dup) {
+          showToast(`부서 이름이 중복됩니다: ${dup}`, "error");
+          return;
+        }
+
+        setDeptAdmin(prev => ({ ...prev, saving: true }));
+
+        try {
+          const cleanList = draft.map(d => ({
+            name: d.name,
+            bg: d.bg,
+            text: d.text,
+            border: shadeColor(d.bg)
+          }));
+
+          const settingsRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'departments');
+          await setDoc(settingsRef, { list: cleanList, updatedAt: new Date().toISOString() });
+
+          // 이름이 바뀐 부서는 기존 일정의 부서명도 함께 변경
+          const renames = draft.filter(d => d._orig && d._orig !== d.name);
+          let renamedCount = 0;
+          if (renames.length > 0) {
+            const updates = [];
+            renames.forEach(r => {
+              events.filter(ev => ev.department === r._orig).forEach(ev => {
+                updates.push({ id: ev.id, name: r.name });
+              });
+            });
+            // 배치 1건당 500개 제한이 있어 나눠서 처리
+            for (let i = 0; i < updates.length; i += 400) {
+              const batch = writeBatch(db);
+              updates.slice(i, i + 400).forEach(u => {
+                batch.update(doc(db, 'artifacts', appId, 'public', 'data', 'school_events', u.id), { department: u.name });
+              });
+              await batch.commit();
+            }
+            renamedCount = updates.length;
+          }
+
+          setDeptFilter([]);
+          closeDeptAdmin();
+          showToast(renamedCount > 0
+            ? `부서 목록을 저장했습니다. (일정 ${renamedCount}건의 부서명도 변경)`
+            : "부서 목록을 저장했습니다.");
+        } catch (error) {
+          console.error("Department save error:", error);
+          showToast("부서 저장 중 오류가 발생했습니다.", "error");
+          setDeptAdmin(prev => ({ ...prev, saving: false }));
+        }
+      };
 
       const toggleDeptFilter = (deptName) => {
         setDeptFilter(prev =>
@@ -509,6 +747,134 @@
             </div>
           )}
 
+          {gate.isOpen && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 z-[60] flex items-center justify-center p-4">
+              <div className="bg-white rounded-lg shadow-xl w-full max-w-sm p-6">
+                <h3 className="text-lg font-bold mb-1 flex items-center">
+                  <KeyRound size={20} className="mr-2 text-blue-600" />
+                  {gate.mode === 'verify' ? '관리자 확인' : gate.mode === 'setup' ? '관리자 암호 설정' : '관리자 암호 변경'}
+                </h3>
+                <p className="text-xs text-gray-500 mb-4">
+                  {gate.mode === 'verify'
+                    ? '부서 관리는 관리자 암호가 필요합니다.'
+                    : gate.mode === 'setup'
+                      ? '아직 암호가 없습니다. 사용할 관리자 암호를 정해주세요. 이후에는 이 암호를 아는 사람만 부서를 수정할 수 있습니다.'
+                      : '새로 사용할 관리자 암호를 입력해주세요.'}
+                </p>
+
+                <input
+                  type="password"
+                  autoFocus
+                  value={gate.pw}
+                  onChange={(e) => setGate(prev => ({ ...prev, pw: e.target.value, error: '' }))}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && gate.mode === 'verify') submitGate(); }}
+                  placeholder={gate.mode === 'verify' ? '관리자 암호' : '새 암호 (4자 이상)'}
+                  className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+
+                {gate.mode !== 'verify' && (
+                  <input
+                    type="password"
+                    value={gate.pw2}
+                    onChange={(e) => setGate(prev => ({ ...prev, pw2: e.target.value, error: '' }))}
+                    onKeyDown={(e) => { if (e.key === 'Enter') submitGate(); }}
+                    placeholder="암호 확인"
+                    className="w-full mt-2 px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                )}
+
+                {gate.error && <p className="mt-2 text-xs text-red-600">{gate.error}</p>}
+
+                <div className="mt-5 flex justify-end gap-2">
+                  <button onClick={closeGate} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded text-sm">취소</button>
+                  <button onClick={submitGate} disabled={gate.busy || !gate.pw} className="px-5 py-2 bg-[#2563EB] hover:bg-blue-700 disabled:opacity-50 text-white font-bold rounded shadow text-sm">
+                    {gate.busy ? '확인 중…' : gate.mode === 'verify' ? '확인' : '저장'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {deptAdmin.isOpen && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-3">
+              <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+                <div className="px-5 py-4 border-b border-gray-200 flex justify-between items-center shrink-0">
+                  <h3 className="text-lg font-bold flex items-center"><Settings size={20} className="mr-2 text-blue-600" /> 부서 관리</h3>
+                  <button onClick={closeDeptAdmin} className="p-1 text-gray-500 hover:bg-gray-100 rounded"><X size={20} /></button>
+                </div>
+
+                <div className="px-5 py-3 bg-blue-50 border-b border-blue-100 text-xs text-blue-800 shrink-0">
+                  이름·색상을 바꾸고 순서를 옮기거나 부서를 추가·삭제할 수 있습니다. 저장하면 모든 사용자 화면에 바로 반영됩니다.
+                  이름을 바꾸면 그 부서로 등록된 기존 일정의 부서명도 함께 바뀌고, 부서를 삭제하면 그 부서로 등록됐던 일정은 회색 표시로 남습니다.
+                </div>
+
+                <div className="p-4 overflow-y-auto flex-1 space-y-2">
+                  {deptAdmin.list.map((d, idx) => (
+                    <div key={`dept-row-${idx}`} className="flex items-center gap-2 p-2 rounded border border-gray-200 hover:bg-gray-50">
+                      <div className="flex flex-col shrink-0">
+                        <button onClick={() => moveDeptDraft(idx, -1)} disabled={idx === 0} className="p-0.5 text-gray-400 hover:text-blue-600 disabled:opacity-25" title="위로"><ArrowUp size={14} /></button>
+                        <button onClick={() => moveDeptDraft(idx, 1)} disabled={idx === deptAdmin.list.length - 1} className="p-0.5 text-gray-400 hover:text-blue-600 disabled:opacity-25" title="아래로"><ArrowDown size={14} /></button>
+                      </div>
+
+                      <input
+                        type="text"
+                        value={d.name}
+                        onChange={(e) => updateDeptDraft(idx, 'name', e.target.value)}
+                        placeholder="부서명"
+                        className="w-28 sm:w-36 px-2 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+
+                      <label className="flex items-center gap-1 text-xs text-gray-500 shrink-0">
+                        배경
+                        <input type="color" value={d.bg} onChange={(e) => updateDeptDraft(idx, 'bg', e.target.value)} className="w-8 h-8 p-0 border border-gray-300 rounded cursor-pointer bg-white" />
+                      </label>
+
+                      <label className="flex items-center gap-1 text-xs text-gray-500 shrink-0">
+                        글씨
+                        <input type="color" value={d.text} onChange={(e) => updateDeptDraft(idx, 'text', e.target.value)} className="w-8 h-8 p-0 border border-gray-300 rounded cursor-pointer bg-white" />
+                      </label>
+
+                      <div className="flex-1 flex justify-center min-w-0">
+                        <span
+                          className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap border truncate"
+                          style={{ backgroundColor: d.bg, color: d.text, borderColor: shadeColor(d.bg) }}
+                        >
+                          {d.name || '미리보기'}
+                        </span>
+                      </div>
+
+                      <button onClick={() => removeDeptDraft(idx)} className="p-1 text-gray-400 hover:text-red-600 shrink-0" title="삭제"><Trash2 size={16} /></button>
+                    </div>
+                  ))}
+
+                  <button onClick={addDeptDraft} className="w-full mt-2 py-2 border-2 border-dashed border-gray-300 rounded text-sm text-gray-500 hover:border-blue-400 hover:text-blue-600 flex items-center justify-center gap-1">
+                    <Plus size={16} /> 부서 추가
+                  </button>
+                </div>
+
+                <div className="px-5 py-4 border-t border-gray-200 flex justify-between items-center shrink-0 gap-2">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <button onClick={restoreDefaultDepts} className="flex items-center text-xs text-gray-500 hover:text-gray-700 underline">
+                      <RotateCcw size={13} className="mr-1" /> 기본값 불러오기
+                    </button>
+                    <button onClick={() => openGate('change')} className="flex items-center text-xs text-gray-500 hover:text-gray-700 underline">
+                      <KeyRound size={13} className="mr-1" /> 암호 변경
+                    </button>
+                    <button onClick={lockAdmin} className="flex items-center text-xs text-gray-500 hover:text-gray-700 underline">
+                      <Lock size={13} className="mr-1" /> 잠그기
+                    </button>
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={closeDeptAdmin} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded text-sm">취소</button>
+                    <button onClick={saveDepartments} disabled={deptAdmin.saving} className="px-5 py-2 bg-[#2563EB] hover:bg-blue-700 disabled:opacity-50 text-white font-bold rounded shadow text-sm">
+                      {deptAdmin.saving ? '저장 중…' : '저장'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {repeatModal.isOpen && (
             <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
               <div className="bg-white p-6 rounded-lg shadow-xl w-96">
@@ -542,9 +908,14 @@
                   <Calendar className="mr-2 md:mr-3 text-blue-600 shrink-0" />
                   화성바른초 월간 운영 계획
                 </h1>
-                <button onClick={exportToCSV} className="flex items-center px-3 py-1.5 bg-green-50 text-green-700 hover:bg-green-100 rounded border border-green-200 transition-colors text-sm font-medium">
-                  <Download size={16} className="mr-1.5" /> 엑셀 다운로드
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button onClick={requestDeptAdmin} className="flex items-center px-3 py-1.5 bg-gray-50 text-gray-700 hover:bg-gray-100 rounded border border-gray-300 transition-colors text-sm font-medium" title="부서 목록 관리 (관리자)">
+                    {isUnlocked ? <Settings size={16} className="mr-1.5" /> : <Lock size={16} className="mr-1.5 text-gray-500" />} <span className="hidden sm:inline">부서 관리</span>
+                  </button>
+                  <button onClick={exportToCSV} className="flex items-center px-3 py-1.5 bg-green-50 text-green-700 hover:bg-green-100 rounded border border-green-200 transition-colors text-sm font-medium">
+                    <Download size={16} className="mr-1.5" /> <span className="hidden sm:inline">엑셀 다운로드</span>
+                  </button>
+                </div>
               </div>
               
               <div className="bg-blue-50 rounded-lg p-3 md:p-4 border border-blue-100 max-h-36 md:max-h-none overflow-y-auto">
@@ -556,7 +927,7 @@
                     {todaysEvents.map(ev => (
                       <li key={`imp-${ev.id}`} className={`text-sm flex items-start ${ev.isImportant ? 'font-bold text-blue-900' : 'text-gray-800'}`}>
                         {ev.time && <span className="font-semibold mr-2 whitespace-nowrap">{ev.time}</span>}
-                        {ev.department && <span className="mr-2 shrink-0"><DeptBadge name={ev.department} small /></span>}
+                        {ev.department && <span className="mr-2 shrink-0"><DeptBadge name={ev.department} map={deptMap} small /></span>}
                         <span>{ev.isImportant && <Star size={12} className="inline mr-1 text-yellow-500 fill-current" />}{ev.activity}</span>
                         {ev.location && <span className="text-gray-500 ml-2 text-xs font-normal">({ev.location})</span>}
                       </li>
@@ -582,7 +953,7 @@
                     모두 보기
                   </button>
 
-                  {DEPARTMENTS.map(d => {
+                  {departments.map(d => {
                     const on = deptFilter.includes(d.name);
                     return (
                       <button
@@ -592,7 +963,7 @@
                         className={`px-2.5 py-1 rounded-full text-xs font-semibold border transition-all shrink-0 ${
                           on ? 'ring-2 ring-offset-1 ring-blue-500 shadow-sm' : 'opacity-50 hover:opacity-100'
                         }`}
-                        style={{ backgroundColor: d.bg, color: d.text, borderColor: d.border }}
+                        style={{ backgroundColor: d.bg, color: d.text, borderColor: d.border || shadeColor(d.bg) }}
                       >
                         {d.name}
                       </button>
@@ -690,7 +1061,7 @@
                           ) : null}
                           
                           <td className="py-3 px-3 whitespace-nowrap text-center">{ev.time}</td>
-                          <td className="py-3 px-2 text-center whitespace-nowrap"><DeptBadge name={ev.department} /></td>
+                          <td className="py-3 px-2 text-center whitespace-nowrap"><DeptBadge name={ev.department} map={deptMap} /></td>
                           <td className="py-3 px-4">
                             <div className="flex items-center">
                               {ev.isImportant && <Star size={14} className="mr-1.5 text-yellow-500 fill-current shrink-0" />}
@@ -800,7 +1171,7 @@
                     )}
                   </div>
                   <div className="flex flex-wrap gap-1.5">
-                    {DEPARTMENTS.map(d => {
+                    {departments.map(d => {
                       const selected = formData.department === d.name;
                       return (
                         <button
@@ -812,7 +1183,7 @@
                               ? 'ring-2 ring-offset-1 ring-blue-500 shadow-sm scale-105'
                               : 'opacity-70 hover:opacity-100'
                           }`}
-                          style={{ backgroundColor: d.bg, color: d.text, borderColor: d.border }}
+                          style={{ backgroundColor: d.bg, color: d.text, borderColor: d.border || shadeColor(d.bg) }}
                         >
                           {d.name}
                         </button>
