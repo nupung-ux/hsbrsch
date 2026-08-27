@@ -78,6 +78,7 @@
 
     // 부서 목록 (배경색 / 글씨색 / 테두리색)
     const DEPARTMENTS = [
+      { name: '전체',   bg: '#1F2937', text: '#FFFFFF', border: '#111827' },
       { name: '교무',   bg: '#E0E7FF', text: '#3730A3', border: '#A5B4FC' },
       { name: '연구',   bg: '#FCE7F3', text: '#BE185D', border: '#F9A8D4' },
       { name: '생활',   bg: '#DCFCE7', text: '#15803D', border: '#86EFAC' },
@@ -118,6 +119,7 @@
       const [user, setUser] = useState(null);
       const [events, setEvents] = useState([]);
       const [currentMonth, setCurrentMonth] = useState(new Date());
+      const [deptFilter, setDeptFilter] = useState([]);
       const hasScrolledRef = useRef(false);
       
       const initialFormState = {
@@ -206,6 +208,17 @@
           return sortEventsByTime(a, b);
         });
       }, [events, currentMonth]);
+
+      const visibleMonthEvents = useMemo(() => {
+        if (deptFilter.length === 0) return currentMonthEvents;
+        return currentMonthEvents.filter(e => deptFilter.includes(e.department || '미지정'));
+      }, [currentMonthEvents, deptFilter]);
+
+      const toggleDeptFilter = (deptName) => {
+        setDeptFilter(prev =>
+          prev.includes(deptName) ? prev.filter(d => d !== deptName) : [...prev, deptName]
+        );
+      };
 
       const todaysEvents = useMemo(() => {
         return events.filter(e => e.date === todayStr).sort(sortEventsByTime);
@@ -410,7 +423,7 @@
         csvContent += "날짜,요일,시간,부서,교육활동내용,담당자,장소,비고,중요여부\n";
         
         daysInViewMonth.forEach(dateStr => {
-          const dayEvents = currentMonthEvents.filter(e => e.date === dateStr);
+          const dayEvents = visibleMonthEvents.filter(e => e.date === dateStr);
           const isHoliday = HOLIDAYS[dateStr];
           const dayName = getDayName(dateStr);
           
@@ -549,6 +562,56 @@
                   <p className="text-sm text-gray-500 italic">오늘 등록된 일정이 없습니다.</p>
                 )}
               </div>
+
+              <div className="mt-3 flex items-start gap-2">
+                <span className="text-xs font-bold text-gray-500 shrink-0 pt-1.5 whitespace-nowrap">부서 필터</span>
+                <div className="flex flex-wrap gap-1 items-center">
+                  <button
+                    type="button"
+                    onClick={() => setDeptFilter([])}
+                    className={`px-2.5 py-1 rounded-full text-xs font-semibold border transition-all ${
+                      deptFilter.length === 0
+                        ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                        : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    모두 보기
+                  </button>
+
+                  {DEPARTMENTS.map(d => {
+                    const on = deptFilter.includes(d.name);
+                    return (
+                      <button
+                        key={`f-${d.name}`}
+                        type="button"
+                        onClick={() => toggleDeptFilter(d.name)}
+                        className={`px-2.5 py-1 rounded-full text-xs font-semibold border transition-all ${
+                          on ? 'ring-2 ring-offset-1 ring-blue-500 shadow-sm' : 'opacity-50 hover:opacity-100'
+                        }`}
+                        style={{ backgroundColor: d.bg, color: d.text, borderColor: d.border }}
+                      >
+                        {d.name}
+                      </button>
+                    );
+                  })}
+
+                  <button
+                    type="button"
+                    onClick={() => toggleDeptFilter('미지정')}
+                    className={`px-2.5 py-1 rounded-full text-xs font-semibold border bg-white text-gray-500 border-gray-300 transition-all ${
+                      deptFilter.includes('미지정') ? 'ring-2 ring-offset-1 ring-blue-500 shadow-sm' : 'opacity-50 hover:opacity-100'
+                    }`}
+                  >
+                    미지정
+                  </button>
+
+                  {deptFilter.length > 0 && (
+                    <span className="ml-1 text-xs text-gray-500 whitespace-nowrap">
+                      {visibleMonthEvents.length}건 표시 중
+                    </span>
+                  )}
+                </div>
+              </div>
             </div>
 
             <div className="flex-1 overflow-y-auto relative">
@@ -579,7 +642,7 @@
                 </thead>
                 <tbody className="text-sm">
                   {daysInViewMonth.map((dateStr) => {
-                    const dayEvents = currentMonthEvents.filter(e => e.date === dateStr);
+                    const dayEvents = visibleMonthEvents.filter(e => e.date === dateStr);
                     const dayName = getDayName(dateStr);
                     const isHoliWeek = isWeekendOrHoliday(dateStr);
                     const isToday = dateStr === todayStr;
