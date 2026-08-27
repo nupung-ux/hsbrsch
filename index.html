@@ -33,7 +33,7 @@
     // --- 1. 라이브러리 및 아이콘 불러오기 ---
     import React, { useState, useEffect, useMemo, useRef } from 'react';
     import { createRoot } from 'react-dom/client';
-    import { Calendar, Clock, MapPin, User, FileText, Download, Star, Edit2, Trash2, ChevronLeft, ChevronRight, AlertCircle, CheckCircle2, Plus, X, Settings, ArrowUp, ArrowDown, RotateCcw, Lock, KeyRound } from 'lucide-react';
+    import { Calendar, Clock, MapPin, User, FileText, Download, Star, Edit2, Trash2, ChevronLeft, ChevronRight, AlertCircle, CheckCircle2, Plus, X, Settings, ArrowUp, ArrowDown, RotateCcw, Lock, KeyRound, Printer } from 'lucide-react';
     import { initializeApp } from 'firebase/app';
     import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
     import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, writeBatch, query } from 'firebase/firestore';
@@ -660,6 +660,110 @@
         setIsFormOpen(false);
       };
 
+      // --- PDF 저장 (브라우저 인쇄 → PDF로 저장) ---
+      const exportToPDF = () => {
+        const year = currentMonth.getFullYear();
+        const month = currentMonth.getMonth() + 1;
+        const esc = (t) => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+        let rows = '';
+        daysInViewMonth.forEach(dateStr => {
+          const dayEvents = visibleMonthEvents.filter(e => e.date === dateStr);
+          const dayName = getDayName(dateStr);
+          const holidayName = HOLIDAYS[dateStr];
+          const isHoli = dayName === '일' || dayName === '토' || !!holidayName;
+          const dayCls = dayName === '일' ? 'sun' : dayName === '토' ? 'sat' : '';
+          const dateCell = dateStr.split('-').slice(1).join('/');
+
+          if (dayEvents.length === 0) {
+            rows += `<tr class="dayend ${isHoli ? 'holi' : ''}">` +
+              `<td class="c">${dateCell}</td><td class="c ${dayCls}">${dayName}</td>` +
+              `<td></td><td></td>` +
+              `<td>${holidayName ? `<span class="holiname">${esc(holidayName)}</span>` : ''}</td>` +
+              `<td></td><td></td><td></td></tr>`;
+            return;
+          }
+
+          dayEvents.forEach((ev, idx) => {
+            const d = deptMap[ev.department];
+            const badge = ev.department
+              ? `<span class="badge" style="background:${(d && d.bg) || '#F1F5F9'};color:${(d && d.text) || '#64748B'};border-color:${(d && (d.border || shadeColor(d.bg))) || '#CBD5E1'}">${esc(ev.department)}</span>`
+              : '';
+            const last = idx === dayEvents.length - 1;
+            rows += `<tr class="${last ? 'dayend' : ''} ${isHoli ? 'holi' : ''}">` +
+              (idx === 0
+                ? `<td class="c" rowspan="${dayEvents.length}">${dateCell}</td><td class="c ${dayCls}" rowspan="${dayEvents.length}">${dayName}</td>`
+                : '') +
+              `<td class="c">${esc(ev.time)}</td>` +
+              `<td class="c">${badge}</td>` +
+              `<td class="${ev.isImportant ? 'imp' : ''}">${ev.isImportant ? '★ ' : ''}${holidayName && idx === 0 ? `[${esc(holidayName)}] ` : ''}${esc(ev.activity)}</td>` +
+              `<td class="c">${esc(ev.manager)}</td>` +
+              `<td class="c">${esc(ev.location)}</td>` +
+              `<td class="note">${esc(ev.note)}</td></tr>`;
+          });
+        });
+
+        const filterNote = deptFilter.length > 0 ? ` · 부서 필터: ${deptFilter.join(', ')}` : '';
+        const title = `${year}년 ${month}월 화성바른초 월간 운영 계획`;
+
+        const html = `<!DOCTYPE html><html lang="ko"><head><meta charset="utf-8"><title>${esc(title)}</title>
+<style>
+  @page { size: A4 landscape; margin: 10mm; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; box-sizing: border-box; }
+  body { font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif; color: #111; margin: 0; }
+  h1 { font-size: 15pt; text-align: center; margin: 0 0 2mm; }
+  .sub { font-size: 8pt; color: #666; text-align: center; margin-bottom: 3mm; }
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  th, td { border: 0.4pt solid #B0B0B0; padding: 1.6mm 1.2mm; font-size: 8.5pt; vertical-align: top; word-break: break-word; line-height: 1.35; }
+  th { background: #EDEDED; text-align: center; font-size: 8.5pt; }
+  td.c { text-align: center; }
+  td.note { font-size: 7.5pt; color: #444; }
+  tr.holi td { background: #FFF4F7; }
+  tr.dayend td { border-bottom: 1pt solid #555; }
+  .sun { color: #C00; } .sat { color: #06C; }
+  .imp { font-weight: 700; color: #123E8C; }
+  .holiname { color: #C00; font-weight: 700; }
+  .badge { display: inline-block; padding: 0.3mm 1.6mm; border-radius: 6pt; border: 0.4pt solid; font-size: 7.5pt; font-weight: 700; white-space: nowrap; }
+  thead { display: table-header-group; }
+  tr { page-break-inside: avoid; }
+</style></head><body>
+  <h1>${esc(title)}</h1>
+  <div class="sub">화성바른초등학교${esc(filterNote)}</div>
+  <table>
+    <colgroup>
+      <col style="width:6.5%"><col style="width:4%"><col style="width:9%"><col style="width:7%">
+      <col style="width:29%"><col style="width:8%"><col style="width:10.5%"><col style="width:26%">
+    </colgroup>
+    <thead><tr>
+      <th>날짜</th><th>요일</th><th>시간</th><th>부서</th><th>교육활동내용</th><th>담당자</th><th>장소</th><th>비고</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>
+</body></html>`;
+
+        const frame = document.createElement('iframe');
+        frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+        document.body.appendChild(frame);
+
+        try {
+          const fdoc = frame.contentWindow.document;
+          fdoc.open();
+          fdoc.write(html);
+          fdoc.close();
+          frame.contentWindow.document.title = `월간운영계획_${year}년${month}월`;
+          setTimeout(() => {
+            frame.contentWindow.focus();
+            frame.contentWindow.print();
+            setTimeout(() => { if (frame.parentNode) document.body.removeChild(frame); }, 2000);
+          }, 400);
+          showToast("인쇄 창에서 'PDF로 저장'을 선택하세요.");
+        } catch (error) {
+          console.error('PDF export error:', error);
+          if (frame.parentNode) document.body.removeChild(frame);
+          showToast("PDF 저장 중 오류가 발생했습니다.", "error");
+        }
+      };
+
       const exportToCSV = () => {
         let csvContent = "\uFEFF"; 
         csvContent += "날짜,요일,시간,부서,교육활동내용,담당자,장소,비고,중요여부\n";
@@ -911,6 +1015,9 @@
                 <div className="flex items-center gap-2 shrink-0">
                   <button onClick={requestDeptAdmin} className="flex items-center px-3 py-1.5 bg-gray-50 text-gray-700 hover:bg-gray-100 rounded border border-gray-300 transition-colors text-sm font-medium" title="부서 목록 관리 (관리자)">
                     {isUnlocked ? <Settings size={16} className="mr-1.5" /> : <Lock size={16} className="mr-1.5 text-gray-500" />} <span className="hidden sm:inline">부서 관리</span>
+                  </button>
+                  <button onClick={exportToPDF} className="flex items-center px-3 py-1.5 bg-red-50 text-red-700 hover:bg-red-100 rounded border border-red-200 transition-colors text-sm font-medium" title="월간운영계획표 PDF로 저장">
+                    <Printer size={16} className="mr-1.5" /> <span className="hidden sm:inline">PDF 저장</span>
                   </button>
                   <button onClick={exportToCSV} className="flex items-center px-3 py-1.5 bg-green-50 text-green-700 hover:bg-green-100 rounded border border-green-200 transition-colors text-sm font-medium">
                     <Download size={16} className="mr-1.5" /> <span className="hidden sm:inline">엑셀 다운로드</span>
