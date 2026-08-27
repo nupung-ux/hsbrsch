@@ -33,7 +33,7 @@
     // --- 1. 라이브러리 및 아이콘 불러오기 ---
     import React, { useState, useEffect, useMemo, useRef } from 'react';
     import { createRoot } from 'react-dom/client';
-    import { Calendar, Clock, MapPin, User, FileText, Download, Star, Edit2, Trash2, ChevronLeft, ChevronRight, AlertCircle, CheckCircle2 } from 'lucide-react';
+    import { Calendar, Clock, MapPin, User, FileText, Download, Star, Edit2, Trash2, ChevronLeft, ChevronRight, AlertCircle, CheckCircle2, Plus, X } from 'lucide-react';
     import { initializeApp } from 'firebase/app';
     import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
     import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, writeBatch, query } from 'firebase/firestore';
@@ -120,6 +120,7 @@
       const [events, setEvents] = useState([]);
       const [currentMonth, setCurrentMonth] = useState(new Date());
       const [deptFilter, setDeptFilter] = useState([]);
+      const [isFormOpen, setIsFormOpen] = useState(false); // 모바일에서 등록 패널 표시 여부
       const hasScrolledRef = useRef(false);
       
       const initialFormState = {
@@ -257,6 +258,7 @@
           date: dateStr,
           endDate: dateStr
         });
+        setIsFormOpen(true);
       };
 
       const generateUUID = () => {
@@ -346,6 +348,7 @@
           isRepeating: !!eventToEdit.groupId,
           endDate: eventToEdit.date,
         });
+        setIsFormOpen(true);
       };
 
       const promptDelete = (eventToDelete) => {
@@ -416,6 +419,7 @@
         setIsEditing(false);
         setEditingId(null);
         setFormData(initialFormState);
+        setIsFormOpen(false);
       };
 
       const exportToCSV = () => {
@@ -461,7 +465,7 @@
         setTimeout(() => {
           const todayRow = document.getElementById(`row-${todayStr}`);
           if (todayRow) {
-            const container = todayRow.closest('.overflow-y-auto');
+            const container = todayRow.closest('.overflow-auto, .overflow-y-auto');
             if (container) {
               container.scrollTo({
                 top: todayRow.offsetTop - 140,
@@ -531,11 +535,11 @@
             </div>
           )}
 
-          <div className="w-2/3 h-full flex flex-col border-r border-gray-200 bg-white">
-            <div className="p-6 border-b border-gray-200 shrink-0 bg-white shadow-sm z-20">
+          <div className="w-full md:w-2/3 h-full flex flex-col md:border-r border-gray-200 bg-white">
+            <div className="p-4 md:p-6 border-b border-gray-200 shrink-0 bg-white shadow-sm z-20">
               <div className="flex justify-between items-center mb-4">
-                <h1 className="text-2xl font-bold text-gray-900 flex items-center">
-                  <Calendar className="mr-3 text-blue-600" />
+                <h1 className="text-lg md:text-2xl font-bold text-gray-900 flex items-center">
+                  <Calendar className="mr-2 md:mr-3 text-blue-600 shrink-0" />
                   화성바른초 월간 운영 계획
                 </h1>
                 <button onClick={exportToCSV} className="flex items-center px-3 py-1.5 bg-green-50 text-green-700 hover:bg-green-100 rounded border border-green-200 transition-colors text-sm font-medium">
@@ -543,7 +547,7 @@
                 </button>
               </div>
               
-              <div className="bg-blue-50 rounded-lg p-4 border border-blue-100">
+              <div className="bg-blue-50 rounded-lg p-3 md:p-4 border border-blue-100 max-h-36 md:max-h-none overflow-y-auto">
                 <h2 className="text-sm font-bold text-blue-800 mb-2 flex items-center">
                   <Star size={16} className="mr-1 text-yellow-500 fill-current" /> 오늘의 일정 ({todayStr})
                 </h2>
@@ -565,11 +569,11 @@
 
               <div className="mt-3 flex items-start gap-2">
                 <span className="text-xs font-bold text-gray-500 shrink-0 pt-1.5 whitespace-nowrap">부서 필터</span>
-                <div className="flex flex-wrap gap-1 items-center">
+                <div className="flex flex-nowrap md:flex-wrap gap-1 items-center overflow-x-auto md:overflow-visible pb-1">
                   <button
                     type="button"
                     onClick={() => setDeptFilter([])}
-                    className={`px-2.5 py-1 rounded-full text-xs font-semibold border transition-all ${
+                    className={`px-2.5 py-1 rounded-full text-xs font-semibold border transition-all shrink-0 ${
                       deptFilter.length === 0
                         ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
                         : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
@@ -585,7 +589,7 @@
                         key={`f-${d.name}`}
                         type="button"
                         onClick={() => toggleDeptFilter(d.name)}
-                        className={`px-2.5 py-1 rounded-full text-xs font-semibold border transition-all ${
+                        className={`px-2.5 py-1 rounded-full text-xs font-semibold border transition-all shrink-0 ${
                           on ? 'ring-2 ring-offset-1 ring-blue-500 shadow-sm' : 'opacity-50 hover:opacity-100'
                         }`}
                         style={{ backgroundColor: d.bg, color: d.text, borderColor: d.border }}
@@ -598,7 +602,7 @@
                   <button
                     type="button"
                     onClick={() => toggleDeptFilter('미지정')}
-                    className={`px-2.5 py-1 rounded-full text-xs font-semibold border bg-white text-gray-500 border-gray-300 transition-all ${
+                    className={`px-2.5 py-1 rounded-full text-xs font-semibold border bg-white text-gray-500 border-gray-300 transition-all shrink-0 ${
                       deptFilter.includes('미지정') ? 'ring-2 ring-offset-1 ring-blue-500 shadow-sm' : 'opacity-50 hover:opacity-100'
                     }`}
                   >
@@ -614,8 +618,8 @@
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto relative">
-              <div className="sticky top-0 bg-white z-10 border-b border-gray-300 shadow-sm pt-4 pb-2 px-6 flex justify-between items-center">
+            <div className="flex-1 overflow-auto relative">
+              <div className="sticky top-0 left-0 bg-white z-10 border-b border-gray-300 shadow-sm pt-4 pb-2 px-4 md:px-6 flex justify-between items-center">
                 <div className="flex items-center space-x-2">
                   <button onClick={() => changeMonth(-1)} className="p-1 hover:bg-gray-100 rounded"><ChevronLeft size={20}/></button>
                   <h2 className="text-xl font-bold">{currentMonth.getFullYear()}년 {currentMonth.getMonth() + 1}월</h2>
@@ -626,17 +630,17 @@
                 </button>
               </div>
 
-              <table className="w-full text-left border-collapse">
+              <table className="w-full min-w-[900px] md:min-w-0 text-left border-collapse">
                 <thead className="sticky top-[61px] bg-gray-100 shadow-sm z-10 text-sm text-gray-600">
                   <tr>
                     <th className="py-3 px-3 border-b border-gray-300 w-20 text-center whitespace-nowrap">날짜</th>
                     <th className="py-3 px-2 border-b border-gray-300 w-14 text-center whitespace-nowrap">요일</th>
                     <th className="py-3 px-3 border-b border-gray-300 w-28 text-center whitespace-nowrap">시간</th>
                     <th className="py-3 px-2 border-b border-gray-300 w-20 text-center whitespace-nowrap">부서</th>
-                    <th className="py-3 px-4 border-b border-gray-300 w-full min-w-[200px]">교육활동내용</th>
+                    <th className="py-3 px-4 border-b border-gray-300 w-[32%] min-w-[220px]">교육활동내용</th>
                     <th className="py-3 px-3 border-b border-gray-300 w-24 text-center whitespace-nowrap">담당자</th>
-                    <th className="py-3 px-3 border-b border-gray-300 w-40 min-w-[80px] text-center">장소</th>
-                    <th className="py-3 px-3 border-b border-gray-300 w-96 min-w-[80px] text-center">비고</th>
+                    <th className="py-3 px-3 border-b border-gray-300 w-[12%] min-w-[90px] text-center">장소</th>
+                    <th className="py-3 px-3 border-b border-gray-300 w-[26%] min-w-[220px] text-center">비고</th>
                     <th className="py-3 px-2 border-b border-gray-300 w-20 text-center whitespace-nowrap">관리</th>
                   </tr>
                 </thead>
@@ -695,8 +699,8 @@
                             </div>
                           </td>
                           <td className="py-3 px-3 text-gray-600 whitespace-nowrap text-center">{ev.manager}</td>
-                          <td className="py-3 px-3 text-gray-600 text-center">{ev.location}</td>
-                          <td className="py-3 px-3 text-gray-500 text-xs text-center">{ev.note}</td>
+                          <td className="py-3 px-3 text-gray-600 text-center break-words leading-snug">{ev.location}</td>
+                          <td className="py-3 px-3 text-gray-500 text-xs text-center break-words leading-snug">{ev.note}</td>
                           <td className="py-3 px-2 text-center whitespace-nowrap">
                             <div className="flex justify-center space-x-2 action-btn">
                               <button onClick={(e) => { e.stopPropagation(); startEdit(ev); }} className="text-gray-400 hover:text-blue-600" title="수정"><Edit2 size={16}/></button>
@@ -712,18 +716,27 @@
             </div>
           </div>
 
-          <div className="w-1/3 bg-white shadow-[-4px_0_15px_-3px_rgba(0,0,0,0.05)] z-30 flex flex-col h-full border-l border-gray-200">
-            <div className="p-6 border-b border-gray-200 bg-gray-50 flex justify-between items-center shrink-0">
+          {isFormOpen && (
+            <div className="fixed inset-0 bg-black/40 z-30 md:hidden" onClick={() => setIsFormOpen(false)}></div>
+          )}
+
+          <div className={`${isFormOpen ? 'flex' : 'hidden'} md:flex fixed md:static inset-y-0 right-0 w-[92%] max-w-md md:w-1/3 md:max-w-none bg-white shadow-[-4px_0_15px_-3px_rgba(0,0,0,0.05)] z-40 flex-col h-full border-l border-gray-200`}>
+            <div className="p-4 md:p-6 border-b border-gray-200 bg-gray-50 flex justify-between items-center shrink-0">
               <h2 className="text-lg font-bold text-gray-800 flex items-center">
                 {isEditing ? <Edit2 className="mr-2 text-blue-600" size={20} /> : <FileText className="mr-2 text-blue-600" size={20} />}
                 {isEditing ? '일정 수정' : '새 일정 등록'}
               </h2>
-              {isEditing && (
-                <button onClick={resetForm} className="text-sm text-gray-500 hover:text-gray-700 underline">취소</button>
-              )}
+              <div className="flex items-center gap-3">
+                {isEditing && (
+                  <button onClick={resetForm} className="text-sm text-gray-500 hover:text-gray-700 underline">취소</button>
+                )}
+                <button onClick={() => setIsFormOpen(false)} className="md:hidden p-1 text-gray-500 hover:text-gray-800 hover:bg-gray-200 rounded" title="닫기">
+                  <X size={20} />
+                </button>
+              </div>
             </div>
 
-            <div className="p-6 overflow-y-auto flex-1">
+            <div className="p-4 md:p-6 overflow-y-auto flex-1">
               <form onSubmit={saveEvent} className="space-y-5">
                 <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-4">
                   <div>
@@ -851,6 +864,15 @@
               </form>
             </div>
           </div>
+
+          {!isFormOpen && (
+            <button
+              onClick={() => { resetForm(); setIsFormOpen(true); }}
+              className="md:hidden fixed bottom-5 right-5 z-30 flex items-center gap-1.5 bg-[#2563EB] hover:bg-blue-700 text-white font-bold pl-4 pr-5 py-3.5 rounded-full shadow-lg active:scale-95 transition-transform"
+            >
+              <Plus size={20} /> 새 일정
+            </button>
+          )}
         </div>
       );
     }
