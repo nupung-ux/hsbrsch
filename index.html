@@ -76,6 +76,43 @@
       '2026-10-03': '개천절', '2026-10-09': '한글날', '2026-12-25': '기독탄신일'
     };
 
+    // 부서 목록 (배경색 / 글씨색 / 테두리색)
+    const DEPARTMENTS = [
+      { name: '교무',   bg: '#E0E7FF', text: '#3730A3', border: '#A5B4FC' },
+      { name: '연구',   bg: '#FCE7F3', text: '#BE185D', border: '#F9A8D4' },
+      { name: '생활',   bg: '#DCFCE7', text: '#15803D', border: '#86EFAC' },
+      { name: '안전',   bg: '#FEE2E2', text: '#B91C1C', border: '#FCA5A5' },
+      { name: '체육',   bg: '#FFEDD5', text: '#C2410C', border: '#FDBA74' },
+      { name: '정보',   bg: '#CFFAFE', text: '#0E7490', border: '#67E8F9' },
+      { name: '미래',   bg: '#F3E8FF', text: '#7E22CE', border: '#D8B4FE' },
+      { name: '유치원', bg: '#FEF9C3', text: '#A16207', border: '#FDE047' },
+      { name: '1학년',  bg: '#DBEAFE', text: '#1D4ED8', border: '#93C5FD' },
+      { name: '2학년',  bg: '#D1FAE5', text: '#047857', border: '#6EE7B7' },
+      { name: '3학년',  bg: '#FEF3C7', text: '#B45309', border: '#FCD34D' },
+      { name: '4학년',  bg: '#FFE4E6', text: '#BE123C', border: '#FDA4AF' },
+      { name: '5학년',  bg: '#EDE9FE', text: '#6D28D9', border: '#C4B5FD' },
+      { name: '6학년',  bg: '#CCFBF1', text: '#0F766E', border: '#5EEAD4' },
+      { name: '특수',   bg: '#FAE8FF', text: '#A21CAF', border: '#F0ABFC' },
+      { name: '행정',   bg: '#E2E8F0', text: '#334155', border: '#94A3B8' },
+      { name: '늘봄',   bg: '#ECFCCB', text: '#4D7C0F', border: '#BEF264' },
+    ];
+
+    const DEPT_MAP = DEPARTMENTS.reduce((acc, d) => { acc[d.name] = d; return acc; }, {});
+
+    // 일정표 / 오늘의 일정에 표시되는 부서 배지
+    const DeptBadge = ({ name, small }) => {
+      const d = DEPT_MAP[name];
+      if (!d) return null;
+      return (
+        <span
+          className={`inline-block rounded-full font-semibold whitespace-nowrap border ${small ? 'px-1.5 py-0 text-[10px]' : 'px-2 py-0.5 text-xs'}`}
+          style={{ backgroundColor: d.bg, color: d.text, borderColor: d.border }}
+        >
+          {name}
+        </span>
+      );
+    };
+
     // --- 4. 메인 애플리케이션 컴포넌트 ---
     function App() {
       const [user, setUser] = useState(null);
@@ -91,6 +128,7 @@
         excludeWeekends: false,
         activity: '',
         time: '',
+        department: '',
         manager: '',
         location: '',
         note: '',
@@ -192,6 +230,13 @@
         });
       };
 
+      const toggleDepartment = (deptName) => {
+        setFormData(prev => ({
+          ...prev,
+          department: prev.department === deptName ? '' : deptName
+        }));
+      };
+
       const handleRowClick = (dateStr) => {
         if (isEditing) return;
         setFormData({
@@ -284,6 +329,7 @@
         setEditingId(eventToEdit.id);
         setFormData({
           ...eventToEdit,
+          department: eventToEdit.department || '',
           isRepeating: !!eventToEdit.groupId,
           endDate: eventToEdit.date,
         });
@@ -361,7 +407,7 @@
 
       const exportToCSV = () => {
         let csvContent = "\uFEFF"; 
-        csvContent += "날짜,요일,시간,교육활동내용,담당자,장소,비고,중요여부\n";
+        csvContent += "날짜,요일,시간,부서,교육활동내용,담당자,장소,비고,중요여부\n";
         
         daysInViewMonth.forEach(dateStr => {
           const dayEvents = currentMonthEvents.filter(e => e.date === dateStr);
@@ -370,11 +416,11 @@
           
           if (dayEvents.length === 0) {
             const activityText = isHoliday ? isHoliday : '';
-            csvContent += `${dateStr},${dayName},,${activityText},,,,\n`;
+            csvContent += `${dateStr},${dayName},,,${activityText},,,,\n`;
           } else {
             dayEvents.forEach(e => {
               const escapeCsv = (str) => `"${(str || '').replace(/"/g, '""')}"`;
-              csvContent += `${dateStr},${dayName},${escapeCsv(e.time)},${escapeCsv(e.activity)},${escapeCsv(e.manager)},${escapeCsv(e.location)},${escapeCsv(e.note)},${e.isImportant ? 'O' : ''}\n`;
+              csvContent += `${dateStr},${dayName},${escapeCsv(e.time)},${escapeCsv(e.department)},${escapeCsv(e.activity)},${escapeCsv(e.manager)},${escapeCsv(e.location)},${escapeCsv(e.note)},${e.isImportant ? 'O' : ''}\n`;
             });
           }
         });
@@ -493,6 +539,7 @@
                     {todaysEvents.map(ev => (
                       <li key={`imp-${ev.id}`} className={`text-sm flex items-start ${ev.isImportant ? 'font-bold text-blue-900' : 'text-gray-800'}`}>
                         {ev.time && <span className="font-semibold mr-2 whitespace-nowrap">{ev.time}</span>}
+                        {ev.department && <span className="mr-2 shrink-0"><DeptBadge name={ev.department} small /></span>}
                         <span>{ev.isImportant && <Star size={12} className="inline mr-1 text-yellow-500 fill-current" />}{ev.activity}</span>
                         {ev.location && <span className="text-gray-500 ml-2 text-xs font-normal">({ev.location})</span>}
                       </li>
@@ -522,10 +569,11 @@
                     <th className="py-3 px-3 border-b border-gray-300 w-20 text-center whitespace-nowrap">날짜</th>
                     <th className="py-3 px-2 border-b border-gray-300 w-14 text-center whitespace-nowrap">요일</th>
                     <th className="py-3 px-3 border-b border-gray-300 w-28 text-center whitespace-nowrap">시간</th>
-                    <th className="py-3 px-4 border-b border-gray-300 min-w-[250px]">교육활동내용</th>
+                    <th className="py-3 px-2 border-b border-gray-300 w-20 text-center whitespace-nowrap">부서</th>
+                    <th className="py-3 px-4 border-b border-gray-300 w-full min-w-[200px]">교육활동내용</th>
                     <th className="py-3 px-3 border-b border-gray-300 w-24 text-center whitespace-nowrap">담당자</th>
                     <th className="py-3 px-3 border-b border-gray-300 w-40 min-w-[80px] text-center">장소</th>
-                    <th className="py-3 px-3 border-b border-gray-300 w-[180px] min-w-[80px] text-center">비고</th>
+                    <th className="py-3 px-3 border-b border-gray-300 w-96 min-w-[80px] text-center">비고</th>
                     <th className="py-3 px-2 border-b border-gray-300 w-20 text-center whitespace-nowrap">관리</th>
                   </tr>
                 </thead>
@@ -549,6 +597,7 @@
                           <td className="py-3 px-3 font-medium text-gray-600 whitespace-nowrap text-center">{dateStr.split('-').slice(1).join('/')}</td>
                           <td className={`py-3 px-2 text-center whitespace-nowrap ${dayName === '일' ? 'text-red-500' : dayName === '토' ? 'text-blue-500' : ''}`}>{dayName}</td>
                           <td className="py-3 px-3 text-gray-400 whitespace-nowrap"></td>
+                          <td className="py-3 px-2 whitespace-nowrap"></td>
                           <td className="py-3 px-4 text-gray-500">
                             {holidayName ? <span className="text-red-500 font-semibold">{holidayName}</span> : <span className="opacity-0 group-hover:opacity-100 text-xs text-blue-400">+ 클릭하여 일정 추가</span>}
                           </td>
@@ -574,6 +623,7 @@
                           ) : null}
                           
                           <td className="py-3 px-3 whitespace-nowrap text-center">{ev.time}</td>
+                          <td className="py-3 px-2 text-center whitespace-nowrap"><DeptBadge name={ev.department} /></td>
                           <td className="py-3 px-4">
                             <div className="flex items-center">
                               {ev.isImportant && <Star size={14} className="mr-1.5 text-yellow-500 fill-current shrink-0" />}
@@ -663,6 +713,37 @@
                       )}
                     </div>
                   )}
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-sm font-semibold text-gray-700">부서</label>
+                    {formData.department && (
+                      <button type="button" onClick={() => setFormData(prev => ({ ...prev, department: '' }))} className="text-xs text-gray-500 hover:text-gray-700 underline">
+                        선택 해제
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {DEPARTMENTS.map(d => {
+                      const selected = formData.department === d.name;
+                      return (
+                        <button
+                          key={d.name}
+                          type="button"
+                          onClick={() => toggleDepartment(d.name)}
+                          className={`px-2.5 py-1 rounded-full text-xs font-semibold border transition-all ${
+                            selected
+                              ? 'ring-2 ring-offset-1 ring-blue-500 shadow-sm scale-105'
+                              : 'opacity-70 hover:opacity-100'
+                          }`}
+                          style={{ backgroundColor: d.bg, color: d.text, borderColor: d.border }}
+                        >
+                          {d.name}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 <div>
