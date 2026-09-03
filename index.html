@@ -33,7 +33,7 @@
     // --- 1. 라이브러리 및 아이콘 불러오기 ---
     import React, { useState, useEffect, useMemo, useRef } from 'react';
     import { createRoot } from 'react-dom/client';
-    import { Calendar, Clock, MapPin, User, FileText, Download, Star, Edit2, Trash2, ChevronLeft, ChevronRight, AlertCircle, CheckCircle2, Plus, X, Settings, ArrowUp, ArrowDown, RotateCcw, Lock, KeyRound, Printer, ZoomIn, ZoomOut } from 'lucide-react';
+    import { Calendar, Clock, MapPin, User, FileText, Download, Star, Edit2, Trash2, ChevronLeft, ChevronRight, AlertCircle, CheckCircle2, Plus, X, Settings, ArrowUp, ArrowDown, RotateCcw, Lock, KeyRound, Printer, ZoomIn, ZoomOut, Search, Upload, Database } from 'lucide-react';
     import { initializeApp } from 'firebase/app';
     import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
     import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, writeBatch, query } from 'firebase/firestore';
@@ -198,6 +198,7 @@
       const [events, setEvents] = useState([]);
       const [currentMonth, setCurrentMonth] = useState(new Date());
       const [deptFilter, setDeptFilter] = useState([]);
+      const [searchQuery, setSearchQuery] = useState('');
       const [isFormOpen, setIsFormOpen] = useState(false); // 모바일에서 등록 패널 표시 여부
       const [departments, setDepartments] = useState(DEFAULT_DEPARTMENTS);
       const [deptAdmin, setDeptAdmin] = useState({ isOpen: false, list: [], saving: false });
@@ -207,6 +208,8 @@
       const [holidays, setHolidays] = useState(DEFAULT_HOLIDAYS);
       const [adminTab, setAdminTab] = useState('dept');
       const [holidayDraft, setHolidayDraft] = useState([]);
+      const [importState, setImportState] = useState({ fileName: '', rows: [], error: '', mode: 'append', busy: false });
+      const fileInputRef = useRef(null);
       const [holidayYear, setHolidayYear] = useState(String(new Date().getFullYear()));
       const [zoom, setZoom] = useState(() => {
         try {
@@ -333,6 +336,32 @@
 
       const deptMap = useMemo(() => makeDeptMap(departments), [departments]);
 
+      const searchResults = useMemo(() => {
+        const q = searchQuery.trim().toLowerCase();
+        if (!q) return [];
+        const words = q.split(/\s+/);
+        return events
+          .filter(ev => {
+            const haystack = [ev.activity, ev.manager, ev.location, ev.note, ev.department, ev.date, ev.time]
+              .map(v => (v || '').toString().toLowerCase()).join(' ');
+            return words.every(w => haystack.includes(w));
+          })
+          .sort((a, b) => (a.date + (a.time || '')).localeCompare(b.date + (b.time || '')));
+      }, [events, searchQuery]);
+
+      const isSearching = searchQuery.trim().length > 0;
+
+      const goToEventDate = (dateStr) => {
+        const d = new Date(dateStr);
+        setCurrentMonth(new Date(d.getFullYear(), d.getMonth(), 1));
+        setSearchQuery('');
+        setTimeout(() => {
+          const row = document.getElementById(`row-${dateStr}`);
+          const container = row && row.closest('.overflow-auto, .overflow-y-auto');
+          if (row && container) container.scrollTo({ top: row.offsetTop * zoomRef.current - 140, behavior: 'smooth' });
+        }, 150);
+      };
+
       const todayStr = formatDate(new Date());
       
       const daysInViewMonth = useMemo(() => {
@@ -419,6 +448,173 @@
         setIsUnlocked(false);
         closeDeptAdmin();
         showToast("관리자 모드를 잠갔습니다.");
+      };
+
+      // --- 전체 일정 내려받기 / 올리기 ---
+      const EVENT_FIELDS = ['date', 'time', 'department', 'activity', 'manager', 'location', 'note', 'isImportant'];
+
+      const downloadFile = (content, filename, mime) => {
+        const blob = new Blob(['\ufeff' + content], { type: mime });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      };
+
+      const sortedAllEvents = () => [...events].sort((a, b) => (a.date + (a.time || '')).localeCompare(b.date + (b.time || '')));
+
+      const exportAllJSON = () => {
+        const data = sortedAllEvents().map(ev => ({
+          date: ev.date || '',
+          time: ev.time || '',
+          department: ev.department || '',
+          activity: ev.activity || '',
+          manager: ev.manager || '',
+          location: ev.location || '',
+          note: ev.note || '',
+          isImportant: !!ev.isImportant,
+          groupId: ev.groupId || ''
+        }));
+        const stamp = formatDate(new Date());
+        downloadFile(JSON.stringify(data, null, 2), `전체일정_${stamp}.json`, 'application/json;charset=utf-8;');
+        showToast(`전체 일정 ${data.length}건을 JSON으로 내려받았습니다.`);
+      };
+
+      const exportAllCSV = () => {
+        const q = (v) => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
+        let csv = '날짜,시간,부서,교육활동내용,담당자,장소,비고,중요\n';
+        const list = sortedAllEvents();
+        list.forEach(ev => {
+          csv += [ev.date, ev.time, ev.department, ev.activity, ev.manager, ev.location, ev.note, ev.isImportant ? 'Y' : 'N'].map(q).join(',') + '\n';
+        });
+        const stamp = formatDate(new Date());
+        downloadFile(csv, `전체일정_${stamp}.csv`, 'text/csv;charset=utf-8;');
+        showToast(`전체 일정 ${list.length}건을 CSV로 내려받았습니다.`);
+      };
+
+      // 따옴표를 고려한 간단한 CSV 파서
+      const parseCSV = (text) => {
+        const rows = [];
+        let row = [], field = '', inQuotes = false;
+        const src = text.replace(/^\ufeff/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+        for (let i = 0; i < src.length; i++) {
+          const ch = src[i];
+          if (inQuotes) {
+            if (ch === '"') {
+              if (src[i + 1] === '"') { field += '"'; i++; }
+              else inQuotes = false;
+            } else field += ch;
+          } else if (ch === '"') inQuotes = true;
+          else if (ch === ',') { row.push(field); field = ''; }
+          else if (ch === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
+          else field += ch;
+        }
+        if (field.length > 0 || row.length > 0) { row.push(field); rows.push(row); }
+        return rows.filter(r => r.some(c => c.trim() !== ''));
+      };
+
+      const normalizeImported = (obj) => {
+        const pick = (...keys) => {
+          for (const k of keys) {
+            if (obj[k] !== undefined && obj[k] !== null && String(obj[k]).trim() !== '') return String(obj[k]).trim();
+          }
+          return '';
+        };
+        const important = pick('isImportant', '중요', '중요여부').toLowerCase();
+        return {
+          date: pick('date', '날짜'),
+          time: pick('time', '시간'),
+          department: pick('department', '부서'),
+          activity: pick('activity', '교육활동내용', '내용'),
+          manager: pick('manager', '담당자'),
+          location: pick('location', '장소'),
+          note: pick('note', '비고'),
+          isImportant: ['y', 'true', '1', 'o', '예', '중요'].includes(important)
+        };
+      };
+
+      const handleImportFile = (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          try {
+            let raw = [];
+            const text = String(reader.result);
+            if (file.name.toLowerCase().endsWith('.json')) {
+              const parsed = JSON.parse(text);
+              if (!Array.isArray(parsed)) throw new Error('배열 형식이 아닙니다.');
+              raw = parsed;
+            } else {
+              const rows = parseCSV(text);
+              if (rows.length < 2) throw new Error('데이터 행이 없습니다.');
+              const header = rows[0].map(h => h.trim());
+              raw = rows.slice(1).map(r => {
+                const o = {};
+                header.forEach((h, i) => { o[h] = r[i] || ''; });
+                return o;
+              });
+            }
+
+            const normalized = raw.map(normalizeImported);
+            const bad = normalized.filter(r => !/^\d{4}-\d{2}-\d{2}$/.test(r.date) || !r.activity);
+            const good = normalized.filter(r => /^\d{4}-\d{2}-\d{2}$/.test(r.date) && r.activity);
+
+            setImportState(prev => ({
+              ...prev,
+              fileName: file.name,
+              rows: good,
+              error: bad.length > 0 ? `날짜(YYYY-MM-DD) 또는 교육활동내용이 없는 ${bad.length}줄은 제외됩니다.` : ''
+            }));
+          } catch (err) {
+            console.error('Import parse error:', err);
+            setImportState(prev => ({ ...prev, fileName: file.name, rows: [], error: '파일을 읽지 못했습니다. JSON 배열 또는 CSV 형식인지 확인해주세요.' }));
+          }
+        };
+        reader.readAsText(file, 'utf-8');
+        e.target.value = '';
+      };
+
+      const runImport = async () => {
+        if (importState.rows.length === 0) return;
+        if (importState.mode === 'replace') {
+          const ok = window.confirm(`기존 일정 ${events.length}건을 모두 지우고 ${importState.rows.length}건으로 교체합니다. 계속할까요?`);
+          if (!ok) return;
+        }
+
+        setImportState(prev => ({ ...prev, busy: true }));
+        try {
+          const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'school_events');
+
+          if (importState.mode === 'replace') {
+            const ids = events.map(ev => ev.id);
+            for (let i = 0; i < ids.length; i += 400) {
+              const batch = writeBatch(db);
+              ids.slice(i, i + 400).forEach(id => batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'school_events', id)));
+              await batch.commit();
+            }
+          }
+
+          const now = new Date().toISOString();
+          for (let i = 0; i < importState.rows.length; i += 400) {
+            const batch = writeBatch(db);
+            importState.rows.slice(i, i + 400).forEach(r => {
+              batch.set(doc(colRef), { ...r, createdAt: now, importedAt: now });
+            });
+            await batch.commit();
+          }
+
+          setImportState({ fileName: '', rows: [], error: '', mode: 'append', busy: false });
+          showToast(`일정 ${importState.rows.length}건을 등록했습니다.`);
+        } catch (error) {
+          console.error('Import error:', error);
+          showToast("일정 업로드 중 오류가 발생했습니다.", "error");
+          setImportState(prev => ({ ...prev, busy: false }));
+        }
       };
 
       // --- 부서 관리(관리자) ---
@@ -1063,10 +1259,13 @@
                 <div className="px-5 pt-3 flex gap-2 shrink-0">
                   <button onClick={() => setAdminTab('dept')} className={`px-4 py-1.5 rounded-t text-sm font-semibold border-b-2 ${adminTab === 'dept' ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>부서</button>
                   <button onClick={() => setAdminTab('holiday')} className={`px-4 py-1.5 rounded-t text-sm font-semibold border-b-2 ${adminTab === 'holiday' ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>공휴일 · 휴업일</button>
+                  <button onClick={() => setAdminTab('data')} className={`px-4 py-1.5 rounded-t text-sm font-semibold border-b-2 ${adminTab === 'data' ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>일정 내보내기 · 가져오기</button>
                 </div>
 
                 <div className="px-5 py-3 bg-blue-50 border-b border-blue-100 text-xs text-blue-800 shrink-0">
-                  {adminTab === 'dept'
+                  {adminTab === 'data'
+                    ? '전체 일정을 파일로 내려받거나, 파일에서 일정을 한꺼번에 등록할 수 있습니다. 앱스스크립트 등 다른 프로그램으로 옮길 때 사용하세요.'
+                    : adminTab === 'dept'
                     ? '이름·색상을 바꾸고 순서를 옮기거나 부서를 추가·삭제할 수 있습니다. 저장하면 모든 사용자 화면에 바로 반영됩니다. 이름을 바꾸면 그 부서로 등록된 기존 일정의 부서명도 함께 바뀌고, 부서를 삭제하면 그 부서로 등록됐던 일정은 회색 표시로 남습니다.'
                     : '여기 등록된 날짜는 일정표에서 분홍색 배경으로 표시되고 이름이 함께 나옵니다. 재량휴업일이나 임시공휴일도 같은 방식으로 추가하면 됩니다. 저장하면 모든 사용자 화면에 바로 반영됩니다.'}
                 </div>
@@ -1162,9 +1361,68 @@
                   </button>
                 </div>
 
+                <div className={`p-5 overflow-y-auto flex-1 ${adminTab === 'data' ? '' : 'hidden'}`}>
+                  <div className="mb-6">
+                    <h4 className="font-bold text-sm mb-1 flex items-center"><Download size={16} className="mr-1.5 text-green-600" /> 전체 일정 내려받기</h4>
+                    <p className="text-xs text-gray-500 mb-3">모든 달의 일정 {events.length}건이 한 파일로 저장됩니다. 앱스스크립트로 옮길 때는 CSV가 스프레드시트에 바로 붙여넣기 좋고, JSON은 값이 그대로 보존됩니다.</p>
+                    <div className="flex gap-2">
+                      <button onClick={exportAllCSV} className="px-4 py-2 bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 rounded text-sm font-medium">CSV로 내려받기</button>
+                      <button onClick={exportAllJSON} className="px-4 py-2 bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 rounded text-sm font-medium">JSON으로 내려받기</button>
+                    </div>
+                  </div>
+
+                  <div className="border-t border-gray-200 pt-5">
+                    <h4 className="font-bold text-sm mb-1 flex items-center"><Upload size={16} className="mr-1.5 text-blue-600" /> 파일에서 일정 가져오기</h4>
+                    <p className="text-xs text-gray-500 mb-3">
+                      CSV 또는 JSON 파일을 올릴 수 있습니다. CSV 첫 줄은 <span className="font-mono bg-gray-100 px-1 rounded">날짜,시간,부서,교육활동내용,담당자,장소,비고,중요</span> 이어야 하고, 날짜는 2026-09-01 형식입니다. 날짜와 교육활동내용이 없는 줄은 건너뜁니다.
+                    </p>
+
+                    <input ref={fileInputRef} type="file" accept=".csv,.json" onChange={handleImportFile} className="hidden" />
+                    <button onClick={() => fileInputRef.current && fileInputRef.current.click()} className="w-full py-3 border-2 border-dashed border-gray-300 rounded text-sm text-gray-500 hover:border-blue-400 hover:text-blue-600 flex items-center justify-center gap-1">
+                      <Upload size={16} /> {importState.fileName || 'CSV / JSON 파일 선택'}
+                    </button>
+
+                    {importState.error && <p className="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">{importState.error}</p>}
+
+                    {importState.rows.length > 0 && (
+                      <div className="mt-4 border border-gray-200 rounded p-3 bg-gray-50">
+                        <p className="text-sm font-semibold mb-2 flex items-center">
+                          <Database size={15} className="mr-1.5 text-gray-500" /> 등록할 일정 {importState.rows.length}건
+                        </p>
+                        <div className="max-h-32 overflow-y-auto text-xs text-gray-600 space-y-1 mb-3">
+                          {importState.rows.slice(0, 20).map((r, i) => (
+                            <div key={`prev-${i}`} className="truncate">
+                              {r.date} {r.time} · {r.department && `[${r.department}] `}{r.activity}
+                            </div>
+                          ))}
+                          {importState.rows.length > 20 && <div className="text-gray-400">… 외 {importState.rows.length - 20}건</div>}
+                        </div>
+
+                        <div className="flex flex-col gap-1.5 mb-3">
+                          <label className="flex items-center gap-2 text-xs cursor-pointer">
+                            <input type="radio" name="importMode" checked={importState.mode === 'append'} onChange={() => setImportState(prev => ({ ...prev, mode: 'append' }))} />
+                            기존 일정에 추가하기
+                          </label>
+                          <label className="flex items-center gap-2 text-xs cursor-pointer text-red-700">
+                            <input type="radio" name="importMode" checked={importState.mode === 'replace'} onChange={() => setImportState(prev => ({ ...prev, mode: 'replace' }))} />
+                            기존 일정 전체를 지우고 이 파일로 교체하기
+                          </label>
+                        </div>
+
+                        <div className="flex gap-2">
+                          <button onClick={runImport} disabled={importState.busy} className="px-4 py-2 bg-[#2563EB] hover:bg-blue-700 disabled:opacity-50 text-white font-bold rounded shadow text-sm">
+                            {importState.busy ? '등록 중…' : '등록하기'}
+                          </button>
+                          <button onClick={() => setImportState({ fileName: '', rows: [], error: '', mode: 'append', busy: false })} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded text-sm">취소</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
                 <div className="px-5 py-4 border-t border-gray-200 flex justify-between items-center shrink-0 gap-2">
                   <div className="flex items-center gap-3 flex-wrap">
-                    {adminTab === 'dept' ? (
+                    {adminTab === 'data' ? <span /> : adminTab === 'dept' ? (
                       <button onClick={restoreDefaultDepts} className="flex items-center text-xs text-gray-500 hover:text-gray-700 underline">
                         <RotateCcw size={13} className="mr-1" /> 기본 부서 불러오기
                       </button>
@@ -1182,9 +1440,11 @@
                   </div>
                   <div className="flex gap-2">
                     <button onClick={closeDeptAdmin} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded text-sm">취소</button>
-                    <button onClick={adminTab === 'dept' ? saveDepartments : saveHolidays} disabled={deptAdmin.saving} className="px-5 py-2 bg-[#2563EB] hover:bg-blue-700 disabled:opacity-50 text-white font-bold rounded shadow text-sm">
-                      {deptAdmin.saving ? '저장 중…' : adminTab === 'dept' ? '부서 저장' : '공휴일 저장'}
-                    </button>
+                    {adminTab !== 'data' && (
+                      <button onClick={adminTab === 'dept' ? saveDepartments : saveHolidays} disabled={deptAdmin.saving} className="px-5 py-2 bg-[#2563EB] hover:bg-blue-700 disabled:opacity-50 text-white font-bold rounded shadow text-sm">
+                        {deptAdmin.saving ? '저장 중…' : adminTab === 'dept' ? '부서 저장' : '공휴일 저장'}
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1257,6 +1517,22 @@
                 )}
               </div>
 
+              <div className="mt-3 relative">
+                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="일정 검색 (내용·담당자·장소·비고·부서)"
+                  className="w-full pl-9 pr-9 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+                {isSearching && (
+                  <button onClick={() => setSearchQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-700" title="검색 지우기">
+                    <X size={16} />
+                  </button>
+                )}
+              </div>
+
               <div className="mt-3 flex items-start gap-2">
                 <span className="text-xs font-bold text-gray-500 shrink-0 pt-1.5 whitespace-nowrap">부서 필터</span>
                 <div className="flex flex-nowrap md:flex-wrap gap-1 items-center overflow-x-auto md:overflow-visible pb-1">
@@ -1310,11 +1586,19 @@
 
             <div className="flex-1 overflow-auto relative">
               <div className="sticky top-0 left-0 bg-white z-10 border-b border-gray-300 shadow-sm pt-4 pb-2 px-4 md:px-6 flex justify-between items-center">
-                <div className="flex items-center space-x-2">
-                  <button onClick={() => changeMonth(-1)} className="p-1 hover:bg-gray-100 rounded"><ChevronLeft size={20}/></button>
-                  <h2 className="text-xl font-bold">{currentMonth.getFullYear()}년 {currentMonth.getMonth() + 1}월</h2>
-                  <button onClick={() => changeMonth(1)} className="p-1 hover:bg-gray-100 rounded"><ChevronRight size={20}/></button>
-                </div>
+                {isSearching ? (
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Search size={18} className="text-blue-600 shrink-0" />
+                    <h2 className="text-base md:text-xl font-bold truncate">검색 결과 {searchResults.length}건</h2>
+                    <button onClick={() => setSearchQuery('')} className="text-xs text-gray-500 hover:text-gray-700 underline whitespace-nowrap">검색 닫기</button>
+                  </div>
+                ) : (
+                  <div className="flex items-center space-x-2">
+                    <button onClick={() => changeMonth(-1)} className="p-1 hover:bg-gray-100 rounded"><ChevronLeft size={20}/></button>
+                    <h2 className="text-xl font-bold">{currentMonth.getFullYear()}년 {currentMonth.getMonth() + 1}월</h2>
+                    <button onClick={() => changeMonth(1)} className="p-1 hover:bg-gray-100 rounded"><ChevronRight size={20}/></button>
+                  </div>
+                )}
                 <div className="flex items-center gap-2">
                   <div className="flex items-center border border-gray-300 rounded shadow-sm overflow-hidden bg-white">
                     <button onClick={() => changeZoom(-0.1)} disabled={zoom <= 0.6} className="px-2 py-1.5 text-gray-600 hover:bg-gray-100 disabled:opacity-30" title="축소"><ZoomOut size={16} /></button>
@@ -1344,7 +1628,42 @@
                   </tr>
                 </thead>
                 <tbody className="text-sm leading-snug">
-                  {daysInViewMonth.map((dateStr) => {
+                  {isSearching && searchResults.length === 0 && (
+                    <tr><td colSpan={9} className="py-10 text-center text-gray-400 italic">검색 결과가 없습니다.</td></tr>
+                  )}
+
+                  {isSearching && searchResults.map((ev) => {
+                    const dayName = getDayName(ev.date);
+                    return (
+                      <tr key={`s-${ev.id}`} className={`border-b border-gray-200 bg-white hover:bg-blue-50 transition-colors ${ev.isImportant ? 'font-semibold text-blue-900' : ''}`}>
+                        <td className="py-1.5 px-3 font-medium text-gray-700 whitespace-nowrap text-center">
+                          <button onClick={() => goToEventDate(ev.date)} className="hover:underline text-blue-700" title="이 날짜로 이동">
+                            {ev.date.replace(/-/g, '.').slice(2)}
+                          </button>
+                        </td>
+                        <td className={`py-1.5 px-2 text-center whitespace-nowrap ${dayName === '일' ? 'text-red-500' : dayName === '토' ? 'text-blue-500' : ''}`}>{dayName}</td>
+                        <td className="py-1.5 px-3 whitespace-nowrap text-center">{ev.time}</td>
+                        <td className="py-1.5 px-2 text-center whitespace-nowrap"><DeptBadge name={ev.department} map={deptMap} /></td>
+                        <td className="py-1.5 px-4">
+                          <div className="flex items-center">
+                            {ev.isImportant && <Star size={14} className="mr-1.5 text-yellow-500 fill-current shrink-0" />}
+                            <span>{ev.activity}</span>
+                          </div>
+                        </td>
+                        <td className="py-1.5 px-3 text-gray-600 whitespace-nowrap text-center">{ev.manager}</td>
+                        <td className="py-1.5 px-3 text-gray-600 text-center break-words leading-snug">{ev.location}</td>
+                        <td className="py-1.5 px-3 text-gray-500 text-[11px] text-center break-words leading-snug">{ev.note}</td>
+                        <td className="py-1.5 px-2 text-center whitespace-nowrap">
+                          <div className="flex justify-center space-x-2 action-btn">
+                            <button onClick={(e) => { e.stopPropagation(); startEdit(ev); }} className="text-gray-400 hover:text-blue-600" title="수정"><Edit2 size={16}/></button>
+                            <button onClick={(e) => { e.stopPropagation(); promptDelete(ev); }} className="text-gray-400 hover:text-red-600" title="삭제"><Trash2 size={16}/></button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+
+                  {!isSearching && daysInViewMonth.map((dateStr) => {
                     const dayEvents = visibleMonthEvents.filter(e => e.date === dateStr);
                     const dayName = getDayName(dateStr);
                     const isHoliWeek = isWeekendOrHoliday(dateStr);
