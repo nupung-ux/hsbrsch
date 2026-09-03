@@ -33,7 +33,7 @@
     // --- 1. 라이브러리 및 아이콘 불러오기 ---
     import React, { useState, useEffect, useMemo, useRef } from 'react';
     import { createRoot } from 'react-dom/client';
-    import { Calendar, Clock, MapPin, User, FileText, Download, Star, Edit2, Trash2, ChevronLeft, ChevronRight, AlertCircle, CheckCircle2, Plus, X, Settings, ArrowUp, ArrowDown, RotateCcw, Lock, KeyRound, Printer, ZoomIn, ZoomOut, Search, Upload, Database, ChevronUp, ChevronDown } from 'lucide-react';
+    import { Calendar, Clock, MapPin, User, FileText, Download, Star, Edit2, Trash2, ChevronLeft, ChevronRight, AlertCircle, CheckCircle2, Plus, X, Settings, ArrowUp, ArrowDown, RotateCcw, Lock, KeyRound, Printer, ZoomIn, ZoomOut, Search, Upload, Database, ChevronUp, ChevronDown, RefreshCw, Sheet } from 'lucide-react';
     import { initializeApp } from 'firebase/app';
     import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
     import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, writeBatch, query } from 'firebase/firestore';
@@ -220,6 +220,8 @@
       const [adminTab, setAdminTab] = useState('dept');
       const [holidayDraft, setHolidayDraft] = useState([]);
       const [importState, setImportState] = useState({ fileName: '', rows: [], error: '', mode: 'append', busy: false });
+      const [sheetSync, setSheetSync] = useState({ url: '', secret: '', enabled: false, lastHash: '', lastSyncAt: '' });
+      const [sheetForm, setSheetForm] = useState({ url: '', secret: '', enabled: false, saving: false, syncing: false });
       const fileInputRef = useRef(null);
       const [holidayYear, setHolidayYear] = useState(String(new Date().getFullYear()));
       const [zoom, setZoom] = useState(() => {
@@ -329,6 +331,27 @@
           if (map && typeof map === 'object') setHolidays(map);
         }, (error) => {
           console.error("Holidays fetch error:", error);
+        });
+        return () => unsubscribe();
+      }, [user]);
+
+      // 구글 시트 연동 설정 구독
+      useEffect(() => {
+        if (!user) return;
+        const ref = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'sheet_sync');
+        const unsubscribe = onSnapshot(ref, (snap) => {
+          const d = snap.exists() ? snap.data() : null;
+          const next = {
+            url: (d && d.url) || '',
+            secret: (d && d.secret) || '',
+            enabled: !!(d && d.enabled),
+            lastHash: (d && d.lastHash) || '',
+            lastSyncAt: (d && d.lastSyncAt) || ''
+          };
+          setSheetSync(next);
+          setSheetForm(prev => (prev.saving ? prev : { ...prev, url: next.url, secret: next.secret, enabled: next.enabled }));
+        }, (error) => {
+          console.error("Sheet sync settings fetch error:", error);
         });
         return () => unsubscribe();
       }, [user]);
@@ -459,6 +482,101 @@
         setIsUnlocked(false);
         closeDeptAdmin();
         showToast("관리자 모드를 잠갔습니다.");
+      };
+
+      // --- 구글 시트 자동 동기화 ---
+      const buildSheetRows = () => {
+        return [...events]
+          .sort((a, b) => (a.date + (a.time || '')).localeCompare(b.date + (b.time || '')))
+          .map(ev => ({
+            id: ev.id,
+            date: ev.date || '',
+            dayName: ev.date ? getDayName(ev.date) : '',
+            time: ev.time || '',
+            department: ev.department || '',
+            activity: ev.activity || '',
+            manager: ev.manager || '',
+            location: ev.location || '',
+            note: ev.note || '',
+            isImportant: !!ev.isImportant,
+            groupId: ev.groupId || '',
+            holiday: holidays[ev.date] || ''
+          }));
+      };
+
+      const pushToSheet = async (rows) => {
+        // Apps Script 웹앱은 응답을 읽을 수 없어(no-cors) 전송만 하고 결과는 시트에서 확인
+        await fetch(sheetSync.url, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({ secret: sheetSync.secret, action: 'replace', rows })
+        });
+      };
+
+      // 일정이 바뀌면(다른 사람이 바꾼 것 포함) 잠시 후 시트로 전체 반영
+      useEffect(() => {
+        if (!user || !sheetSync.enabled || !sheetSync.url) return;
+        const timer = setTimeout(async () => {
+          try {
+            const rows = buildSheetRows();
+            const hash = fallbackHash(JSON.stringify(rows));
+            if (hash === sheetSync.lastHash) return;
+            await pushToSheet(rows);
+            await setDoc(
+              doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'sheet_sync'),
+              { lastHash: hash, lastSyncAt: new Date().toISOString() },
+              { merge: true }
+            );
+          } catch (error) {
+            console.error('Sheet sync error:', error);
+          }
+        }, 4000);
+        return () => clearTimeout(timer);
+      }, [events, holidays, sheetSync, user]);
+
+      const saveSheetSettings = async () => {
+        const url = sheetForm.url.trim();
+        if (sheetForm.enabled && !/^https:\/\/script\.google\.com\/.+/.test(url)) {
+          showToast("Apps Script 웹앱 주소(https://script.google.com/...)를 확인해주세요.", "error");
+          return;
+        }
+        setSheetForm(prev => ({ ...prev, saving: true }));
+        try {
+          await setDoc(
+            doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'sheet_sync'),
+            { url, secret: sheetForm.secret.trim(), enabled: sheetForm.enabled, lastHash: '' },
+            { merge: true }
+          );
+          setSheetForm(prev => ({ ...prev, saving: false }));
+          showToast(sheetForm.enabled ? "시트 연동 설정을 저장했습니다." : "시트 연동을 껐습니다.");
+        } catch (error) {
+          console.error('Sheet settings save error:', error);
+          showToast("설정 저장 중 오류가 발생했습니다.", "error");
+          setSheetForm(prev => ({ ...prev, saving: false }));
+        }
+      };
+
+      const syncSheetNow = async () => {
+        if (!sheetSync.url) {
+          showToast("먼저 웹앱 주소를 저장해주세요.", "error");
+          return;
+        }
+        setSheetForm(prev => ({ ...prev, syncing: true }));
+        try {
+          const rows = buildSheetRows();
+          await pushToSheet(rows);
+          await setDoc(
+            doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'sheet_sync'),
+            { lastHash: fallbackHash(JSON.stringify(rows)), lastSyncAt: new Date().toISOString() },
+            { merge: true }
+          );
+          showToast(`일정 ${rows.length}건을 시트로 보냈습니다. 시트에서 확인해주세요.`);
+        } catch (error) {
+          console.error('Manual sheet sync error:', error);
+          showToast("시트 전송 중 오류가 발생했습니다.", "error");
+        }
+        setSheetForm(prev => ({ ...prev, syncing: false }));
       };
 
       // --- 전체 일정 내려받기 / 올리기 ---
@@ -1270,11 +1388,14 @@
                 <div className="px-5 pt-3 flex gap-2 shrink-0">
                   <button onClick={() => setAdminTab('dept')} className={`px-4 py-1.5 rounded-t text-sm font-semibold border-b-2 ${adminTab === 'dept' ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>부서</button>
                   <button onClick={() => setAdminTab('holiday')} className={`px-4 py-1.5 rounded-t text-sm font-semibold border-b-2 ${adminTab === 'holiday' ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>공휴일 · 휴업일</button>
-                  <button onClick={() => setAdminTab('data')} className={`px-4 py-1.5 rounded-t text-sm font-semibold border-b-2 ${adminTab === 'data' ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>일정 내보내기 · 가져오기</button>
+                  <button onClick={() => setAdminTab('data')} className={`px-4 py-1.5 rounded-t text-sm font-semibold border-b-2 ${adminTab === 'data' ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>내보내기 · 가져오기</button>
+                  <button onClick={() => setAdminTab('sheet')} className={`px-4 py-1.5 rounded-t text-sm font-semibold border-b-2 ${adminTab === 'sheet' ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>구글 시트 연동</button>
                 </div>
 
                 <div className="px-5 py-3 bg-blue-50 border-b border-blue-100 text-xs text-blue-800 shrink-0">
-                  {adminTab === 'data'
+                  {adminTab === 'sheet'
+                    ? '일정이 바뀔 때마다 구글 시트로 자동 전송됩니다. 시트는 늘 최신 상태로 유지되므로 노트북LM 등에서 소스로 연결해 쓸 수 있습니다.'
+                    : adminTab === 'data'
                     ? '전체 일정을 파일로 내려받거나, 파일에서 일정을 한꺼번에 등록할 수 있습니다. 앱스스크립트 등 다른 프로그램으로 옮길 때 사용하세요.'
                     : adminTab === 'dept'
                     ? '이름·색상을 바꾸고 순서를 옮기거나 부서를 추가·삭제할 수 있습니다. 저장하면 모든 사용자 화면에 바로 반영됩니다. 이름을 바꾸면 그 부서로 등록된 기존 일정의 부서명도 함께 바뀌고, 부서를 삭제하면 그 부서로 등록됐던 일정은 회색 표시로 남습니다.'
@@ -1431,9 +1552,60 @@
                   </div>
                 </div>
 
+                <div className={`p-5 overflow-y-auto flex-1 ${adminTab === 'sheet' ? '' : 'hidden'}`}>
+                  <div className="mb-4 text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded p-3 leading-relaxed">
+                    <p className="font-bold text-gray-700 mb-1">연결 방법</p>
+                    1. 구글 시트를 새로 만들고 확장 프로그램 → Apps Script를 엽니다.<br />
+                    2. 함께 받은 <span className="font-mono">시트연동.gs</span> 코드를 붙여넣고, 맨 위 SECRET 값을 원하는 문자열로 바꿉니다.<br />
+                    3. 배포 → 새 배포 → 유형 '웹 앱', 실행 계정 '나', 액세스 권한 '모든 사용자'로 배포합니다.<br />
+                    4. 나온 웹 앱 URL과 SECRET을 아래에 넣고 저장하면 끝입니다.
+                  </div>
+
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">Apps Script 웹앱 주소</label>
+                  <input
+                    type="text"
+                    value={sheetForm.url}
+                    onChange={(e) => setSheetForm(prev => ({ ...prev, url: e.target.value }))}
+                    placeholder="https://script.google.com/macros/s/.../exec"
+                    className="w-full px-3 py-2 border border-gray-300 rounded text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+
+                  <label className="block text-sm font-semibold text-gray-700 mt-3 mb-1">SECRET (스크립트에 적은 값과 동일하게)</label>
+                  <input
+                    type="text"
+                    value={sheetForm.secret}
+                    onChange={(e) => setSheetForm(prev => ({ ...prev, secret: e.target.value }))}
+                    placeholder="예: hsbareun-2026"
+                    className="w-full px-3 py-2 border border-gray-300 rounded text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+
+                  <label className="flex items-center gap-2 mt-3 cursor-pointer">
+                    <input type="checkbox" checked={sheetForm.enabled} onChange={(e) => setSheetForm(prev => ({ ...prev, enabled: e.target.checked }))} className="w-4 h-4" />
+                    <span className="text-sm text-gray-700">일정이 바뀌면 자동으로 시트에 반영하기</span>
+                  </label>
+
+                  <div className="flex flex-wrap gap-2 mt-4 items-center">
+                    <button onClick={saveSheetSettings} disabled={sheetForm.saving} className="px-4 py-2 bg-[#2563EB] hover:bg-blue-700 disabled:opacity-50 text-white font-bold rounded shadow text-sm">
+                      {sheetForm.saving ? '저장 중…' : '설정 저장'}
+                    </button>
+                    <button onClick={syncSheetNow} disabled={sheetForm.syncing || !sheetSync.url} className="flex items-center px-4 py-2 bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 disabled:opacity-50 rounded text-sm font-medium">
+                      <RefreshCw size={15} className={`mr-1.5 ${sheetForm.syncing ? 'animate-spin' : ''}`} /> 지금 전체 보내기
+                    </button>
+                  </div>
+
+                  <p className="mt-3 text-xs text-gray-500">
+                    {sheetSync.lastSyncAt
+                      ? `마지막 전송: ${new Date(sheetSync.lastSyncAt).toLocaleString('ko-KR')}`
+                      : '아직 전송한 적이 없습니다.'}
+                  </p>
+                  <p className="mt-1 text-xs text-gray-400">
+                    전송은 브라우저에서 이뤄지므로 결과 메시지를 받을 수 없습니다. 시트의 '동기화기록' 탭에서 실제 반영 시각을 확인해주세요.
+                  </p>
+                </div>
+
                 <div className="px-5 py-4 border-t border-gray-200 flex justify-between items-center shrink-0 gap-2">
                   <div className="flex items-center gap-3 flex-wrap">
-                    {adminTab === 'data' ? <span /> : adminTab === 'dept' ? (
+                    {(adminTab === 'data' || adminTab === 'sheet') ? <span /> : adminTab === 'dept' ? (
                       <button onClick={restoreDefaultDepts} className="flex items-center text-xs text-gray-500 hover:text-gray-700 underline">
                         <RotateCcw size={13} className="mr-1" /> 기본 부서 불러오기
                       </button>
@@ -1451,7 +1623,7 @@
                   </div>
                   <div className="flex gap-2">
                     <button onClick={closeDeptAdmin} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded text-sm">취소</button>
-                    {adminTab !== 'data' && (
+                    {(adminTab === 'dept' || adminTab === 'holiday') && (
                       <button onClick={adminTab === 'dept' ? saveDepartments : saveHolidays} disabled={deptAdmin.saving} className="px-5 py-2 bg-[#2563EB] hover:bg-blue-700 disabled:opacity-50 text-white font-bold rounded shadow text-sm">
                         {deptAdmin.saving ? '저장 중…' : adminTab === 'dept' ? '부서 저장' : '공휴일 저장'}
                       </button>
