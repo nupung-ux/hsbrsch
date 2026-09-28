@@ -1173,22 +1173,22 @@
 
         const html = `<!DOCTYPE html><html lang="ko"><head><meta charset="utf-8"><title>${esc(title)}</title>
 <style>
-  @page { size: A4 landscape; margin: 10mm; }
+  @page { size: A4 portrait; margin: 8mm 8mm 8mm 8mm; }
   * { -webkit-print-color-adjust: exact; print-color-adjust: exact; box-sizing: border-box; }
   body { font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif; color: #111; margin: 0; }
-  h1 { font-size: 15pt; text-align: center; margin: 0 0 2mm; }
-  .sub { font-size: 8pt; color: #666; text-align: center; margin-bottom: 3mm; }
+  h1 { font-size: 13pt; text-align: center; margin: 0 0 1mm; }
+  .sub { font-size: 7.5pt; color: #666; text-align: center; margin-bottom: 2mm; }
   table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-  th, td { border: 0.4pt solid #B0B0B0; padding: 1.6mm 1.2mm; font-size: 8.5pt; vertical-align: top; word-break: break-word; line-height: 1.35; }
-  th { background: #EDEDED; text-align: center; font-size: 8.5pt; }
+  th, td { border: 0.4pt solid #B0B0B0; padding: 0.6mm 0.8mm; font-size: 7.5pt; vertical-align: middle; word-break: break-word; line-height: 1.2; }
+  th { background: #EDEDED; text-align: center; font-size: 7.5pt; padding: 1mm 0.8mm; }
   td.c { text-align: center; }
-  td.note { font-size: 7.5pt; color: #444; }
+  td.note { font-size: 6.5pt; color: #444; }
   tr.holi td { background: #FFF4F7; }
   tr.dayend td { border-bottom: 1pt solid #555; }
   .sun { color: #C00; } .sat { color: #06C; }
   .imp { font-weight: 700; color: #123E8C; }
   .holiname { color: #C00; font-weight: 700; }
-  .badge { display: inline-block; padding: 0.3mm 1.6mm; border-radius: 6pt; border: 0.4pt solid; font-size: 7.5pt; font-weight: 700; white-space: nowrap; }
+  .badge { display: inline-block; padding: 0 1.2mm; border-radius: 6pt; border: 0.4pt solid; font-size: 6.5pt; font-weight: 700; white-space: nowrap; line-height: 1.5; }
   thead { display: table-header-group; }
   tr { page-break-inside: avoid; }
 </style></head><body>
@@ -1196,8 +1196,8 @@
   <div class="sub">화성바른초등학교${esc(filterNote)}</div>
   <table>
     <colgroup>
-      <col style="width:6.5%"><col style="width:4%"><col style="width:9%"><col style="width:7%">
-      <col style="width:29%"><col style="width:8%"><col style="width:10.5%"><col style="width:26%">
+      <col style="width:7%"><col style="width:4.5%"><col style="width:10%"><col style="width:8%">
+      <col style="width:36%"><col style="width:9%"><col style="width:11.5%"><col style="width:14%">
     </colgroup>
     <thead><tr>
       <th>날짜</th><th>요일</th><th>시간</th><th>부서</th><th>교육활동내용</th><th>담당자</th><th>장소</th><th>비고</th>
