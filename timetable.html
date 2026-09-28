@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>통합 시간표 (시험판)</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18",
+    "react/jsx-runtime": "https://esm.sh/react@18/jsx-runtime",
+    "react-dom/client": "https://esm.sh/react-dom@18/client",
+    "firebase/app": "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js",
+    "firebase/auth": "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js",
+    "firebase/firestore": "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js"
+  }
+}
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  :root{
+    --ink:#1f2a37; --muted:#6b7280; --paper:#fafaf8; --line:#d6dae0; --line-strong:#9aa3ad;
+    --head:#eef1f4; --holiday:#e6e6e6; --event:#3d5fd6; --danger:#d93636; --ok:#1d8a4a;
+    --cell:30px; --fs:15px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Noto Sans KR",system-ui,sans-serif;color:var(--ink);background:var(--paper);font-size:var(--fs)}
+  button{font:inherit;cursor:pointer}
+  input,select{font:inherit}
+  .top{display:flex;align-items:center;gap:18px;padding:10px 18px;background:#fff;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20}
+  .top h1{font-size:18px;font-weight:700;margin:0 8px 0 0}
+  .tabs{display:flex;gap:2px}
+  .tabs button{padding:8px 16px;border:1px solid var(--line);background:#fff;border-radius:6px 6px 0 0;border-bottom:none;color:var(--muted)}
+  .tabs button.on{color:var(--ink);font-weight:700;background:var(--paper);border-color:var(--line-strong)}
+  .spacer{flex:1}
+  .who{font-size:14px;color:var(--muted)}
+  .btn{padding:7px 14px;border:1px solid var(--line-strong);background:#fff;border-radius:6px}
+  .btn.primary{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .btn.danger{color:var(--danger);border-color:var(--danger)}
+  .btn:disabled{opacity:.45;cursor:default}
+  .bar{display:flex;align-items:center;gap:12px;padding:12px 18px;flex-wrap:wrap}
+  .bar label{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:14px}
+  .bar select,.bar input{padding:6px 8px;border:1px solid var(--line-strong);border-radius:6px;background:#fff}
+  .seg{display:inline-flex;border:1px solid var(--line-strong);border-radius:6px;overflow:hidden}
+  .seg button{padding:6px 14px;border:none;background:#fff}
+  .seg button.on{background:var(--ink);color:#fff}
+  .wrap{padding:0 18px 40px;overflow-x:auto}
+  table.tt{border-collapse:collapse;background:#fff;table-layout:fixed}
+  table.tt th,table.tt td{border:1px solid var(--line);height:34px;text-align:center;padding:0;font-size:var(--fs);line-height:1}
+  table.tt th{background:var(--head);font-weight:500}
+  table.tt th.day{border-left:2px solid var(--line-strong)}
+  table.tt td.first{border-left:2px solid var(--line-strong)}
+  table.tt td.wk{width:34px;font-weight:700}
+  table.tt td.period{width:100px;font-size:13px;color:var(--muted)}
+  table.tt td.slot{width:var(--cell);position:relative;user-select:none}
+  table.tt td.slot.h{background:var(--holiday);color:var(--danger);font-size:13px}
+  table.tt td.slot.e{color:var(--event);text-decoration:underline;text-underline-offset:3px}
+  table.tt td.slot.faint{color:#c4c9d0}
+  table.tt td.slot.lesson{font-weight:700;cursor:grab}
+  table.tt td.slot.conflict{outline:2px solid var(--danger);outline-offset:-2px;color:var(--danger)}
+  table.tt td.slot.over{outline:2px dashed var(--ink);outline-offset:-2px}
+  table.tt td.slot.bad{outline:2px dashed var(--danger);outline-offset:-2px}
+  table.tt td.note{width:220px;text-align:left;padding:0 6px;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .hint{color:var(--muted);font-size:14px}
+  .empty{padding:60px 18px;color:var(--muted);text-align:center}
+  .modal-bg{position:fixed;inset:0;background:rgba(20,25,35,.45);display:flex;align-items:center;justify-content:center;z-index:50}
+  .modal{background:#fff;border-radius:10px;padding:22px 24px;min-width:380px;max-width:760px;max-height:88vh;overflow:auto;box-shadow:0 20px 50px rgba(0,0,0,.25)}
+  .modal h2{margin:0 0 12px;font-size:17px}
+  .modal .row{display:flex;gap:8px;justify-content:flex-end;margin-top:18px}
+  .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 18px;border-radius:8px;z-index:60;font-size:14px}
+  .toast.err{background:var(--danger)}
+  .legend{display:flex;gap:14px;align-items:center;font-size:14px;color:var(--muted);flex-wrap:wrap}
+  .legend i{display:inline-block;width:18px;height:18px;border:1px solid var(--line);vertical-align:middle;margin-right:4px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:8px;padding:16px 18px;margin:0 18px 16px;max-width:980px}
+  .card h3{margin:0 0 12px;font-size:16px}
+  table.form{border-collapse:collapse;width:100%}
+  table.form th,table.form td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left;font-size:14px;vertical-align:middle}
+  table.form th{color:var(--muted);font-weight:500}
+  table.form input,table.form select{width:100%;padding:5px 6px;border:1px solid var(--line);border-radius:4px}
+  .chk{display:flex;gap:8px;align-items:center;font-size:14px;margin:4px 0}
+  .warn{color:var(--danger);font-size:14px}
+  .okc{color:var(--ok);font-size:14px}
+  .picker{display:grid;grid-template-columns:repeat(6,1fr);gap:6px}
+  .picker label{border:1px solid var(--line);border-radius:6px;padding:6px;text-align:center;font-size:14px;cursor:pointer}
+  .picker label.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  @media (prefers-reduced-motion:no-preference){.toast{animation:up .18s ease-out}}
+  @keyframes up{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-type="module">
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { createRoot } from 'react-dom/client';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
+import { getFirestore, collection, onSnapshot, doc, setDoc, getDoc, addDoc, deleteDoc, query } from 'firebase/firestore';
+
+// ---------- Firebase (기존 월간운영계획과 같은 프로젝트, 저장 경로만 분리) ----------
+const firebaseConfig = {
+  apiKey: "AIzaSyDeV51pP4BQqxReIfBmXPEST9zeok5aAOs",
+  authDomain: "school-calendar-6789a.firebaseapp.com",
+  projectId: "school-calendar-6789a",
+  storageBucket: "school-calendar-6789a.firebasestorage.app",
+  messagingSenderId: "697249862283",
+  appId: "1:697249862283:web:4b75b2deb2693d771b7a8e"
+};
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const APP_ID = 'hwaseong-barun-timetable-test';
+const base = ['artifacts', APP_ID, 'public', 'data'];
+const sref = (name) => doc(db, ...base, 'settings', name);
+const cref = (name) => collection(db, ...base, name);
+const dref = (name, id) => doc(db, ...base, name, id);
+
+// ---------- 유틸 ----------
+const DAYS = ['월','화','수','목','금'];
+const PERIODS = [1,2,3,4,5,6];
+const pad = n => String(n).padStart(2,'0');
+const addDays = (iso, n) => { const d = new Date(iso+'T00:00:00'); d.setDate(d.getDate()+n); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; };
+const fmtDate = iso => { const d = new Date(iso+'T00:00:00'); return `${d.getMonth()+1}월 ${d.getDate()}일(${['일','월','화','수','목','금','토'][d.getDay()]})`; };
+const shortDate = iso => { const d = new Date(iso+'T00:00:00'); return `${d.getMonth()+1}.${d.getDate()}(${['일','월','화','수','목','금','토'][d.getDay()]})`; };
+const slotKey = (date, p) => `${date}_${p}`;
+const parseKey = k => { const [date, p] = k.split('_'); return { date, p: Number(p) }; };
+const classCode = id => id.replace('-','');        // "6-1" -> "61"
+const classLabel = id => id.startsWith('유') ? id : `${id.split('-')[0]}학년 ${id.split('-')[1]}반`;
+const sha256 = async s => { const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)); return Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,'0')).join(''); };
+const nowIso = () => new Date().toISOString();
+const isGray = hex => { if(!hex||hex==='none') return false; const m=hex.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i); if(!m) return false; const [r,g,b]=[1,2,3].map(i=>parseInt(m[i],16)); return Math.abs(r-g)<8 && Math.abs(g-b)<8 && r<0xF5; };
+const isColor = hex => hex && hex!=='none' && !isGray(hex);
+
+// ---------- hwpx 파서 ----------
+const NS = { hp:'http://www.hancom.co.kr/hwpml/2011/paragraph', hh:'http://www.hancom.co.kr/hwpml/2011/head', hc:'http://www.hancom.co.kr/hwpml/2011/core' };
+async function parseHwpx(file) {
+  const zip = await JSZip.loadAsync(file);
+  const xml = async n => new DOMParser().parseFromString(await zip.file(n).async('string'), 'application/xml');
+  const head = await xml('Contents/header.xml');
+  const charPr = {};
+  for (const c of head.getElementsByTagNameNS(NS.hh, 'charPr')) {
+    const u = c.getElementsByTagNameNS(NS.hh, 'underline')[0];
+    charPr[c.getAttribute('id')] = { color: c.getAttribute('textColor'), ul: u ? u.getAttribute('type') : null };
+  }
+  const fills = {};
+  for (const b of head.getElementsByTagNameNS(NS.hh, 'borderFill')) {
+    const wb = b.getElementsByTagNameNS(NS.hc, 'winBrush')[0];
+    fills[b.getAttribute('id')] = wb ? wb.getAttribute('faceColor') : null;
+  }
+  const secNames = Object.keys(zip.files).filter(n => /^Contents\/section\d+\.xml$/.test(n)).sort();
+  const results = [];
+  for (const sn of secNames) {
+    const sec = await xml(sn);
+    for (const tbl of sec.getElementsByTagNameNS(NS.hp, 'tbl')) {
+      if (Number(tbl.getAttribute('rowCnt')) < 10) continue;
+      const cells = new Map();
+      for (const tc of tbl.getElementsByTagNameNS(NS.hp, 'tc')) {
+        const a = tc.getElementsByTagNameNS(NS.hp, 'cellAddr')[0], sp = tc.getElementsByTagNameNS(NS.hp, 'cellSpan')[0];
+        const r = Number(a.getAttribute('rowAddr')), c = Number(a.getAttribute('colAddr'));
+        const runs = [];
+        for (const run of tc.getElementsByTagNameNS(NS.hp, 'run')) {
+          const t = Array.from(run.getElementsByTagNameNS(NS.hp, 't')).map(x => x.textContent || '').join('').trim();
+          if (t) runs.push({ t, ...(charPr[run.getAttribute('charPrIDRef')] || {}) });
+        }
+        cells.set(`${r},${c}`, { r, c, runs, bg: fills[tc.getAttribute('borderFillIDRef')] || null, cs: Number(sp.getAttribute('colSpan')) });
+      }
+      const get = (r, c) => cells.get(`${r},${c}`);
+      const text = cell => cell ? cell.runs.map(x => x.t).join('') : '';
+      const title = text(get(1,0));
+      const yearM = title.match(/(\d{4})학년도/); const semM = title.match(/([12])학기/);
+      if (!yearM || !semM) continue;
+      const year = Number(yearM[1]), sem = Number(semM[1]);
+      let classId = null;
+      for (const cell of cells.values()) if (cell.r===1 && cell.c>0) { const m = text(cell).match(/(\d)학년\s*(\d+)반/); if (m) classId = `${m[1]}-${m[2]}`; }
+      const dayCols = []; // {from,to,day}
+      for (const cell of cells.values()) if (cell.r===2 && DAYS.includes(text(cell)) && cell.cs>=5) dayCols.push({ from: cell.c, to: cell.c+cell.cs, day: DAYS.indexOf(text(cell)) });
+      const col2slot = {};
+      let noteCol = null;
+      for (const cell of cells.values()) {
+        if (cell.r===3 && /^\d$/.test(text(cell))) { const d = dayCols.find(x => x.from<=cell.c && cell.c<x.to); if (d) for (let k=cell.c;k<cell.c+cell.cs;k++) col2slot[k] = { d: d.day, p: Number(text(cell)) }; }
+        if (cell.r===2 && text(cell).replace(/\s/g,'')==='비고') noteCol = cell.c;
+      }
+      const weeks = []; const grid = {}; let r = 4;
+      while (get(r,0) && /^\d+$/.test(text(get(r,0)))) {
+        const no = Number(text(get(r,0))); const label = text(get(r,1));
+        const m = label.match(/(\d{1,2})\.(\d{1,2})/);
+        let start = null;
+        if (m) { let y = year; const mo = Number(m[1]); if (sem===2 && mo<=2) y = year+1; start = `${y}-${pad(mo)}-${pad(m[2])}`; const dow = new Date(start+'T00:00:00').getDay(); start = addDays(start, dow===0 ? 1 : 1-dow); }
+        const note = noteCol!=null ? text(get(r,noteCol)) : '';
+        weeks.push({ no, label, start, note });
+        for (const cell of cells.values()) {
+          if (cell.r!==r || !(cell.c in col2slot) || !start) continue;
+          const { d, p } = col2slot[cell.c];
+          const t = cell.runs.map(x=>x.t).join('');
+          const blue = cell.runs.some(x => x.ul && x.ul!=='NONE' && /4169E6/i.test(x.color||''));
+          const redUl = cell.runs.some(x => x.ul && x.ul!=='NONE' && /FF0000/i.test(x.color||''));
+          const kind = (isGray(cell.bg) || redUl) ? 'h' : (blue ? 'e' : 'n');
+          grid[slotKey(addDays(start,d), p)] = { t, k: kind, bg: isColor(cell.bg) ? cell.bg : null };
+        }
+        r++;
+      }
+      const totals = {};
+      const subjRow = get(r,0) && text(get(r,0))==='과목' ? r : null;
+      if (subjRow!=null) { const names = [], nums = []; for (const cell of cells.values()) { if (cell.r===subjRow && cell.c>0) names.push([cell.c,text(cell)]); if (cell.r===subjRow+1 && cell.c>0) nums.push([cell.c,text(cell)]); } names.sort((a,b)=>a[0]-b[0]); nums.sort((a,b)=>a[0]-b[0]); names.forEach(([c,n],i)=>{ const v = nums.find(x=>x[0]===c); if (n && v && /^\d+$/.test(v[1])) totals[n]=Number(v[1]); }); }
+      results.push({ year, sem, classId, weeks, grid, totals });
+    }
+  }
+  return results;
+}
+
+// ---------- 전담 배정 계산 ----------
+function computeAssignments(parsed, teachers, patternChoices) {
+  // returns { slots: {key:{t, teacherId, from:'hwpx'}}, report:[...], needPattern:[...] }
+  const slots = {}; const report = []; const needPattern = [];
+  const mine = teachers.filter(t => t.type!=='coop' && (t.classes||[]).includes(parsed.classId));
+  for (const tc of mine) {
+    const s = tc.subject; if (!s) continue;
+    const cand = Object.entries(parsed.grid).filter(([k,v]) => v.t===s && v.k!=='h');
+    let chosen = [];
+    if (tc.coverage==='full') chosen = cand;
+    else {
+      const colored = cand.filter(([k,v]) => v.bg);
+      if (colored.length) chosen = colored;
+      else {
+        const pats = {};
+        for (const [k] of cand) { const { date, p } = parseKey(k); const d = (new Date(date+'T00:00:00').getDay()+6)%7; const pk = `${d}-${p}`; pats[pk] = (pats[pk]||0)+1; }
+        const choice = patternChoices?.[tc.id];
+        if (!choice) { needPattern.push({ teacher: tc, patterns: Object.entries(pats).map(([pk,n])=>({ pk, n })) }); continue; }
+        chosen = cand.filter(([k]) => { const { date, p } = parseKey(k); const d = (new Date(date+'T00:00:00').getDay()+6)%7; return choice.includes(`${d}-${p}`); });
+      }
+    }
+    for (const [k,v] of chosen) slots[k] = { t: s, teacherId: tc.id, from: 'hwpx' };
+    const coloredN = cand.filter(([k,v]) => v.bg).length;
+    const fileTotal = Object.entries(parsed.totals).find(([n]) => n.startsWith(s))?.[1] ?? null;
+    const expected = tc.coverage==='full' ? fileTotal : (tc.semHours ? Number(tc.semHours) : null);
+    const warn = tc.coverage==='full' && coloredN>0 && coloredN<cand.length ? `색칠된 칸은 ${coloredN}개인데 전체 ${cand.length}개를 전담으로 잡았습니다. 담임과 나누는 과목이면 설정을 "일부 전담"으로 바꿔 주세요.` : null;
+    report.push({ teacher: tc, count: chosen.length, expected, coverage: tc.coverage, warn });
+  }
+  return { slots, report, needPattern };
+}
+
+// ---------- 공통 UI ----------
+function Modal({ title, children, onClose }) {
+  return <div className="modal-bg" onMouseDown={e=>{ if(e.target===e.currentTarget && onClose) onClose(); }}>
+    <div className="modal">{title && <h2>{title}</h2>}{children}</div>
+  </div>;
+}
+function useToast(){ const [t,setT]=useState(null); const show=(msg,err)=>{ setT({msg,err}); setTimeout(()=>setT(null),2600); }; const el = t ? <div className={'toast'+(t.err?' err':'')}>{t.msg}</div> : null; return [show, el]; }
+
+// ---------- 메인 ----------
+function App() {
+  const [user, setUser] = useState(null);
+  const [tab, setTab] = useState(location.hash.startsWith('#/teacher') ? 'teacher' : location.hash.startsWith('#/settings') ? 'settings' : 'class');
+  const [year, setYear] = useState(null);
+  const [teachers, setTeachers] = useState([]);
+  const [roles, setRoles] = useState({});
+  const [adminHash, setAdminHash] = useState(undefined);
+  const [adminOn, setAdminOn] = useState(false);
+  const [ctt, setCtt] = useState({});     // class_timetables by id
+  const [lessons, setLessons] = useState({}); // lessons by id
+  const [toast, toastEl] = useToast();
+  const [modal, setModal] = useState(null);
+  const undoRef = useRef([]);
+  const [undoN, setUndoN] = useState(0);
+
+  useEffect(() => { onAuthStateChanged(auth, u => { setUser(u); if (!u) signInAnonymously(auth).catch(e=>console.error(e)); }); }, []);
+  useEffect(() => { if (!user) return;
+    const un = [
+      onSnapshot(sref('year'), s => setYear(s.exists() ? s.data() : { year: 2026, domain: '', grades: {1:0,2:0,3:0,4:0,5:0,6:0}, kinder: 0, semesters: {} })),
+      onSnapshot(sref('teachers'), s => setTeachers(s.exists() ? (s.data().list||[]) : [])),
+      onSnapshot(sref('roles'), s => setRoles(s.exists() ? (s.data().byEmail||{}) : {})),
+      onSnapshot(sref('admin'), s => setAdminHash(s.exists() ? s.data().passwordHash : null)),
+      onSnapshot(query(cref('class_timetables')), s => { const m={}; s.forEach(d=>m[d.id]=d.data()); setCtt(m); }),
+      onSnapshot(query(cref('lessons')), s => { const m={}; s.forEach(d=>m[d.id]=d.data()); setLessons(m); }),
+    ];
+    return () => un.forEach(f=>f());
+  }, [user]);
+
+  const email = user && !user.isAnonymous ? user.email : null;
+  const myRole = email ? roles[email] : null;
+  const isAdmin = adminOn || myRole?.type==='관리자';
+  const canEditClass = cid => isAdmin || (myRole?.type==='담임' && myRole.classId===cid);
+  const canEditTeacher = tid => isAdmin || (myRole?.type==='전담' && myRole.teacherId===tid);
+  const editorName = () => adminOn && !email ? '관리자' : (myRole?.name || email || '익명');
+
+  const log = (action, detail) => addDoc(cref('logs'), { at: nowIso(), by: editorName(), email: email||null, action, detail }).catch(()=>{});
+
+  const classList = useMemo(() => { if (!year) return []; const l=[]; for (let g=1; g<=6; g++) for (let c=1; c<=(year.grades?.[g]||0); c++) l.push(`${g}-${c}`); for (let c=1;c<=(year.kinder||0);c++) l.push(`유-${c}`); return l; }, [year]);
+
+  // ----- 로그인 -----
+  const googleLogin = async () => {
+    const p = new GoogleAuthProvider(); if (year?.domain) p.setCustomParameters({ hd: year.domain });
+    try { const r = await signInWithPopup(auth, p);
+      if (year?.domain && !r.user.email.endsWith('@'+year.domain)) { await signOut(auth); toast(`학교 계정(@${year.domain})으로만 로그인할 수 있습니다.`, true); return; }
+      if (!roles[r.user.email]) setModal({ type:'role', email:r.user.email, name:r.user.displayName });
+    } catch (e) { toast(e.code==='auth/operation-not-allowed' ? 'Firebase 콘솔에서 Google 로그인을 먼저 켜야 합니다.' : '로그인에 실패했습니다: '+e.code, true); }
+  };
+  const saveRole = async (em, role) => { await setDoc(sref('roles'), { byEmail: { ...roles, [em]: role } }, { merge: true }); setModal(null); toast('역할을 저장했습니다.'); };
+  const adminUnlock = async pw => {
+    if (adminHash===null) { await setDoc(sref('admin'), { passwordHash: await sha256(pw), updatedAt: nowIso() }); setAdminOn(true); setModal(null); toast('관리자 암호를 설정했습니다.'); return; }
+    if (await sha256(pw)===adminHash) { setAdminOn(true); setModal(null); toast('관리자 모드'); } else toast('암호가 다릅니다.', true);
+  };
+
+  // ----- 수업 슬롯 편집 (양방향 공통) -----
+  const applyMove = async (docId, newSlots, detail) => {
+    const prev = lessons[docId]?.slots || {};
+    undoRef.current.push({ docId, prev }); setUndoN(undoRef.current.length);
+    await setDoc(dref('lessons', docId), { ...(lessons[docId]||{}), slots: newSlots, updatedAt: nowIso(), updatedBy: editorName() });
+    log('move', detail);
+  };
+  const undo = async () => { const u = undoRef.current.pop(); if (!u) return; setUndoN(undoRef.current.length); await setDoc(dref('lessons', u.docId), { ...(lessons[u.docId]||{}), slots: u.prev, updatedAt: nowIso(), updatedBy: editorName() }); toast('되돌렸습니다.'); };
+
+  // 충돌 검사: 특정 학급·슬롯에 특정 전담 수업을 놓을 때
+  const checkDrop = (classId, sem, teacherId, fromKey, toKey) => {
+    const docId = `${classId}_${sem}`; const reasons = []; let hard = false;
+    const cell = ctt[docId]?.cells?.[toKey];
+    if (!cell) { reasons.push('시간표에 없는 칸입니다.'); hard = true; }
+    else if (cell.k==='h') { reasons.push(`휴업일·학교행사(${cell.t}) 칸입니다.`); hard = true; }
+    else if (cell.k==='e') reasons.push(`행사(${cell.t})로 잡힌 시간입니다.`);
+    const mySlots = lessons[docId]?.slots || {};
+    if (mySlots[toKey] && toKey!==fromKey) { const tt = teachers.find(t=>t.id===mySlots[toKey].teacherId); reasons.push(`${classLabel(classId)}에 이미 ${tt?.name||''} ${mySlots[toKey].t} 수업이 있습니다.`); }
+    for (const [id, L] of Object.entries(lessons)) { if (id===docId || !id.endsWith('_'+sem)) continue; const s = L.slots?.[toKey]; if (s && s.teacherId===teacherId) { const tt = teachers.find(t=>t.id===teacherId); reasons.push(`${tt?.name||'전담'} 선생님이 그 시간에 ${classLabel(id.split('_')[0])} 수업이 있습니다.`); } }
+    return { reasons, hard };
+  };
+  const requestMove = (classId, sem, fromKey, toKey) => {
+    if (fromKey===toKey) return;
+    const docId = `${classId}_${sem}`; const slots = lessons[docId]?.slots || {}; const lesson = slots[fromKey]; if (!lesson) return;
+    const { reasons, hard } = checkDrop(classId, sem, lesson.teacherId, fromKey, toKey);
+    const target = slots[toKey];
+    const tName = teachers.find(t=>t.id===lesson.teacherId)?.name || '';
+    const doMove = async (swap) => {
+      const ns = { ...slots }; delete ns[fromKey];
+      if (swap && target) ns[fromKey] = target; else if (target) { /* 덮어쓰기 대신 이동 취소 */ }
+      ns[toKey] = { ...lesson, from:'move', orig: lesson.orig || fromKey };
+      await applyMove(docId, ns, `${classLabel(classId)} ${lesson.t}(${tName}) ${shortDate(parseKey(fromKey).date)} ${parseKey(fromKey).p}교시 → ${shortDate(parseKey(toKey).date)} ${parseKey(toKey).p}교시${swap?' (맞바꿈)':''}`);
+      setModal(null); toast('옮겼습니다.');
+    };
+    setModal({ type:'confirm', title: hard ? '옮길 수 없습니다' : '이 시간으로 옮길까요?', body: (
+      <div>
+        <p style={{margin:'4px 0 10px'}}><b>{classLabel(classId)} {lesson.t}</b>{tName && ` (${tName})`}<br/>{fmtDate(parseKey(fromKey).date)} {parseKey(fromKey).p}교시 → <b>{fmtDate(parseKey(toKey).date)} {parseKey(toKey).p}교시</b></p>
+        {reasons.map((r,i)=><div key={i} className="warn">· {r}</div>)}
+        {!hard && reasons.length>0 && <p className="hint" style={{marginTop:8}}>그래도 옮기면 수정 기록이 남습니다.</p>}
+      </div>),
+      actions: hard ? [{ label:'닫기', on:()=>setModal(null) }] : [
+        { label:'취소', on:()=>setModal(null) },
+        ...(target && !hard ? [{ label:'맞바꾸기', on:()=>doMove(true) }] : []),
+        { label: reasons.length ? '그래도 옮기기' : '옮기기', primary:true, on:()=>doMove(false) },
+      ] });
+  };
+
+  // ----- hwpx 업로드 -----
+  const onUpload = async (file) => {
+    let parsed; try { parsed = await parseHwpx(file); } catch (e) { console.error(e); toast('파일을 읽지 못했습니다. 스쿨마스터에서 내려받은 hwpx인지 확인해 주세요.', true); return; }
+    if (!parsed.length) { toast('연간시간표 표를 찾지 못했습니다.', true); return; }
+    setModal({ type:'upload', parsed, choices: {} });
+  };
+  const saveUpload = async (parsed, choices) => {
+    const list = parsed.filter(p => p.classId);
+    for (const p of list) {
+      const id = `${p.classId}_${p.sem}`;
+      const { slots } = computeAssignments(p, teachers, choices[id]||{});
+      await setDoc(dref('class_timetables', id), { classId: p.classId, sem: p.sem, year: p.year, weeks: p.weeks, cells: p.grid, totals: p.totals, uploadedAt: nowIso(), uploadedBy: editorName() });
+      await setDoc(dref('lessons', id), { classId: p.classId, sem: p.sem, slots, updatedAt: nowIso(), updatedBy: editorName() });
+      // 학기 주차 정보를 학년도 설정에 보관 (첫 업로드 기준)
+      if (!year.semesters?.[p.sem]?.weeks?.length) await setDoc(sref('year'), { ...year, year: p.year, semesters: { ...(year.semesters||{}), [p.sem]: { weeks: p.weeks.map(w=>({no:w.no,start:w.start,label:w.label})) } } }, { merge:true });
+      log('upload', `${classLabel(p.classId)} ${p.sem}학기 연간시간표 업로드`);
+    }
+    setModal(null); toast(`${list.map(p=>`${classLabel(p.classId)} ${p.sem}학기`).join(', ')} 저장했습니다.`);
+  };
+
+  if (!user || !year) return <div className="empty">불러오는 중…</div>;
+
+  return <>
+    <div className="top">
+      <h1>통합 시간표 <span className="hint" style={{fontWeight:400}}>시험판 · {year.year}학년도</span></h1>
+      <div className="tabs">
+        <button className={tab==='class'?'on':''} onClick={()=>setTab('class')}>담임시간표</button>
+        <button className={tab==='teacher'?'on':''} onClick={()=>setTab('teacher')}>전담시간표</button>
+        <button className={tab==='settings'?'on':''} onClick={()=>setTab('settings')}>학년도 설정</button>
+      </div>
+      <div className="spacer"/>
+      {undoN>0 && <button className="btn" onClick={undo}>되돌리기 ({undoN})</button>}
+      <span className="who">{email ? `${myRole?.name||email}${myRole?` · ${myRole.type}${myRole.classId?' '+myRole.classId:''}`:' · 역할 미지정'}` : '로그인 안 됨 (보기만 가능)'}{adminOn && ' · 관리자'}</span>
+      {email ? <button className="btn" onClick={()=>signOut(auth)}>로그아웃</button> : <button className="btn" onClick={googleLogin}>학교 계정으로 로그인</button>}
+      {email && !myRole && <button className="btn" onClick={()=>setModal({type:'role', email, name:user.displayName})}>역할 선택</button>}
+      {!adminOn && <button className="btn" onClick={()=>setModal({type:'admin'})}>관리자</button>}
+    </div>
+
+    {tab==='class' && <ClassView {...{ year, classList, teachers, ctt, lessons, canEditClass, requestMove, onUpload, toast }} />}
+    {tab==='teacher' && <TeacherView {...{ year, teachers, ctt, lessons, canEditTeacher, requestMove }} />}
+    {tab==='settings' && <Settings {...{ year, teachers, roles, isAdmin, classList, toast, log }} />}
+
+    {modal?.type==='confirm' && <Modal title={modal.title} onClose={()=>setModal(null)}>{modal.body}<div className="row">{modal.actions.map((a,i)=><button key={i} className={'btn'+(a.primary?' primary':'')} onClick={a.on}>{a.label}</button>)}</div></Modal>}
+    {modal?.type==='admin' && <AdminModal adminHash={adminHash} onOk={adminUnlock} onClose={()=>setModal(null)} />}
+    {modal?.type==='role' && <RoleModal email={modal.email} name={modal.name} classList={classList} teachers={teachers} onSave={saveRole} onClose={()=>setModal(null)} />}
+    {modal?.type==='upload' && <UploadModal parsed={modal.parsed} teachers={teachers} existing={ctt} canEditClass={canEditClass} onSave={saveUpload} onClose={()=>setModal(null)} />}
+    {toastEl}
+  </>;
+}
+
+// ---------- 연간표 격자 (담임·전담 공용) ----------
+function Grid({ weeks, renderCell, notes, onDragStart, onDrop, canDrop }) {
+  const [over, setOver] = useState(null);
+  return <table className="tt">
+    <thead>
+      <tr><th rowSpan={2} style={{width:34}}>주</th><th rowSpan={2} style={{width:100}}>기간</th>{DAYS.map(d=><th key={d} colSpan={6} className="day">{d}</th>)}<th rowSpan={2} style={{width:220}}>비고</th></tr>
+      <tr>{DAYS.map(d=>PERIODS.map(p=><th key={d+p} className={p===1?'day':''} style={{width:'var(--cell)',fontSize:12,color:'var(--muted)'}}>{p}</th>))}</tr>
+    </thead>
+    <tbody>
+      {weeks.map(w => <tr key={w.no}>
+        <td className="wk">{w.no}</td><td className="period">{w.label}</td>
+        {DAYS.map((d,di)=>PERIODS.map(p=>{
+          const date = addDays(w.start, di); const key = slotKey(date,p);
+          const c = renderCell(key, date, p) || {};
+          const droppable = onDrop && canDrop?.(key);
+          return <td key={key} title={`${fmtDate(date)} ${p}교시${c.title?' · '+c.title:''}`}
+            className={['slot', p===1?'first':'', c.cls||'', over===key?(c.bad?'bad':'over'):''].join(' ')}
+            style={c.style}
+            draggable={!!c.draggable}
+            onDragStart={c.draggable ? e=>{ e.dataTransfer.effectAllowed='move'; onDragStart(key); } : undefined}
+            onDragOver={droppable ? e=>{ e.preventDefault(); if(over!==key) setOver(key); } : undefined}
+            onDragLeave={droppable ? ()=>setOver(o=>o===key?null:o) : undefined}
+            onDrop={droppable ? e=>{ e.preventDefault(); setOver(null); onDrop(key); } : undefined}
+          >{c.text||''}</td>;
+        }))}
+        <td className="note" title={notes?.[w.no]||w.note||''}>{notes?.[w.no]||w.note||''}</td>
+      </tr>)}
+    </tbody>
+  </table>;
+}
+
+// ---------- 담임시간표 ----------
+function ClassView({ year, classList, teachers, ctt, lessons, canEditClass, requestMove, onUpload, toast }) {
+  const [cid, setCid] = useState(location.hash.match(/#\/class\/([^/]+)/)?.[1] || classList[0] || '');
+  const [sem, setSem] = useState(1);
+  const [showAll, setShowAll] = useState(false);
+  const dragRef = useRef(null);
+  const fileRef = useRef();
+  useEffect(()=>{ if (!cid && classList.length) setCid(classList[0]); }, [classList]);
+  useEffect(()=>{ if (cid) history.replaceState(null,'',`#/class/${cid}`); }, [cid]);
+  const id = `${cid}_${sem}`; const T = ctt[id]; const L = lessons[id]?.slots || {};
+  const edit = canEditClass(cid);
+  const tById = Object.fromEntries(teachers.map(t=>[t.id,t]));
+  const conflictKeys = useMemo(() => { // 같은 전담이 같은 시간에 다른 반
+    const s = new Set();
+    for (const [k,v] of Object.entries(L)) for (const [oid,o] of Object.entries(lessons)) { if (oid===id||!oid.endsWith('_'+sem)) continue; if (o.slots?.[k]?.teacherId===v.teacherId) s.add(k); }
+    return s; }, [lessons, id, sem]);
+  const renderCell = (key) => {
+    const cell = T?.cells?.[key]; const les = L[key];
+    if (les) { const t = tById[les.teacherId]; return { text: les.t, cls: 'lesson'+(conflictKeys.has(key)?' conflict':''), style: { background: t?.color||'#fff3b0' }, draggable: edit, title: (t?.name||'전담')+(conflictKeys.has(key)?' · 다른 반과 겹침':'') }; }
+    if (!cell) return { text:'', style:{background:'#f5f5f3'} };
+    if (cell.k==='h') return { text: cell.t, cls:'h', title:'휴업일·행사' };
+    if (cell.k==='e') return { text: cell.t, cls:'e', title:'행사로 잡힌 시간' };
+    return { text: showAll ? cell.t : '', cls:'faint' };
+  };
+  const canDrop = key => edit && !!T?.cells?.[key];
+  return <>
+    <div className="bar">
+      <label>학급 <select value={cid} onChange={e=>setCid(e.target.value)}>{classList.map(c=><option key={c} value={c}>{classLabel(c)}</option>)}</select></label>
+      <div className="seg"><button className={sem===1?'on':''} onClick={()=>setSem(1)}>1학기</button><button className={sem===2?'on':''} onClick={()=>setSem(2)}>2학기</button></div>
+      <label><input type="checkbox" checked={showAll} onChange={e=>setShowAll(e.target.checked)} /> 담임 과목도 보기</label>
+      <div className="spacer"/>
+      <div className="legend">{teachers.filter(t=>(t.classes||[]).includes(cid)).map(t=><span key={t.id}><i style={{background:t.color}}/>{t.subject} {t.name}</span>)}<span><i style={{background:'var(--holiday)'}}/>휴업·행사</span><span style={{color:'var(--event)',textDecoration:'underline'}}>행사시간</span></div>
+      <input ref={fileRef} type="file" accept=".hwpx" style={{display:'none'}} onChange={e=>{ if(e.target.files[0]) onUpload(e.target.files[0]); e.target.value=''; }} />
+      <button className="btn primary" disabled={!edit} onClick={()=>fileRef.current.click()}>연간시간표(hwpx) 올리기</button>
+    </div>
+    {!classList.length ? <div className="empty">학년도 설정에서 학급 수를 먼저 입력해 주세요.</div>
+    : !T ? <div className="empty">{classLabel(cid)} {sem}학기 시간표가 아직 없습니다. {edit ? '스쿨마스터 연간시간표(hwpx)를 올려 주세요.' : '담임 선생님이 올리면 여기에 나타납니다.'}</div>
+    : <div className="wrap">
+        <Grid weeks={T.weeks} renderCell={renderCell} canDrop={canDrop}
+          onDragStart={k=>{ dragRef.current=k; }} onDrop={k=>{ if(dragRef.current) requestMove(cid, sem, dragRef.current, k); dragRef.current=null; }} />
+        <p className="hint">올린 사람 {T.uploadedBy} · {T.uploadedAt?.slice(0,16).replace('T',' ')}{edit && ' · 전담 칸을 끌어서 다른 칸에 놓으면 옮길 수 있습니다.'}</p>
+      </div>}
+  </>;
+}
+
+// ---------- 전담시간표 ----------
+function TeacherView({ year, teachers, ctt, lessons, canEditTeacher, requestMove }) {
+  const [tid, setTid] = useState(location.hash.match(/#\/teacher\/([^/]+)/)?.[1] || teachers[0]?.id || '');
+  const [sem, setSem] = useState(1);
+  const dragRef = useRef(null);
+  useEffect(()=>{ if (!tid && teachers.length) setTid(teachers[0].id); }, [teachers]);
+  useEffect(()=>{ if (tid) history.replaceState(null,'',`#/teacher/${tid}`); }, [tid]);
+  const t = teachers.find(x=>x.id===tid);
+  const edit = canEditTeacher(tid);
+  const weeks = year.semesters?.[sem]?.weeks || [];
+  // 슬롯별 이 전담의 수업 목록
+  const mine = useMemo(() => { const m = {}; for (const [id,L] of Object.entries(lessons)) { if (!id.endsWith('_'+sem)) continue; for (const [k,v] of Object.entries(L.slots||{})) if (v.teacherId===tid) (m[k]=m[k]||[]).push({ classId: L.classId, ...v }); } return m; }, [lessons, tid, sem]);
+  const counts = useMemo(() => { const c = {}; for (const arr of Object.values(mine)) for (const l of arr) c[l.classId]=(c[l.classId]||0)+1; return c; }, [mine]);
+  const holiday = key => { const ids = (t?.classes||[]).map(c=>`${c}_${sem}`).filter(i=>ctt[i]); if (!ids.length) return null; const cells = ids.map(i=>ctt[i].cells?.[key]).filter(Boolean); if (cells.length && cells.every(c=>c.k==='h')) return cells[0].t; return null; };
+  const renderCell = (key) => {
+    const arr = mine[key];
+    if (arr?.length) return { text: arr.map(l=>classCode(l.classId)).join('/'), cls:'lesson'+(arr.length>1?' conflict':''), style:{ background: t?.color }, draggable: edit && arr.length===1, title: arr.length>1 ? '같은 시간에 두 반 — 조정 필요' : classLabel(arr[0].classId) };
+    const h = holiday(key); if (h) return { text:h, cls:'h' };
+    return {};
+  };
+  const canDrop = key => edit && !holiday(key);
+  return <>
+    <div className="bar">
+      <label>전담 <select value={tid} onChange={e=>setTid(e.target.value)}>{teachers.map(x=><option key={x.id} value={x.id}>{x.name} ({x.subject})</option>)}</select></label>
+      <div className="seg"><button className={sem===1?'on':''} onClick={()=>setSem(1)}>1학기</button><button className={sem===2?'on':''} onClick={()=>setSem(2)}>2학기</button></div>
+      <div className="spacer"/>
+      <div className="legend">{(t?.classes||[]).map(c=><span key={c}>{classLabel(c)} <b>{counts[c]||0}</b>{t?.semHours?`/${t.semHours}`:''}</span>)}</div>
+    </div>
+    {!t ? <div className="empty">학년도 설정에서 전담 교사를 먼저 등록해 주세요.</div>
+    : !weeks.length ? <div className="empty">{sem}학기 연간시간표가 아직 하나도 올라오지 않았습니다. 담임시간표 탭에서 학급 파일을 올리면 주차가 만들어집니다.</div>
+    : <div className="wrap">
+        <Grid weeks={weeks} renderCell={renderCell} canDrop={canDrop}
+          onDragStart={k=>{ dragRef.current=k; }} onDrop={k=>{ const from=dragRef.current; dragRef.current=null; if(!from) return; const l = mine[from]?.[0]; if (l) requestMove(l.classId, sem, from, k); }} />
+        <p className="hint">빨간 테두리 = 같은 시간에 두 반. {edit && '칸을 끌어서 옮기면 그 반 담임시간표에도 함께 반영됩니다.'}</p>
+      </div>}
+  </>;
+}
+
+// ---------- 학년도 설정 ----------
+function Settings({ year, teachers, roles, isAdmin, classList, toast, log }) {
+  const [y, setY] = useState(year); const [ts, setTs] = useState(teachers);
+  useEffect(()=>setY(year),[year]); useEffect(()=>setTs(teachers),[teachers]);
+  if (!isAdmin) return <div className="empty">관리자만 설정할 수 있습니다. 오른쪽 위 [관리자]를 눌러 주세요.</div>;
+  const saveYear = async () => { await setDoc(sref('year'), y, { merge:true }); toast('학년도 설정을 저장했습니다.'); log('settings','학년도 설정 저장'); };
+  const saveTeachers = async () => { const list = ts.filter(t=>t.name).map(t=>({ ...t, id: t.id || ('t'+Math.random().toString(36).slice(2,8)), classes: (t.classesText ?? (t.classes||[]).join(',')).split(/[,\s]+/).filter(Boolean) })).map(({classesText,...t})=>t); await setDoc(sref('teachers'), { list }); toast('전담 교사를 저장했습니다.'); log('settings','전담 교사 저장'); };
+  const upd = (i, k, v) => setTs(a => a.map((t,j)=> j===i ? { ...t, [k]: v } : t));
+  return <div style={{paddingTop:16}}>
+    <div className="card"><h3>학년도 · 학급</h3>
+      <table className="form"><tbody>
+        <tr><th style={{width:160}}>학년도</th><td><input type="number" value={y.year||''} onChange={e=>setY({...y, year:Number(e.target.value)})} style={{width:120}}/></td></tr>
+        <tr><th>학교 계정 도메인</th><td><input placeholder="예: school.es.kr (비우면 모든 구글 계정 허용)" value={y.domain||''} onChange={e=>setY({...y, domain:e.target.value.trim()})}/></td></tr>
+        <tr><th>학년별 학급 수</th><td style={{display:'flex',gap:10,flexWrap:'wrap'}}>{[1,2,3,4,5,6].map(g=><label key={g} className="chk">{g}학년 <input type="number" min="0" style={{width:60}} value={y.grades?.[g]||0} onChange={e=>setY({...y, grades:{...(y.grades||{}), [g]:Number(e.target.value)}})}/></label>)}<label className="chk">유치원 <input type="number" min="0" style={{width:60}} value={y.kinder||0} onChange={e=>setY({...y, kinder:Number(e.target.value)})}/></label></td></tr>
+        <tr><th>학기 주차</th><td className="hint">{[1,2].map(s=>`${s}학기 ${y.semesters?.[s]?.weeks?.length||0}주`).join(' · ')} — 첫 연간시간표 업로드 때 자동으로 채워집니다.</td></tr>
+      </tbody></table>
+      <div className="row" style={{display:'flex',justifyContent:'flex-end',marginTop:12}}><button className="btn primary" onClick={saveYear}>학년도 설정 저장</button></div>
+    </div>
+    <div className="card"><h3>전담 교사</h3>
+      <p className="hint" style={{marginTop:0}}>과목 글자는 연간시간표 칸의 글자(과, 영, 체, 음, 미…)와 같아야 합니다. "일부 전담"은 담임과 나누는 과목(예: 4학년 과학 3시간 중 2시간, 체육)으로, 파일의 색칠 칸만 전담으로 잡습니다. 학기 시수(학급당)를 넣으면 업로드 때 개수를 대조합니다.</p>
+      <table className="form"><thead><tr><th>이름</th><th>이메일</th><th style={{width:70}}>과목</th><th style={{width:110}}>범위</th><th>담당 학급 (쉼표로)</th><th style={{width:80}}>학기 시수</th><th style={{width:60}}>색</th><th style={{width:90}}>유형</th><th style={{width:40}}></th></tr></thead>
+      <tbody>{ts.map((t,i)=><tr key={i}>
+        <td><input value={t.name||''} onChange={e=>upd(i,'name',e.target.value)}/></td>
+        <td><input value={t.email||''} onChange={e=>upd(i,'email',e.target.value)}/></td>
+        <td><input value={t.subject||''} maxLength={2} onChange={e=>upd(i,'subject',e.target.value)}/></td>
+        <td><select value={t.coverage||'full'} onChange={e=>upd(i,'coverage',e.target.value)}><option value="full">전체 전담</option><option value="partial">일부 전담</option></select></td>
+        <td><input value={t.classesText ?? (t.classes||[]).join(', ')} placeholder="6-1, 6-2, 6-3" onChange={e=>upd(i,'classesText',e.target.value)}/></td>
+        <td><input type="number" min="0" value={t.semHours||''} placeholder="학급당" onChange={e=>upd(i,'semHours',e.target.value)}/></td>
+        <td><input type="color" value={t.color||'#fff3b0'} onChange={e=>upd(i,'color',e.target.value)} style={{padding:0,height:30}}/></td>
+        <td><select value={t.type||'normal'} onChange={e=>upd(i,'type',e.target.value)}><option value="normal">일반</option><option value="coop">협력</option></select></td>
+        <td><button className="btn danger" style={{padding:'2px 8px'}} onClick={()=>setTs(a=>a.filter((_,j)=>j!==i))}>×</button></td>
+      </tr>)}</tbody></table>
+      <div style={{display:'flex',justifyContent:'space-between',marginTop:12}}>
+        <button className="btn" onClick={()=>setTs(a=>[...a,{ name:'', subject:'', coverage:'full', classes:[], color:['#fff3b0','#bfe6ff','#d5f5d0','#ffd6e0','#e8dcff','#ffe0b8'][a.length%6], type:'normal' }])}>+ 전담 추가</button>
+        <button className="btn primary" onClick={saveTeachers}>전담 교사 저장</button>
+      </div>
+    </div>
+    <div className="card"><h3>역할 (로그인한 교사)</h3>
+      {Object.keys(roles).length===0 ? <p className="hint">아직 로그인한 교사가 없습니다. 각자 학교 계정으로 로그인하면 역할을 고르게 되고 여기에 나타납니다.</p>
+      : <table className="form"><thead><tr><th>이메일</th><th>이름</th><th>역할</th><th>대상</th><th></th></tr></thead><tbody>
+        {Object.entries(roles).map(([em,r])=><tr key={em}><td>{em}</td><td>{r.name}</td><td>{r.type}</td><td>{r.classId||r.grade||teachers.find(t=>t.id===r.teacherId)?.name||''}</td><td><button className="btn danger" style={{padding:'2px 8px'}} onClick={async()=>{ const b={...roles}; delete b[em]; await setDoc(sref('roles'),{byEmail:b}); }}>삭제</button></td></tr>)}
+      </tbody></table>}
+    </div>
+  </div>;
+}
+
+// ---------- 모달들 ----------
+function AdminModal({ adminHash, onOk, onClose }) {
+  const [pw, setPw] = useState('');
+  return <Modal title={adminHash===null ? '관리자 암호 만들기' : '관리자 암호'} onClose={onClose}>
+    {adminHash===null && <p className="hint">처음 사용입니다. 관리자 암호를 정해 주세요.</p>}
+    <input type="password" value={pw} autoFocus onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==='Enter'&&onOk(pw)} style={{width:'100%',padding:8,border:'1px solid var(--line-strong)',borderRadius:6}}/>
+    <div className="row"><button className="btn" onClick={onClose}>취소</button><button className="btn primary" onClick={()=>onOk(pw)}>확인</button></div>
+  </Modal>;
+}
+function RoleModal({ email, name, classList, teachers, onSave, onClose }) {
+  const [type, setType] = useState('담임'); const [classId, setClassId] = useState(classList[0]||''); const [teacherId, setTeacherId] = useState(teachers[0]?.id||''); const [grade, setGrade] = useState('1'); const [nm, setNm] = useState(name||'');
+  return <Modal title="어떤 역할로 사용하시나요?" onClose={onClose}>
+    <p className="hint" style={{marginTop:0}}>{email}</p>
+    <table className="form"><tbody>
+      <tr><th style={{width:90}}>이름</th><td><input value={nm} onChange={e=>setNm(e.target.value)}/></td></tr>
+      <tr><th>역할</th><td><select value={type} onChange={e=>setType(e.target.value)}><option>담임</option><option>전담</option><option>학년부장</option><option>관리자</option></select></td></tr>
+      {type==='담임' && <tr><th>학급</th><td><select value={classId} onChange={e=>setClassId(e.target.value)}>{classList.map(c=><option key={c} value={c}>{classLabel(c)}</option>)}</select></td></tr>}
+      {type==='전담' && <tr><th>전담</th><td><select value={teacherId} onChange={e=>setTeacherId(e.target.value)}>{teachers.map(t=><option key={t.id} value={t.id}>{t.name} ({t.subject})</option>)}</select></td></tr>}
+      {type==='학년부장' && <tr><th>학년</th><td><select value={grade} onChange={e=>setGrade(e.target.value)}>{[1,2,3,4,5,6].map(g=><option key={g} value={g}>{g}학년</option>)}</select></td></tr>}
+    </tbody></table>
+    <div className="row"><button className="btn" onClick={onClose}>나중에</button><button className="btn primary" onClick={()=>onSave(email, { type, name:nm, classId: type==='담임'?classId:null, teacherId: type==='전담'?teacherId:null, grade: type==='학년부장'?grade:null, at: nowIso() })}>저장</button></div>
+  </Modal>;
+}
+function UploadModal({ parsed, teachers, existing, canEditClass, onSave, onClose }) {
+  const [choices, setChoices] = useState({}); // {docId:{teacherId:[pk,...]}}
+  const list = parsed.filter(p=>p.classId);
+  const blocked = list.filter(p=>!canEditClass(p.classId));
+  const results = list.map(p => ({ p, id:`${p.classId}_${p.sem}`, ...computeAssignments(p, teachers, choices[`${p.classId}_${p.sem}`]||{}) }));
+  const pending = results.some(r=>r.needPattern.length);
+  const togglePat = (id, tid, pk) => setChoices(c => { const cur = c[id]?.[tid] || []; const next = cur.includes(pk) ? cur.filter(x=>x!==pk) : [...cur, pk]; return { ...c, [id]: { ...(c[id]||{}), [tid]: next } }; });
+  const confirmPat = (id, tid) => setChoices(c => ({ ...c, [id]: { ...(c[id]||{}), [tid]: c[id]?.[tid] || [] } }));
+  return <Modal title="연간시간표 확인" onClose={onClose}>
+    {!list.length && <p className="warn">파일에서 학급(예: 6학년 1반)을 찾지 못했습니다.</p>}
+    {blocked.length>0 && <p className="warn">{blocked.map(p=>classLabel(p.classId)).join(', ')} 시간표는 편집 권한이 없어 저장할 수 없습니다.</p>}
+    {results.map(({ p, id, report, needPattern }) => <div key={id} style={{marginBottom:16,paddingBottom:12,borderBottom:'1px solid var(--line)'}}>
+      <div style={{fontWeight:700}}>{classLabel(p.classId)} {p.sem}학기 <span className="hint" style={{fontWeight:400}}>· {p.weeks.length}주 · {p.weeks[0]?.label} ~ {p.weeks.at(-1)?.label}</span>{existing[id] && <span className="warn"> · 이미 올라온 시간표를 덮어씁니다</span>}</div>
+      {!report.length && !needPattern.length && <p className="warn">이 학급을 담당하는 전담 교사가 설정에 없습니다. 담임 과목만 저장됩니다.</p>}
+      {report.map(r => <div key={r.teacher.id} className="chk"><i className="legend" style={{width:16,height:16,background:r.teacher.color,border:'1px solid var(--line)',display:'inline-block'}}/> {r.teacher.subject} {r.teacher.name}: <b>{r.count}</b>시간{r.expected!=null && <span className={r.count===r.expected?'okc':'warn'}> ({r.coverage==='full'?'파일 시수':'설정 시수'} {r.expected}{r.count===r.expected?' 일치':' — 확인 필요'})</span>}{r.coverage==='partial' && <span className="hint"> · 색칠 칸 기준</span>}{r.warn && <div className="warn" style={{marginLeft:24}}>{r.warn}</div>}</div>)}
+      {needPattern.map(np => <div key={np.teacher.id} style={{marginTop:8}}>
+        <div className="warn">{np.teacher.subject} {np.teacher.name}: 일부 전담 과목인데 색칠된 칸이 없습니다. 전담이 들어가는 시간을 골라 주세요.</div>
+        <div className="picker" style={{margin:'8px 0'}}>{np.patterns.sort((a,b)=>a.pk.localeCompare(b.pk)).map(({pk,n})=>{ const [d,pp]=pk.split('-'); const on=(choices[id]?.[np.teacher.id]||[]).includes(pk); return <label key={pk} className={on?'on':''} onClick={()=>togglePat(id,np.teacher.id,pk)}>{DAYS[d]} {pp}교시<br/><small>{n}회</small></label>; })}</div>
+        <button className="btn" onClick={()=>confirmPat(id,np.teacher.id)}>이 시간으로 정하기</button>
+      </div>)}
+    </div>)}
+    <div className="row"><button className="btn" onClick={onClose}>취소</button><button className="btn primary" disabled={pending || !list.length || blocked.length>0} onClick={()=>onSave(parsed, choices)}>저장</button></div>
+  </Modal>;
+}
+
+createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
