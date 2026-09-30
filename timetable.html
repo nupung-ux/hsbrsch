@@ -135,7 +135,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = 'hwaseong-barun-timetable-test';
-const VERSION = 'v2.4';
+const VERSION = 'v2.5';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -303,8 +303,7 @@ function App() {
   const [user, setUser] = useState(null);
   const [tab, setTab] = useState(location.hash.startsWith('#/teacher') ? 'teacher' : location.hash.startsWith('#/room') ? 'room' : location.hash.startsWith('#/calendar') ? 'calendar' : location.hash.startsWith('#/lecture') ? 'lecture' : 'class');
   const [homeKey, setHomeKey] = useState(0);
-  const [adminPage, setAdminPage] = useState(isAdminPage());
-  useEffect(() => { const f = () => setAdminPage(isAdminPage()); addEventListener('hashchange', f); return () => removeEventListener('hashchange', f); }, []);
+
   const [year, setYear] = useState(null);
   const [teachers, setTeachers] = useState([]);
   const [roles, setRoles] = useState({});
@@ -470,16 +469,6 @@ function App() {
 
   if (!user || !year) return <div className="empty">불러오는 중…</div>;
 
-  if (adminPage) return <>
-    <div className="top"><h1>학년도 설정 <span className="hint" style={{fontWeight:400}}>{year.year}학년도 · {VERSION}</span></h1><div className="spacer"/>
-      <span className="who">{isAdmin ? '관리자 모드' : '관리자 인증 필요'}</span>
-      <a className="btn" href={location.pathname+'#/'} onClick={e=>{ e.preventDefault(); location.hash='#/'; }}>⌂ 홈으로</a>
-      <button className="btn" onClick={()=>window.close()}>창 닫기</button></div>
-    {isAdmin ? <Settings {...{ year, teachers, roles, isAdmin, classList, toast, log }} /> : <div className="empty"><p>관리자 암호를 입력하거나 관리자 계정으로 로그인해 주세요.</p><button className="btn primary" onClick={()=>setModal({type:'admin'})}>관리자 암호</button> <button className="btn" onClick={googleLogin}>학교 계정으로 로그인</button></div>}
-    {modal?.type==='admin' && <AdminModal adminHash={adminHash} onOk={adminUnlock} onClose={()=>setModal(null)} />}
-    {toastEl}
-  </>;
-
   return <>
     <div className="top">
       <h1>통합 시간표 <span className="hint" style={{fontWeight:400}}>시험판 · {year.year}학년도</span></h1>
@@ -490,13 +479,14 @@ function App() {
         <button className={tab==='lecture'?'on':''} onClick={()=>setTab('lecture')}>외부강의</button>
         <button className={tab==='room'?'on':''} onClick={()=>setTab('room')}>특별실</button>
         <button className={tab==='calendar'?'on':''} onClick={()=>setTab('calendar')}>일정표</button>
+        <button className={tab==='settings'?'on':''} onClick={()=>setTab('settings')}>학년도 설정</button>
       </div>
       <div className="spacer"/>
       {undoN>0 && <button className="btn" onClick={undo}>되돌리기 ({undoN})</button>}
       <span className="who">{email ? `${myRole?.name||email}${myRole?` · ${myRole.type}${myRole.classId?' '+myRole.classId:''}`:' · 역할 미지정'}` : '로그인 안 됨 (보기만 가능)'}{adminOn && ' · 관리자'}</span>
       {email ? <button className="btn" onClick={()=>signOut(auth)}>로그아웃</button> : <button className="btn" onClick={googleLogin}>학교 계정으로 로그인</button>}
       {email && !myRole && <button className="btn" onClick={()=>setModal({type:'role', email, name:user.displayName})}>역할 선택</button>}
-      {isAdmin ? <button className="btn" onClick={()=>window.open(location.pathname+'#/admin','tt_admin')}>⚙ 학년도 설정 ↗</button> : <button className="btn" onClick={()=>setModal({type:'admin'})}>관리자</button>}
+      {!isAdmin && <button className="btn" onClick={()=>setModal({type:'admin'})}>관리자</button>}
       <span className="hint" style={{fontSize:12}}>{VERSION}</span>
     </div>
 
@@ -505,6 +495,7 @@ function App() {
     {tab==='lecture' && <LectureView key={'l'+homeKey} defaultGrade={myRole?.grade || gradeOf(myRole?.classId)} {...{ year, bell, classList, teachers, ctt, lessons, lectures, bookings, canEditLecture, saveLecture, deleteLecture, toast, setModal }} />}
     {tab==='room' && <RoomView {...{ year, bell, classList, teachers, ctt, lessons, bookings, lectures, canBook, addBooking, deleteBooking, myRole, toast, setModal, goLecture: ()=>setTab('lecture') }} />}
     {tab==='calendar' && <CalendarView {...{ calEvents, calAppId, lectures }} />}
+    {tab==='settings' && (isAdmin ? <Settings {...{ year, teachers, roles, isAdmin, classList, toast, log }} /> : <div className="empty"><p>학년도 설정은 관리자만 할 수 있습니다.</p><button className="btn primary" onClick={()=>setModal({type:'admin'})}>관리자 암호 입력</button></div>)}
 
     {modal?.type==='confirm' && <Modal title={modal.title} onClose={()=>setModal(null)}>{modal.body}<div className="row">{modal.actions.map((a,i)=><button key={i} className={'btn'+(a.primary?' primary':'')} onClick={a.on}>{a.label}</button>)}</div></Modal>}
     {modal?.type==='book' && <BookModal room={modal.room} date={modal.date} p={modal.p} classList={classList} myRole={myRole} onClose={()=>setModal(null)} onSave={async(b,n)=>{ await addBooking(b,n); setModal(null); toast('예약했습니다.'); }} />}
@@ -636,7 +627,8 @@ function TeacherView({ year, teachers, ctt, lessons, canEditTeacher, requestMove
 }
 
 // ---------- 학급 선택기 (학년 전체 / 반별) ----------
-function ClassPicker({ classList, value, onChange }) {
+function ClassPicker({ classList: all, value, onChange, excludeKinder }) {
+  const classList = excludeKinder ? all.filter(c=>!c.startsWith('유')) : all;
   const sel = new Set(value||[]);
   const grades = Array.from(new Set(classList.map(gradeOf)));
   const toggle = (arr, on) => { const n = new Set(sel); arr.forEach(c => on ? n.add(c) : n.delete(c)); onChange(classList.filter(c=>n.has(c))); };
@@ -696,11 +688,11 @@ function Settings({ year, teachers, roles, isAdmin, classList, toast, log }) {
           <div className="spacer"/>
           <button className="btn danger" style={{padding:'2px 8px'}} onClick={()=>setTs(a=>a.filter((_,j)=>j!==i))}>교사 삭제</button>
         </div>
-        <table className="form"><thead><tr><th style={{width:190}}>과목</th><th style={{width:110}}>범위</th><th>담당 학급 (학년 버튼 = 전체, 숫자 = 반별)</th><th style={{width:80}}>1학기 시수</th><th style={{width:80}}>2학기 시수</th><th style={{width:40}}></th></tr></thead>
+        <table className="form"><thead><tr><th style={{width:190}}>과목</th><th style={{width:110}} title="전체 전담 = 그 과목을 모두 전담이 수업 / 일부 전담 = 담임과 나누어 수업 (마우스를 올리면 설명이 나옵니다)">범위 ⓘ</th><th>담당 학급 (학년 버튼 = 전체, 숫자 = 반별)</th><th style={{width:80}}>1학기 시수</th><th style={{width:80}}>2학기 시수</th><th style={{width:40}}></th></tr></thead>
         <tbody>{t.subjects.map((sub,si)=><tr key={si}>
           <td><select value={sub.subject||''} onChange={e=>updS(si,'subject',e.target.value)}><option value="">선택</option>{SUBJECTS.map(([l,n])=><option key={l} value={l}>{l} · {n}</option>)}</select></td>
-          <td><select value={sub.coverage||'full'} onChange={e=>updS(si,'coverage',e.target.value)}><option value="full">전체 전담</option><option value="partial">일부 전담</option></select></td>
-          <td><ClassPicker classList={classList} value={sub.classes||[]} onChange={v=>updS(si,'classes',v)} /></td>
+          <td><select value={sub.coverage||'full'} onChange={e=>updS(si,'coverage',e.target.value)} title={sub.coverage==='partial' ? '일부 전담: 담임과 과목을 나누어 수업하는 경우. 담임이 연간시간표에서 전담 시간 칸에 색을 칠해 올려야 그 칸만 전담으로 잡힙니다.' : '전체 전담: 그 과목 수업을 모두 전담이 하는 경우. 연간시간표의 그 과목 칸이 전부 전담으로 잡힙니다.'}><option value="full" title="그 과목 수업을 모두 전담이 하는 경우">전체 전담</option><option value="partial" title="담임과 과목을 나누어 수업하는 경우 (색칠 칸만 전담)">일부 전담</option></select></td>
+          <td><ClassPicker classList={classList} excludeKinder value={sub.classes||[]} onChange={v=>updS(si,'classes',v)} /></td>
           <td><input type="number" min="0" value={sub.semHours1||''} placeholder="학급당" onChange={e=>updS(si,'semHours1',e.target.value)}/></td>
           <td><input type="number" min="0" value={sub.semHours2||''} placeholder="학급당" onChange={e=>updS(si,'semHours2',e.target.value)}/></td>
           <td><button className="btn danger" style={{padding:'2px 8px'}} onClick={()=>updT('subjects', t.subjects.filter((_,j)=>j!==si))}>×</button></td>
