@@ -85,6 +85,12 @@
   .picker{display:grid;grid-template-columns:repeat(6,1fr);gap:6px}
   .picker label{border:1px solid var(--line);border-radius:6px;padding:6px;text-align:center;font-size:14px;cursor:pointer}
   .picker label.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .cp{display:flex;flex-direction:column;gap:3px}
+  .cp .g{display:flex;align-items:center;gap:4px}
+  .cp button{border:1px solid var(--line);background:#fff;border-radius:4px;padding:2px 7px;font-size:13px;line-height:1.4}
+  .cp button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .cp button.gr{font-weight:700;min-width:52px}
+  .cp button.gr.part{background:#e9ecf1;color:var(--ink)}
   table.tt td.slot.lec{background:#e9dcff;font-weight:700;color:#4b2a8a}
   table.tt td.slot.pick{background:#4b2a8a;color:#fff;font-weight:700;cursor:pointer}
   table.tt td.slot.free{cursor:pointer}
@@ -129,7 +135,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = 'hwaseong-barun-timetable-test';
-const VERSION = 'v2.2';
+const VERSION = 'v2.4';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -247,7 +253,8 @@ async function parseHwpx(file) {
 
 // ---------- 전담 배정 계산 ----------
 // 전담 한 명 = 담당 항목(subjects) 여러 줄: {subject:'체', coverage:'full'|'partial', classes:[...], semHours}
-const normTeacher = t => ({ ...t, subjects: t.subjects || (t.subject ? [{ subject: t.subject, coverage: t.coverage||'full', classes: t.classes||[], semHours: t.semHours||'' }] : []) });
+const normTeacher = t => ({ ...t, subjects: (t.subjects || (t.subject ? [{ subject: t.subject, coverage: t.coverage||'full', classes: t.classes||[], semHours: t.semHours||'' }] : [])).map(x => ({ ...x, semHours1: x.semHours1 ?? x.semHours ?? '', semHours2: x.semHours2 ?? x.semHours ?? '' })) });
+const semHoursOf = (sub, sem) => { const v = sem===2 ? sub.semHours2 : sub.semHours1; return v ? Number(v) : null; };
 const teacherSubjects = t => normTeacher(t).subjects.map(x=>x.subject).filter(Boolean).join('·');
 const teacherClasses = t => Array.from(new Set(normTeacher(t).subjects.flatMap(x=>x.classes||[])));
 function computeAssignments(parsed, teachers, patternChoices) {
@@ -275,7 +282,7 @@ function computeAssignments(parsed, teachers, patternChoices) {
       for (const [k,v] of chosen) { if (slots[k] && slots[k].teacherId!==tc.id) report.push({ teacher: tc, subject: s, dup: `${k} 칸을 다른 전담도 담당으로 설정되어 있습니다.` }); slots[k] = { t: v.t, teacherId: tc.id, from: 'hwpx' }; }
       const coloredN = cand.filter(([k,v]) => v.bg).length;
       const fileTotal = s==='창' ? (parsed.totals['창체'] ?? (['자율','동아리','봉사','진로'].reduce((a,n)=>a+(parsed.totals[n]||0),0) || null)) : (Object.entries(parsed.totals).find(([n]) => n.startsWith(s))?.[1] ?? null);
-      const expected = sub.coverage==='full' ? fileTotal : (sub.semHours ? Number(sub.semHours) : null);
+      const expected = sub.coverage==='full' ? fileTotal : semHoursOf(sub, parsed.sem);
       const warn = sub.coverage==='full' && coloredN>0 && coloredN<cand.length ? `색칠된 칸은 ${coloredN}개인데 전체 ${cand.length}개를 전담으로 잡았습니다. 담임과 나누는 과목이면 설정을 "일부 전담"으로 바꿔 주세요.` : null;
       report.push({ teacher: tc, subject: s, pid, count: chosen.length, expected, coverage: sub.coverage, warn });
     }
@@ -616,7 +623,7 @@ function TeacherView({ year, teachers, ctt, lessons, canEditTeacher, requestMove
       <label>전담 <select value={tid} onChange={e=>setTid(e.target.value)}>{teachers.map(x=><option key={x.id} value={x.id}>{x.name} ({teacherSubjects(x)})</option>)}</select></label>
       <div className="seg"><button className={sem===1?'on':''} onClick={()=>setSem(1)}>1학기</button><button className={sem===2?'on':''} onClick={()=>setSem(2)}>2학기</button></div>
       <div className="spacer"/>
-      <div className="legend">{t && normTeacher(t).subjects.map(sub=><span key={sub.subject}><b>{sub.subject}</b> {(sub.classes||[]).map(c=>`${classCode(c)} ${counts[`${sub.subject}|${c}`]||0}${sub.semHours?'/'+sub.semHours:''}`).join(' · ')}</span>)}</div>
+      <div className="legend">{t && normTeacher(t).subjects.map(sub=><span key={sub.subject}><b>{sub.subject}</b> {(sub.classes||[]).map(c=>`${classCode(c)} ${counts[`${sub.subject}|${c}`]||0}${semHoursOf(sub,sem)?'/'+semHoursOf(sub,sem):''}`).join(' · ')}</span>)}</div>
     </div>
     {!t ? <div className="empty">학년도 설정에서 전담 교사를 먼저 등록해 주세요.</div>
     : !weeks.length ? <div className="empty">{sem}학기 연간시간표가 아직 하나도 올라오지 않았습니다. 담임시간표 탭에서 학급 파일을 올리면 주차가 만들어집니다.</div>
@@ -626,6 +633,16 @@ function TeacherView({ year, teachers, ctt, lessons, canEditTeacher, requestMove
         <p className="hint">빨간 테두리 = 같은 시간에 두 반. {edit && '칸을 끌어서 옮기면 그 반 담임시간표에도 함께 반영됩니다.'}</p>
       </div>}
   </>;
+}
+
+// ---------- 학급 선택기 (학년 전체 / 반별) ----------
+function ClassPicker({ classList, value, onChange }) {
+  const sel = new Set(value||[]);
+  const grades = Array.from(new Set(classList.map(gradeOf)));
+  const toggle = (arr, on) => { const n = new Set(sel); arr.forEach(c => on ? n.add(c) : n.delete(c)); onChange(classList.filter(c=>n.has(c))); };
+  return <div className="cp">{grades.map(g => { const cs = classList.filter(c=>gradeOf(c)===g); const n = cs.filter(c=>sel.has(c)).length; const all = n===cs.length;
+    return <div key={g} className="g"><button type="button" className={'gr'+(all?' on':n?' part':'')} onClick={()=>toggle(cs, !all)} title={all?'학년 전체 해제':'학년 전체 선택'}>{g==='유'?'유치원':g+'학년'}</button>
+      {cs.map(c=><button type="button" key={c} className={sel.has(c)?'on':''} onClick={()=>toggle([c], !sel.has(c))}>{c.split('-')[1]}</button>)}</div>; })}</div>;
 }
 
 // ---------- 학년도 설정 ----------
@@ -638,7 +655,7 @@ function Settings({ year, teachers, roles, isAdmin, classList, toast, log }) {
   const setBell = groups => setY({ ...y, bell: { groups } });
   const saveTeachers = async () => {
     const list = ts.filter(t=>t.name).map(t0 => { const t = normTeacher(t0); const { subject, coverage, classes, semHours, ...rest } = t;
-      return { ...rest, id: t.id || ('t'+Math.random().toString(36).slice(2,8)), subjects: t.subjects.filter(x=>x.subject).map(({classesText,...x}) => ({ ...x, classes: (classesText ?? (x.classes||[]).join(',')).split(/[,\s]+/).filter(Boolean) })) }; });
+      return { ...rest, id: t.id || ('t'+Math.random().toString(36).slice(2,8)), subjects: t.subjects.filter(x=>x.subject).map(({classesText,...x}) => ({ ...x, classes: classesText!=null ? classesText.split(/[,\s]+/).filter(Boolean) : (x.classes||[]) })) }; });
     const seen = {}; const dups = [];
     for (const t of list) for (const x of t.subjects) for (const c of x.classes) { const k = `${x.subject}|${c}`; if (seen[k] && seen[k]!==t.name) dups.push(`${c} ${x.subject}: ${seen[k]}·${t.name}`); seen[k]=t.name; }
     if (dups.length) { toast(`같은 반 같은 과목이 두 전담에게 있습니다: ${dups.slice(0,3).join(', ')}`, true); return; }
@@ -667,7 +684,7 @@ function Settings({ year, teachers, roles, isAdmin, classList, toast, log }) {
       <div style={{display:'flex',justifyContent:'space-between'}}><button className="btn" onClick={()=>setBell([...bellG,{name:'새 학년군',grades:[],periods:{...DEFAULT_BELL.groups[0].periods}}])}>+ 학년군 추가</button><button className="btn primary" onClick={saveYear}>학년도 설정 저장</button></div>
     </div>
     <div className="card"><h3>전담 교사</h3>
-      <p className="hint" style={{marginTop:0}}>한 사람이 여러 과목을 맡으면 담당 항목을 줄로 추가합니다(예: 체육 전담이 1학년 통합 놀이체육도 맡는 경우). 창체는 "창"을 고르면 파일의 창·자·동·봉·진 칸을 모두 창체로 인식합니다. "일부 전담"은 담임과 나누는 과목으로 파일의 색칠 칸만 잡습니다. 학기 시수(학급당)를 넣으면 업로드 때 개수를 대조합니다.</p>
+      <p className="hint" style={{marginTop:0}}>학급 수를 먼저 저장해야 학급 버튼이 나타납니다. 한 사람이 여러 과목을 맡으면 담당 항목을 줄로 추가합니다(예: 체육 전담이 1학년 통합 놀이체육도 맡는 경우). 창체는 "창"을 고르면 파일의 창·자·동·봉·진 칸을 모두 창체로 인식합니다. "일부 전담"은 담임과 나누는 과목으로 파일의 색칠 칸만 잡습니다. 학기별 시수(학급당)를 넣으면 업로드 때 그 학기 개수를 대조합니다.</p>
       {ts.map((t0,i)=>{ const t = normTeacher(t0); const updT = (k,v)=>setTs(a=>a.map((x,j)=>j===i?{...normTeacher(x),[k]:v}:x)); const updS = (si,k,v)=>updT('subjects', t.subjects.map((x,j)=>j===si?{...x,[k]:v}:x));
         return <div key={i} style={{border:'1px solid var(--line)',borderRadius:8,padding:'10px 12px',marginBottom:10}}>
         <div style={{display:'flex',gap:8,alignItems:'center',marginBottom:6}}>
@@ -679,18 +696,19 @@ function Settings({ year, teachers, roles, isAdmin, classList, toast, log }) {
           <div className="spacer"/>
           <button className="btn danger" style={{padding:'2px 8px'}} onClick={()=>setTs(a=>a.filter((_,j)=>j!==i))}>교사 삭제</button>
         </div>
-        <table className="form"><thead><tr><th style={{width:190}}>과목</th><th style={{width:110}}>범위</th><th>담당 학급 (쉼표로)</th><th style={{width:90}}>학기 시수</th><th style={{width:40}}></th></tr></thead>
+        <table className="form"><thead><tr><th style={{width:190}}>과목</th><th style={{width:110}}>범위</th><th>담당 학급 (학년 버튼 = 전체, 숫자 = 반별)</th><th style={{width:80}}>1학기 시수</th><th style={{width:80}}>2학기 시수</th><th style={{width:40}}></th></tr></thead>
         <tbody>{t.subjects.map((sub,si)=><tr key={si}>
           <td><select value={sub.subject||''} onChange={e=>updS(si,'subject',e.target.value)}><option value="">선택</option>{SUBJECTS.map(([l,n])=><option key={l} value={l}>{l} · {n}</option>)}</select></td>
           <td><select value={sub.coverage||'full'} onChange={e=>updS(si,'coverage',e.target.value)}><option value="full">전체 전담</option><option value="partial">일부 전담</option></select></td>
-          <td><input value={sub.classesText ?? (sub.classes||[]).join(', ')} placeholder="6-1, 6-2, 6-3" onChange={e=>updS(si,'classesText',e.target.value)}/></td>
-          <td><input type="number" min="0" value={sub.semHours||''} placeholder="학급당" onChange={e=>updS(si,'semHours',e.target.value)}/></td>
+          <td><ClassPicker classList={classList} value={sub.classes||[]} onChange={v=>updS(si,'classes',v)} /></td>
+          <td><input type="number" min="0" value={sub.semHours1||''} placeholder="학급당" onChange={e=>updS(si,'semHours1',e.target.value)}/></td>
+          <td><input type="number" min="0" value={sub.semHours2||''} placeholder="학급당" onChange={e=>updS(si,'semHours2',e.target.value)}/></td>
           <td><button className="btn danger" style={{padding:'2px 8px'}} onClick={()=>updT('subjects', t.subjects.filter((_,j)=>j!==si))}>×</button></td>
         </tr>)}</tbody></table>
-        <button className="btn" style={{marginTop:6,padding:'3px 10px'}} onClick={()=>updT('subjects',[...t.subjects,{subject:'',coverage:'full',classes:[],semHours:''}])}>+ 담당 항목</button>
+        <button className="btn" style={{marginTop:6,padding:'3px 10px'}} onClick={()=>updT('subjects',[...t.subjects,{subject:'',coverage:'full',classes:[],semHours1:'',semHours2:''}])}>+ 담당 항목</button>
       </div>; })}
       <div style={{display:'flex',justifyContent:'space-between',marginTop:12}}>
-        <button className="btn" onClick={()=>setTs(a=>[...a,{ name:'', subjects:[{subject:'',coverage:'full',classes:[],semHours:''}], color:['#fff3b0','#bfe6ff','#d5f5d0','#ffd6e0','#e8dcff','#ffe0b8'][a.length%6], type:'normal' }])}>+ 전담 추가</button>
+        <button className="btn" onClick={()=>setTs(a=>[...a,{ name:'', subjects:[{subject:'',coverage:'full',classes:[],semHours1:'',semHours2:''}], color:['#fff3b0','#bfe6ff','#d5f5d0','#ffd6e0','#e8dcff','#ffe0b8'][a.length%6], type:'normal' }])}>+ 전담 추가</button>
         <button className="btn primary" onClick={saveTeachers}>전담 교사 저장</button>
       </div>
     </div>
