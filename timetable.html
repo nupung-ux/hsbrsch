@@ -129,7 +129,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = 'hwaseong-barun-timetable-test';
-const VERSION = 'v2.1';
+const VERSION = 'v2.2';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -337,13 +337,13 @@ function App() {
   const isAdmin = adminOn || myRole?.type==='관리자';
   const canEditClass = cid => isAdmin || (myRole?.type==='담임' && myRole.classId===cid);
   const canEditTeacher = tid => isAdmin || (myRole?.type==='전담' && myRole.teacherId===tid);
-  const canEditLecture = grade => isAdmin || (myRole?.type==='학년부장' && String(myRole.grade)===String(grade));
+  const canEditLecture = grade => isAdmin || ((myRole?.type==='담임' || myRole?.type==='학년부장') && String(myRole.grade || gradeOf(myRole.classId))===String(grade));
   const canBook = !!email || isAdmin;
   const bell = year?.bell || DEFAULT_BELL;
   const editorName = () => adminOn && !email ? '관리자' : (myRole?.name || email || '익명');
 
   const goHome = () => { // 역할에 맞는 첫 화면: 담임 → 우리 반, 전담 → 내 시간표, 학년부장 → 우리 학년 외부강의
-    if (myRole?.type==='전담') setTab('teacher'); else if (myRole?.type==='학년부장') setTab('lecture'); else setTab('class');
+    if (myRole?.type==='전담') setTab('teacher'); else setTab('class');
     setHomeKey(k=>k+1); history.replaceState(null,'','#/');
   };
   const roleKey = myRole ? `${myRole.type}|${myRole.classId||myRole.teacherId||myRole.grade||''}` : '';
@@ -495,7 +495,7 @@ function App() {
 
     {tab==='class' && <ClassView key={'c'+homeKey} defaultCid={myRole?.classId} {...{ year, classList, teachers, ctt, lessons, lectures, canEditClass, requestMove, onUpload, toast }} />}
     {tab==='teacher' && <TeacherView key={'t'+homeKey} defaultTid={myRole?.teacherId} {...{ year, teachers, ctt, lessons, canEditTeacher, requestMove }} />}
-    {tab==='lecture' && <LectureView key={'l'+homeKey} defaultGrade={myRole?.grade} {...{ year, bell, classList, teachers, ctt, lessons, lectures, bookings, canEditLecture, saveLecture, deleteLecture, toast, setModal }} />}
+    {tab==='lecture' && <LectureView key={'l'+homeKey} defaultGrade={myRole?.grade || gradeOf(myRole?.classId)} {...{ year, bell, classList, teachers, ctt, lessons, lectures, bookings, canEditLecture, saveLecture, deleteLecture, toast, setModal }} />}
     {tab==='room' && <RoomView {...{ year, bell, classList, teachers, ctt, lessons, bookings, lectures, canBook, addBooking, deleteBooking, myRole, toast, setModal, goLecture: ()=>setTab('lecture') }} />}
     {tab==='calendar' && <CalendarView {...{ calEvents, calAppId, lectures }} />}
 
@@ -723,7 +723,7 @@ function LectureView({ year, bell, classList, teachers, ctt, lessons, lectures, 
       <div className="spacer"/>
       <button className="btn primary" disabled={!edit} onClick={()=>setEditing(blank())}>+ 새 강의 배정</button>
     </div>
-    {!edit && <p className="hint" style={{padding:'0 18px'}}>이 학년의 학년부장 또는 관리자만 배정할 수 있습니다.</p>}
+    {!edit && <p className="hint" style={{padding:'0 18px'}}>이 학년 담임 또는 관리자만 배정할 수 있습니다.</p>}
     <div className="list">
       {list.length===0 && <div className="it hint">아직 배정된 강의가 없습니다.</div>}
       {list.map(l => { const byClass = {}; for (const sl of l.slots||[]) byClass[sl.classId]=(byClass[sl.classId]||0)+1;
@@ -919,10 +919,10 @@ function RoleModal({ email, name, classList, teachers, onSave, onClose }) {
     <p className="hint" style={{marginTop:0}}>{email}</p>
     <table className="form"><tbody>
       <tr><th style={{width:90}}>이름</th><td><input value={nm} onChange={e=>setNm(e.target.value)}/></td></tr>
-      <tr><th>역할</th><td><select value={type} onChange={e=>setType(e.target.value)}><option>담임</option><option>전담</option><option>학년부장</option></select></td></tr>
+      <tr><th>역할</th><td><select value={type} onChange={e=>setType(e.target.value)}><option>담임</option><option>전담</option></select></td></tr>
       {type==='담임' && <tr><th>학급</th><td><select value={classId} onChange={e=>setClassId(e.target.value)}>{classList.map(c=><option key={c} value={c}>{classLabel(c)}</option>)}</select></td></tr>}
       {type==='전담' && <tr><th>전담</th><td><select value={teacherId} onChange={e=>setTeacherId(e.target.value)}>{teachers.map(t=><option key={t.id} value={t.id}>{t.name} ({teacherSubjects(t)})</option>)}</select></td></tr>}
-      {type==='학년부장' && <tr><th>학년</th><td><select value={grade} onChange={e=>setGrade(e.target.value)}>{[1,2,3,4,5,6].map(g=><option key={g} value={g}>{g}학년</option>)}</select></td></tr>}
+}
     </tbody></table>
     <div className="row"><button className="btn" onClick={onClose}>나중에</button><button className="btn primary" onClick={()=>onSave(email, { type, name:nm, classId: type==='담임'?classId:null, teacherId: type==='전담'?teacherId:null, grade: type==='학년부장'?grade:null, at: nowIso() })}>저장</button></div>
   </Modal>;
