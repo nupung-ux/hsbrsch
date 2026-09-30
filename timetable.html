@@ -129,6 +129,8 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = 'hwaseong-barun-timetable-test';
+const VERSION = 'v2.1';
+const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
 const cref = (name) => collection(db, ...base, name);
@@ -292,7 +294,10 @@ function useToast(){ const [t,setT]=useState(null); const show=(msg,err)=>{ setT
 // ---------- 메인 ----------
 function App() {
   const [user, setUser] = useState(null);
-  const [tab, setTab] = useState(location.hash.startsWith('#/teacher') ? 'teacher' : location.hash.startsWith('#/settings') ? 'settings' : location.hash.startsWith('#/room') ? 'room' : location.hash.startsWith('#/calendar') ? 'calendar' : location.hash.startsWith('#/lecture') ? 'lecture' : 'class');
+  const [tab, setTab] = useState(location.hash.startsWith('#/teacher') ? 'teacher' : location.hash.startsWith('#/room') ? 'room' : location.hash.startsWith('#/calendar') ? 'calendar' : location.hash.startsWith('#/lecture') ? 'lecture' : 'class');
+  const [homeKey, setHomeKey] = useState(0);
+  const [adminPage, setAdminPage] = useState(isAdminPage());
+  useEffect(() => { const f = () => setAdminPage(isAdminPage()); addEventListener('hashchange', f); return () => removeEventListener('hashchange', f); }, []);
   const [year, setYear] = useState(null);
   const [teachers, setTeachers] = useState([]);
   const [roles, setRoles] = useState({});
@@ -337,6 +342,12 @@ function App() {
   const bell = year?.bell || DEFAULT_BELL;
   const editorName = () => adminOn && !email ? '관리자' : (myRole?.name || email || '익명');
 
+  const goHome = () => { // 역할에 맞는 첫 화면: 담임 → 우리 반, 전담 → 내 시간표, 학년부장 → 우리 학년 외부강의
+    if (myRole?.type==='전담') setTab('teacher'); else if (myRole?.type==='학년부장') setTab('lecture'); else setTab('class');
+    setHomeKey(k=>k+1); history.replaceState(null,'','#/');
+  };
+  const roleKey = myRole ? `${myRole.type}|${myRole.classId||myRole.teacherId||myRole.grade||''}` : '';
+  useEffect(() => { if (roleKey) goHome(); }, [roleKey]);
   const log = (action, detail) => addDoc(cref('logs'), { at: nowIso(), by: editorName(), email: email||null, action, detail }).catch(()=>{});
 
   const classList = useMemo(() => { if (!year) return []; const l=[]; for (let g=1; g<=6; g++) for (let c=1; c<=(year.grades?.[g]||0); c++) l.push(`${g}-${c}`); for (let c=1;c<=(year.kinder||0);c++) l.push(`유-${c}`); return l; }, [year]);
@@ -452,31 +463,41 @@ function App() {
 
   if (!user || !year) return <div className="empty">불러오는 중…</div>;
 
+  if (adminPage) return <>
+    <div className="top"><h1>학년도 설정 <span className="hint" style={{fontWeight:400}}>{year.year}학년도 · {VERSION}</span></h1><div className="spacer"/>
+      <span className="who">{isAdmin ? '관리자 모드' : '관리자 인증 필요'}</span>
+      <a className="btn" href={location.pathname+'#/'} onClick={e=>{ e.preventDefault(); location.hash='#/'; }}>⌂ 홈으로</a>
+      <button className="btn" onClick={()=>window.close()}>창 닫기</button></div>
+    {isAdmin ? <Settings {...{ year, teachers, roles, isAdmin, classList, toast, log }} /> : <div className="empty"><p>관리자 암호를 입력하거나 관리자 계정으로 로그인해 주세요.</p><button className="btn primary" onClick={()=>setModal({type:'admin'})}>관리자 암호</button> <button className="btn" onClick={googleLogin}>학교 계정으로 로그인</button></div>}
+    {modal?.type==='admin' && <AdminModal adminHash={adminHash} onOk={adminUnlock} onClose={()=>setModal(null)} />}
+    {toastEl}
+  </>;
+
   return <>
     <div className="top">
       <h1>통합 시간표 <span className="hint" style={{fontWeight:400}}>시험판 · {year.year}학년도</span></h1>
       <div className="tabs">
+        <button className="btn" style={{marginRight:8,borderRadius:6}} onClick={goHome} title="내 첫 화면으로">⌂ 홈</button>
         <button className={tab==='class'?'on':''} onClick={()=>setTab('class')}>담임시간표</button>
         <button className={tab==='teacher'?'on':''} onClick={()=>setTab('teacher')}>전담시간표</button>
         <button className={tab==='lecture'?'on':''} onClick={()=>setTab('lecture')}>외부강의</button>
         <button className={tab==='room'?'on':''} onClick={()=>setTab('room')}>특별실</button>
         <button className={tab==='calendar'?'on':''} onClick={()=>setTab('calendar')}>일정표</button>
-        <button className={tab==='settings'?'on':''} onClick={()=>setTab('settings')}>학년도 설정</button>
       </div>
       <div className="spacer"/>
       {undoN>0 && <button className="btn" onClick={undo}>되돌리기 ({undoN})</button>}
       <span className="who">{email ? `${myRole?.name||email}${myRole?` · ${myRole.type}${myRole.classId?' '+myRole.classId:''}`:' · 역할 미지정'}` : '로그인 안 됨 (보기만 가능)'}{adminOn && ' · 관리자'}</span>
       {email ? <button className="btn" onClick={()=>signOut(auth)}>로그아웃</button> : <button className="btn" onClick={googleLogin}>학교 계정으로 로그인</button>}
       {email && !myRole && <button className="btn" onClick={()=>setModal({type:'role', email, name:user.displayName})}>역할 선택</button>}
-      {!adminOn && <button className="btn" onClick={()=>setModal({type:'admin'})}>관리자</button>}
+      {isAdmin ? <button className="btn" onClick={()=>window.open(location.pathname+'#/admin','tt_admin')}>⚙ 학년도 설정 ↗</button> : <button className="btn" onClick={()=>setModal({type:'admin'})}>관리자</button>}
+      <span className="hint" style={{fontSize:12}}>{VERSION}</span>
     </div>
 
-    {tab==='class' && <ClassView {...{ year, classList, teachers, ctt, lessons, lectures, canEditClass, requestMove, onUpload, toast }} />}
-    {tab==='teacher' && <TeacherView {...{ year, teachers, ctt, lessons, canEditTeacher, requestMove }} />}
-    {tab==='lecture' && <LectureView {...{ year, bell, classList, teachers, ctt, lessons, lectures, bookings, canEditLecture, saveLecture, deleteLecture, toast, setModal }} />}
+    {tab==='class' && <ClassView key={'c'+homeKey} defaultCid={myRole?.classId} {...{ year, classList, teachers, ctt, lessons, lectures, canEditClass, requestMove, onUpload, toast }} />}
+    {tab==='teacher' && <TeacherView key={'t'+homeKey} defaultTid={myRole?.teacherId} {...{ year, teachers, ctt, lessons, canEditTeacher, requestMove }} />}
+    {tab==='lecture' && <LectureView key={'l'+homeKey} defaultGrade={myRole?.grade} {...{ year, bell, classList, teachers, ctt, lessons, lectures, bookings, canEditLecture, saveLecture, deleteLecture, toast, setModal }} />}
     {tab==='room' && <RoomView {...{ year, bell, classList, teachers, ctt, lessons, bookings, lectures, canBook, addBooking, deleteBooking, myRole, toast, setModal, goLecture: ()=>setTab('lecture') }} />}
     {tab==='calendar' && <CalendarView {...{ calEvents, calAppId, lectures }} />}
-    {tab==='settings' && <Settings {...{ year, teachers, roles, isAdmin, classList, toast, log }} />}
 
     {modal?.type==='confirm' && <Modal title={modal.title} onClose={()=>setModal(null)}>{modal.body}<div className="row">{modal.actions.map((a,i)=><button key={i} className={'btn'+(a.primary?' primary':'')} onClick={a.on}>{a.label}</button>)}</div></Modal>}
     {modal?.type==='book' && <BookModal room={modal.room} date={modal.date} p={modal.p} classList={classList} myRole={myRole} onClose={()=>setModal(null)} onSave={async(b,n)=>{ await addBooking(b,n); setModal(null); toast('예약했습니다.'); }} />}
@@ -519,8 +540,8 @@ function Grid({ weeks, renderCell, notes, onDragStart, onDrop, canDrop }) {
 }
 
 // ---------- 담임시간표 ----------
-function ClassView({ year, classList, teachers, ctt, lessons, lectures, canEditClass, requestMove, onUpload, toast }) {
-  const [cid, setCid] = useState(location.hash.match(/#\/class\/([^/]+)/)?.[1] || classList[0] || '');
+function ClassView({ year, classList, teachers, ctt, lessons, lectures, canEditClass, requestMove, onUpload, toast, defaultCid }) {
+  const [cid, setCid] = useState(location.hash.match(/#\/class\/([^/]+)/)?.[1] || defaultCid || classList[0] || '');
   const [sem, setSem] = useState(1);
   const [showAll, setShowAll] = useState(false);
   const dragRef = useRef(null);
@@ -570,8 +591,8 @@ function ClassView({ year, classList, teachers, ctt, lessons, lectures, canEditC
 }
 
 // ---------- 전담시간표 ----------
-function TeacherView({ year, teachers, ctt, lessons, canEditTeacher, requestMove }) {
-  const [tid, setTid] = useState(location.hash.match(/#\/teacher\/([^/]+)/)?.[1] || teachers[0]?.id || '');
+function TeacherView({ year, teachers, ctt, lessons, canEditTeacher, requestMove, defaultTid }) {
+  const [tid, setTid] = useState(location.hash.match(/#\/teacher\/([^/]+)/)?.[1] || defaultTid || teachers[0]?.id || '');
   const [sem, setSem] = useState(1);
   const dragRef = useRef(null);
   useEffect(()=>{ if (!tid && teachers.length) setTid(teachers[0].id); }, [teachers]);
@@ -611,7 +632,7 @@ function TeacherView({ year, teachers, ctt, lessons, canEditTeacher, requestMove
 function Settings({ year, teachers, roles, isAdmin, classList, toast, log }) {
   const [y, setY] = useState(year); const [ts, setTs] = useState(teachers);
   useEffect(()=>setY(year),[year]); useEffect(()=>setTs(teachers),[teachers]);
-  if (!isAdmin) return <div className="empty">관리자만 설정할 수 있습니다. 오른쪽 위 [관리자]를 눌러 주세요.</div>;
+  if (!isAdmin) return null;
   const saveYear = async () => { const { roomsText, ...rest } = y; const rooms = (roomsText ?? (y.rooms||[]).map(r=>r.name).join(',')).split(/[,，]+/).map(x=>x.trim()).filter(Boolean).map(name=>({name})); await setDoc(sref('year'), { ...rest, rooms, bell: y.bell||DEFAULT_BELL }, { merge:true }); toast('학년도 설정을 저장했습니다.'); log('settings','학년도 설정 저장'); };
   const bellG = (y.bell||DEFAULT_BELL).groups;
   const setBell = groups => setY({ ...y, bell: { groups } });
@@ -688,8 +709,8 @@ function Settings({ year, teachers, roles, isAdmin, classList, toast, log }) {
 
 
 // ---------- 외부강의 · 비교과 배정 (학년부장) ----------
-function LectureView({ year, bell, classList, teachers, ctt, lessons, lectures, bookings, canEditLecture, saveLecture, deleteLecture, toast, setModal }) {
-  const [grade, setGrade] = useState('6');
+function LectureView({ year, bell, classList, teachers, ctt, lessons, lectures, bookings, canEditLecture, saveLecture, deleteLecture, toast, setModal, defaultGrade }) {
+  const [grade, setGrade] = useState(defaultGrade ? String(defaultGrade) : '6');
   const [editing, setEditing] = useState(null); // lecture object being edited
   const grades = ['1','2','3','4','5','6','유'];
   const list = Object.values(lectures).filter(l=>String(l.grade)===grade).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
