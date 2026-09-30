@@ -131,6 +131,12 @@ const sha256 = async s => { const b = await crypto.subtle.digest('SHA-256', new 
 const nowIso = () => new Date().toISOString();
 const isGray = hex => { if(!hex||hex==='none') return false; const m=hex.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i); if(!m) return false; const [r,g,b]=[1,2,3].map(i=>parseInt(m[i],16)); return Math.abs(r-g)<8 && Math.abs(g-b)<8 && r<0xF5; };
 const isColor = hex => hex && hex!=='none' && !isGray(hex);
+// 전담 설정용 과목 목록 (글자 = 연간시간표 칸의 글자). 창체는 '창'으로 통일하되 자·동·봉·진도 창체로 인식
+const SUBJECTS = [['국','국어'],['수','수학'],['사','사회'],['도','도덕'],['과','과학'],['실','실과'],['체','체육'],['음','음악'],['미','미술'],['영','영어'],['바','바른 생활'],['슬','슬기로운 생활'],['즐','즐거운 생활'],['창','창체 (창·자·동·봉·진)']];
+const SUBJECT_ALIAS = { '창': ['창','자','동','봉','진'] };
+const canonSubject = t => Object.entries(SUBJECT_ALIAS).find(([k,v]) => v.includes(t))?.[0] || t;
+const matchSubject = (subject, t) => (SUBJECT_ALIAS[subject] || [subject]).includes(t);
+const subjectName = l => SUBJECTS.find(x=>x[0]===l)?.[1] || l;
 
 // ---------- hwpx 파서 ----------
 const NS = { hp:'http://www.hancom.co.kr/hwpml/2011/paragraph', hh:'http://www.hancom.co.kr/hwpml/2011/head', hc:'http://www.hancom.co.kr/hwpml/2011/core' };
@@ -222,7 +228,7 @@ function computeAssignments(parsed, teachers, patternChoices) {
     for (const sub of tc.subjects) {
       const s = sub.subject; if (!s || !(sub.classes||[]).includes(parsed.classId)) continue;
       const pid = `${tc.id}|${s}`;
-      const cand = Object.entries(parsed.grid).filter(([k,v]) => v.t===s && v.k!=='h');
+      const cand = Object.entries(parsed.grid).filter(([k,v]) => matchSubject(s, v.t) && v.k!=='h');
       let chosen = [];
       if (sub.coverage==='full') chosen = cand;
       else {
@@ -236,9 +242,9 @@ function computeAssignments(parsed, teachers, patternChoices) {
           chosen = cand.filter(([k]) => { const { date, p } = parseKey(k); const d = (new Date(date+'T00:00:00').getDay()+6)%7; return choice.includes(`${d}-${p}`); });
         }
       }
-      for (const [k,v] of chosen) { if (slots[k] && slots[k].teacherId!==tc.id) report.push({ teacher: tc, subject: s, dup: `${k} 칸을 다른 전담도 담당으로 설정되어 있습니다.` }); slots[k] = { t: s, teacherId: tc.id, from: 'hwpx' }; }
+      for (const [k,v] of chosen) { if (slots[k] && slots[k].teacherId!==tc.id) report.push({ teacher: tc, subject: s, dup: `${k} 칸을 다른 전담도 담당으로 설정되어 있습니다.` }); slots[k] = { t: v.t, teacherId: tc.id, from: 'hwpx' }; }
       const coloredN = cand.filter(([k,v]) => v.bg).length;
-      const fileTotal = Object.entries(parsed.totals).find(([n]) => n.startsWith(s))?.[1] ?? null;
+      const fileTotal = s==='창' ? (parsed.totals['창체'] ?? (['자율','동아리','봉사','진로'].reduce((a,n)=>a+(parsed.totals[n]||0),0) || null)) : (Object.entries(parsed.totals).find(([n]) => n.startsWith(s))?.[1] ?? null);
       const expected = sub.coverage==='full' ? fileTotal : (sub.semHours ? Number(sub.semHours) : null);
       const warn = sub.coverage==='full' && coloredN>0 && coloredN<cand.length ? `색칠된 칸은 ${coloredN}개인데 전체 ${cand.length}개를 전담으로 잡았습니다. 담임과 나누는 과목이면 설정을 "일부 전담"으로 바꿔 주세요.` : null;
       report.push({ teacher: tc, subject: s, pid, count: chosen.length, expected, coverage: sub.coverage, warn });
@@ -494,7 +500,7 @@ function TeacherView({ year, teachers, ctt, lessons, canEditTeacher, requestMove
   const weeks = year.semesters?.[sem]?.weeks || [];
   // 슬롯별 이 전담의 수업 목록
   const mine = useMemo(() => { const m = {}; for (const [id,L] of Object.entries(lessons)) { if (!id.endsWith('_'+sem)) continue; for (const [k,v] of Object.entries(L.slots||{})) if (v.teacherId===tid) (m[k]=m[k]||[]).push({ classId: L.classId, ...v }); } return m; }, [lessons, tid, sem]);
-  const counts = useMemo(() => { const c = {}; for (const arr of Object.values(mine)) for (const l of arr) { const k=`${l.t}|${l.classId}`; c[k]=(c[k]||0)+1; } return c; }, [mine]);
+  const counts = useMemo(() => { const c = {}; for (const arr of Object.values(mine)) for (const l of arr) { const k=`${canonSubject(l.t)}|${l.classId}`; c[k]=(c[k]||0)+1; } return c; }, [mine]);
   const holiday = key => { const ids = teacherClasses(t||{}).map(c=>`${c}_${sem}`).filter(i=>ctt[i]); if (!ids.length) return null; const cells = ids.map(i=>ctt[i].cells?.[key]).filter(Boolean); if (cells.length && cells.every(c=>c.k==='h')) return cells[0].t; return null; };
   const renderCell = (key) => {
     const arr = mine[key];
@@ -545,7 +551,7 @@ function Settings({ year, teachers, roles, isAdmin, classList, toast, log }) {
       <div className="row" style={{display:'flex',justifyContent:'flex-end',marginTop:12}}><button className="btn primary" onClick={saveYear}>학년도 설정 저장</button></div>
     </div>
     <div className="card"><h3>전담 교사</h3>
-      <p className="hint" style={{marginTop:0}}>한 사람이 여러 과목을 맡으면 담당 항목을 줄로 추가합니다(예: 체육 전담이 1학년 통합 놀이체육도 맡는 경우). 과목 글자는 연간시간표 칸의 글자(과, 영, 체, 통, 자, 동…)와 같아야 하고, "일부 전담"은 담임과 나누는 과목으로 파일의 색칠 칸만 잡습니다. 학기 시수(학급당)를 넣으면 업로드 때 개수를 대조합니다.</p>
+      <p className="hint" style={{marginTop:0}}>한 사람이 여러 과목을 맡으면 담당 항목을 줄로 추가합니다(예: 체육 전담이 1학년 통합 놀이체육도 맡는 경우). 창체는 "창"을 고르면 파일의 창·자·동·봉·진 칸을 모두 창체로 인식합니다. "일부 전담"은 담임과 나누는 과목으로 파일의 색칠 칸만 잡습니다. 학기 시수(학급당)를 넣으면 업로드 때 개수를 대조합니다.</p>
       {ts.map((t0,i)=>{ const t = normTeacher(t0); const updT = (k,v)=>setTs(a=>a.map((x,j)=>j===i?{...normTeacher(x),[k]:v}:x)); const updS = (si,k,v)=>updT('subjects', t.subjects.map((x,j)=>j===si?{...x,[k]:v}:x));
         return <div key={i} style={{border:'1px solid var(--line)',borderRadius:8,padding:'10px 12px',marginBottom:10}}>
         <div style={{display:'flex',gap:8,alignItems:'center',marginBottom:6}}>
@@ -557,9 +563,9 @@ function Settings({ year, teachers, roles, isAdmin, classList, toast, log }) {
           <div className="spacer"/>
           <button className="btn danger" style={{padding:'2px 8px'}} onClick={()=>setTs(a=>a.filter((_,j)=>j!==i))}>교사 삭제</button>
         </div>
-        <table className="form"><thead><tr><th style={{width:70}}>과목</th><th style={{width:110}}>범위</th><th>담당 학급 (쉼표로)</th><th style={{width:90}}>학기 시수</th><th style={{width:40}}></th></tr></thead>
+        <table className="form"><thead><tr><th style={{width:190}}>과목</th><th style={{width:110}}>범위</th><th>담당 학급 (쉼표로)</th><th style={{width:90}}>학기 시수</th><th style={{width:40}}></th></tr></thead>
         <tbody>{t.subjects.map((sub,si)=><tr key={si}>
-          <td><input value={sub.subject||''} maxLength={2} onChange={e=>updS(si,'subject',e.target.value)}/></td>
+          <td><select value={sub.subject||''} onChange={e=>updS(si,'subject',e.target.value)}><option value="">선택</option>{SUBJECTS.map(([l,n])=><option key={l} value={l}>{l} · {n}</option>)}</select></td>
           <td><select value={sub.coverage||'full'} onChange={e=>updS(si,'coverage',e.target.value)}><option value="full">전체 전담</option><option value="partial">일부 전담</option></select></td>
           <td><input value={sub.classesText ?? (sub.classes||[]).join(', ')} placeholder="6-1, 6-2, 6-3" onChange={e=>updS(si,'classesText',e.target.value)}/></td>
           <td><input type="number" min="0" value={sub.semHours||''} placeholder="학급당" onChange={e=>updS(si,'semHours',e.target.value)}/></td>
@@ -573,9 +579,13 @@ function Settings({ year, teachers, roles, isAdmin, classList, toast, log }) {
       </div>
     </div>
     <div className="card"><h3>역할 (로그인한 교사)</h3>
+      <p className="hint" style={{marginTop:0}}>관리자 권한은 여기서만 줄 수 있습니다. 관리자로 지정된 계정은 로그인만 하면 모든 학급·전담 시간표 편집과 설정이 가능합니다(암호 불필요).</p>
       {Object.keys(roles).length===0 ? <p className="hint">아직 로그인한 교사가 없습니다. 각자 학교 계정으로 로그인하면 역할을 고르게 되고 여기에 나타납니다.</p>
       : <table className="form"><thead><tr><th>이메일</th><th>이름</th><th>역할</th><th>대상</th><th></th></tr></thead><tbody>
-        {Object.entries(roles).map(([em,r])=><tr key={em}><td>{em}</td><td>{r.name}</td><td>{r.type}</td><td>{r.classId||r.grade||teachers.find(t=>t.id===r.teacherId)?.name||''}</td><td><button className="btn danger" style={{padding:'2px 8px'}} onClick={async()=>{ const b={...roles}; delete b[em]; await setDoc(sref('roles'),{byEmail:b}); }}>삭제</button></td></tr>)}
+        {Object.entries(roles).map(([em,r])=><tr key={em}><td>{em}</td><td>{r.name}</td><td>{r.type}</td><td>{r.classId||(r.grade?r.grade+'학년':'')||teachers.find(t=>t.id===r.teacherId)?.name||(r.type==='관리자'?'전체':'')}</td><td style={{whiteSpace:'nowrap'}}>
+          {r.type!=='관리자' ? <button className="btn" style={{padding:'2px 8px',marginRight:6}} onClick={async()=>{ await setDoc(sref('roles'),{byEmail:{...roles,[em]:{...r,type:'관리자',prev:r}}}); toast(`${r.name||em}에게 관리자 권한을 주었습니다.`); }}>관리자로</button>
+           : <button className="btn" style={{padding:'2px 8px',marginRight:6}} onClick={async()=>{ const b={...roles}; b[em]=r.prev||{...r,type:'담임'}; await setDoc(sref('roles'),{byEmail:b}); }}>관리자 해제</button>}
+          <button className="btn danger" style={{padding:'2px 8px'}} onClick={async()=>{ const b={...roles}; delete b[em]; await setDoc(sref('roles'),{byEmail:b}); }}>삭제</button></td></tr>)}
       </tbody></table>}
     </div>
   </div>;
@@ -596,7 +606,7 @@ function RoleModal({ email, name, classList, teachers, onSave, onClose }) {
     <p className="hint" style={{marginTop:0}}>{email}</p>
     <table className="form"><tbody>
       <tr><th style={{width:90}}>이름</th><td><input value={nm} onChange={e=>setNm(e.target.value)}/></td></tr>
-      <tr><th>역할</th><td><select value={type} onChange={e=>setType(e.target.value)}><option>담임</option><option>전담</option><option>학년부장</option><option>관리자</option></select></td></tr>
+      <tr><th>역할</th><td><select value={type} onChange={e=>setType(e.target.value)}><option>담임</option><option>전담</option><option>학년부장</option></select></td></tr>
       {type==='담임' && <tr><th>학급</th><td><select value={classId} onChange={e=>setClassId(e.target.value)}>{classList.map(c=><option key={c} value={c}>{classLabel(c)}</option>)}</select></td></tr>}
       {type==='전담' && <tr><th>전담</th><td><select value={teacherId} onChange={e=>setTeacherId(e.target.value)}>{teachers.map(t=><option key={t.id} value={t.id}>{t.name} ({teacherSubjects(t)})</option>)}</select></td></tr>}
       {type==='학년부장' && <tr><th>학년</th><td><select value={grade} onChange={e=>setGrade(e.target.value)}>{[1,2,3,4,5,6].map(g=><option key={g} value={g}>{g}학년</option>)}</select></td></tr>}
