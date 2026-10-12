@@ -25,6 +25,9 @@
   
   <!-- Babel for JSX -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- SheetJS: 엑셀(xlsx) 가져오기·양식 다운로드용 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body class="bg-gray-50">
   <div id="root"></div>
@@ -646,24 +649,55 @@
         return rows.filter(r => r.some(c => c.trim() !== ''));
       };
 
+      // 날짜를 YYYY-MM-DD 로 통일 (2026-9-1, 2026.09.01, 2026/9/1, 20260901, 엑셀 날짜 숫자 등 허용)
+      const normalizeDate = (v) => {
+        if (v === undefined || v === null) return '';
+        if (v instanceof Date && !isNaN(v)) return formatDate(v);
+        if (typeof v === 'number') {
+          // 엑셀 날짜 일련번호 (1900-01-01 기준)
+          const d = new Date(Math.round((v - 25569) * 86400 * 1000));
+          return isNaN(d) ? '' : formatDate(new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+        }
+        const s = String(v).trim();
+        let m = s.match(/^(\d{4})[.\-\/년]\s*(\d{1,2})[.\-\/월]\s*(\d{1,2})일?\.?(?:\s.*)?$/);
+        if (!m) m = s.match(/^(\d{4})(\d{2})(\d{2})$/);
+        if (!m) return s;
+        const y = m[1], mo = String(m[2]).padStart(2, '0'), d = String(m[3]).padStart(2, '0');
+        return `${y}-${mo}-${d}`;
+      };
+
       const normalizeImported = (obj) => {
+        // 머리글의 공백 제거 후 비교 (예: "교육 활동 내용" → "교육활동내용")
+        const cleaned = {};
+        Object.keys(obj).forEach(k => { cleaned[String(k).replace(/\s|﻿/g, '').toLowerCase()] = obj[k]; });
         const pick = (...keys) => {
           for (const k of keys) {
-            if (obj[k] !== undefined && obj[k] !== null && String(obj[k]).trim() !== '') return String(obj[k]).trim();
+            const v = cleaned[k.toLowerCase()];
+            if (v !== undefined && v !== null && String(v).trim() !== '') return v;
           }
           return '';
         };
-        const important = pick('isImportant', '중요', '중요여부').toLowerCase();
+        const str = (v) => (v instanceof Date ? formatDate(v) : String(v)).trim();
+        const important = str(pick('isImportant', '중요', '중요여부', '중요일정')).toLowerCase();
         return {
-          date: pick('date', '날짜'),
-          time: pick('time', '시간'),
-          department: pick('department', '부서'),
-          activity: pick('activity', '교육활동내용', '내용'),
-          manager: pick('manager', '담당자'),
-          location: pick('location', '장소'),
-          note: pick('note', '비고'),
-          isImportant: ['y', 'true', '1', 'o', '예', '중요'].includes(important)
+          date: normalizeDate(pick('date', '날짜', '일자')),
+          time: str(pick('time', '시간')),
+          department: str(pick('department', '부서', '담당부서')),
+          activity: str(pick('activity', '교육활동내용', '교육활동', '활동내용', '내용', '행사명', '행사', '일정')),
+          manager: str(pick('manager', '담당자', '담당')),
+          location: str(pick('location', '장소')),
+          note: str(pick('note', '비고', '메모')),
+          isImportant: ['y', 'true', '1', 'o', '○', '예', '중요', '★', '*', 'v'].includes(important)
         };
+      };
+
+      // 파일 인코딩 자동 판별: UTF-8로 읽어보고 실패하면 EUC-KR(한글 엑셀 저장 CSV)로 다시 읽기
+      const decodeText = (buffer) => {
+        try {
+          return new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+        } catch (_) {
+          return new TextDecoder('euc-kr').decode(buffer);
+        }
       };
 
       const handleImportFile = (e) => {
@@ -673,13 +707,20 @@
         reader.onload = () => {
           try {
             let raw = [];
-            const text = String(reader.result);
-            if (file.name.toLowerCase().endsWith('.json')) {
-              const parsed = JSON.parse(text);
+            const name = file.name.toLowerCase();
+            const buffer = reader.result;
+
+            if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
+              if (typeof XLSX === 'undefined') throw new Error('엑셀 라이브러리를 불러오지 못했습니다.');
+              const wb = XLSX.read(new Uint8Array(buffer), { type: 'array', cellDates: true });
+              const ws = wb.Sheets[wb.SheetNames[0]];
+              raw = XLSX.utils.sheet_to_json(ws, { defval: '', raw: true });
+            } else if (name.endsWith('.json')) {
+              const parsed = JSON.parse(decodeText(buffer));
               if (!Array.isArray(parsed)) throw new Error('배열 형식이 아닙니다.');
               raw = parsed;
             } else {
-              const rows = parseCSV(text);
+              const rows = parseCSV(decodeText(buffer));
               if (rows.length < 2) throw new Error('데이터 행이 없습니다.');
               const header = rows[0].map(h => h.trim());
               raw = rows.slice(1).map(r => {
@@ -690,22 +731,65 @@
             }
 
             const normalized = raw.map(normalizeImported);
-            const bad = normalized.filter(r => !/^\d{4}-\d{2}-\d{2}$/.test(r.date) || !r.activity);
-            const good = normalized.filter(r => /^\d{4}-\d{2}-\d{2}$/.test(r.date) && r.activity);
+            const isValid = (r) => /^\d{4}-\d{2}-\d{2}$/.test(r.date) && r.activity;
+            const bad = normalized.filter(r => !isValid(r));
+            const good = normalized.filter(isValid);
 
-            setImportState(prev => ({
-              ...prev,
-              fileName: file.name,
-              rows: good,
-              error: bad.length > 0 ? `날짜(YYYY-MM-DD) 또는 교육활동내용이 없는 ${bad.length}줄은 제외됩니다.` : ''
-            }));
+            let error = '';
+            if (good.length === 0) {
+              error = `등록할 수 있는 일정이 없습니다. 첫 줄 머리글이 "날짜, 교육활동내용 …" 인지, 날짜가 2026-09-01 형식인지 확인해주세요. (읽은 줄 ${raw.length}개, 머리글: ${Object.keys(raw[0] || {}).slice(0, 8).join(', ') || '없음'})`;
+            } else if (bad.length > 0) {
+              error = `날짜 또는 교육활동내용이 없는 ${bad.length}줄은 제외됩니다.`;
+            }
+
+            setImportState(prev => ({ ...prev, fileName: file.name, rows: good, error }));
           } catch (err) {
             console.error('Import parse error:', err);
-            setImportState(prev => ({ ...prev, fileName: file.name, rows: [], error: '파일을 읽지 못했습니다. JSON 배열 또는 CSV 형식인지 확인해주세요.' }));
+            setImportState(prev => ({ ...prev, fileName: file.name, rows: [], error: `파일을 읽지 못했습니다. (${err.message}) 엑셀(xlsx), CSV, JSON 형식인지 확인해주세요.` }));
           }
         };
-        reader.readAsText(file, 'utf-8');
+        reader.readAsArrayBuffer(file);
         e.target.value = '';
+      };
+
+      // 일정 가져오기 양식 파일 다운로드
+      const TEMPLATE_HEADER = ['날짜', '시간', '부서', '교육활동내용', '담당자', '장소', '비고', '중요'];
+      const TEMPLATE_ROWS = [
+        ['2026-09-01', '09:00', '교무부', '2학기 개학식', '교무부장', '강당', '', 'Y'],
+        ['2026-09-03', '', '연구부', '교직원 연수', '연구부장', '시청각실', '14:30 시작', 'N'],
+        ['2026-09-10', '10:00', '학생부', '학교폭력 예방 교육', '학생부장', '각 교실', '', ''],
+      ];
+
+      const downloadTemplateCSV = () => {
+        const q = (v) => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
+        const csv = [TEMPLATE_HEADER, ...TEMPLATE_ROWS].map(r => r.map(q).join(',')).join('\n') + '\n';
+        downloadFile(csv, '일정가져오기_양식.csv', 'text/csv;charset=utf-8;');
+        showToast('CSV 양식 파일을 내려받았습니다. 예시 줄은 지우고 사용하세요.');
+      };
+
+      const downloadTemplateXLSX = () => {
+        if (typeof XLSX === 'undefined') { showToast('엑셀 라이브러리를 불러오지 못했습니다. CSV 양식을 이용해주세요.', 'error'); return; }
+        const ws = XLSX.utils.aoa_to_sheet([TEMPLATE_HEADER, ...TEMPLATE_ROWS]);
+        ws['!cols'] = [12, 8, 10, 30, 12, 14, 20, 6].map(w => ({ wch: w }));
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, '일정');
+        const guide = XLSX.utils.aoa_to_sheet([
+          ['항목', '설명'],
+          ['날짜', '필수. 2026-09-01 형식 (엑셀 날짜 서식도 가능)'],
+          ['시간', '선택. 예: 09:00, 14:30 / 비워두면 시간 없음'],
+          ['부서', '선택. 예: 교무부, 연구부'],
+          ['교육활동내용', '필수. 일정 이름'],
+          ['담당자', '선택'],
+          ['장소', '선택'],
+          ['비고', '선택'],
+          ['중요', '선택. 중요 일정이면 Y, 아니면 비워두기'],
+          ['', ''],
+          ['※ "일정" 시트의 예시 3줄은 지우고 실제 일정을 입력한 뒤, 관리자 모드 > 내보내기·가져오기 에서 파일을 올리세요.', ''],
+        ]);
+        guide['!cols'] = [{ wch: 14 }, { wch: 60 }];
+        XLSX.utils.book_append_sheet(wb, guide, '작성방법');
+        XLSX.writeFile(wb, '일정가져오기_양식.xlsx');
+        showToast('엑셀 양식 파일을 내려받았습니다. 예시 줄은 지우고 사용하세요.');
       };
 
       const runImport = async () => {
@@ -1505,21 +1589,38 @@
 
                   <div className="border-t border-gray-200 pt-5">
                     <h4 className="font-bold text-sm mb-1 flex items-center"><Upload size={16} className="mr-1.5 text-blue-600" /> 파일에서 일정 가져오기</h4>
-                    <p className="text-xs text-gray-500 mb-3">
-                      CSV 또는 JSON 파일을 올릴 수 있습니다. CSV 첫 줄은 <span className="font-mono bg-gray-100 px-1 rounded">날짜,시간,부서,교육활동내용,담당자,장소,비고,중요</span> 이어야 하고, 날짜는 2026-09-01 형식입니다. 날짜와 교육활동내용이 없는 줄은 건너뜁니다.
+                    <p className="text-xs text-gray-500 mb-2">
+                      엑셀(xlsx), CSV, JSON 파일을 올릴 수 있습니다. 첫 줄은 <span className="font-mono bg-gray-100 px-1 rounded">날짜,시간,부서,교육활동내용,담당자,장소,비고,중요</span> 순서이고, 날짜는 2026-09-01 형식입니다. 날짜와 교육활동내용이 없는 줄은 건너뜁니다.
                     </p>
 
-                    <input ref={fileInputRef} type="file" accept=".csv,.json" onChange={handleImportFile} className="hidden" />
+                    <div className="flex flex-wrap items-center gap-2 mb-3 text-xs">
+                      <span className="text-gray-600 font-semibold">① 양식 내려받기:</span>
+                      <button onClick={downloadTemplateXLSX} className="flex items-center gap-1 px-3 py-1.5 bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 rounded font-medium">
+                        <Sheet size={13} /> 엑셀 양식(.xlsx)
+                      </button>
+                      <button onClick={downloadTemplateCSV} className="flex items-center gap-1 px-3 py-1.5 bg-gray-50 text-gray-700 border border-gray-200 hover:bg-gray-100 rounded font-medium">
+                        <Download size={13} /> CSV 양식(.csv)
+                      </button>
+                    </div>
+
+                    <p className="text-xs text-gray-600 font-semibold mb-1">② 작성한 파일 올리기:</p>
+                    <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv,.json" onChange={handleImportFile} className="hidden" />
                     <button onClick={() => fileInputRef.current && fileInputRef.current.click()} className="w-full py-3 border-2 border-dashed border-gray-300 rounded text-sm text-gray-500 hover:border-blue-400 hover:text-blue-600 flex items-center justify-center gap-1">
-                      <Upload size={16} /> {importState.fileName || 'CSV / JSON 파일 선택'}
+                      <Upload size={16} /> {importState.fileName || '엑셀 / CSV / JSON 파일 선택'}
                     </button>
 
                     {importState.error && <p className="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">{importState.error}</p>}
 
+                    {importState.fileName && importState.rows.length === 0 && (
+                      <div className="mt-2 flex justify-end">
+                        <button onClick={() => setImportState({ fileName: '', rows: [], error: '', mode: 'append', busy: false })} className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded">다른 파일 선택</button>
+                      </div>
+                    )}
+
                     {importState.rows.length > 0 && (
-                      <div className="mt-4 border border-gray-200 rounded p-3 bg-gray-50">
-                        <p className="text-sm font-semibold mb-2 flex items-center">
-                          <Database size={15} className="mr-1.5 text-gray-500" /> 등록할 일정 {importState.rows.length}건
+                      <div className="mt-4 border-2 border-blue-200 rounded p-3 bg-blue-50">
+                        <p className="text-sm font-semibold mb-2 flex items-center text-blue-900">
+                          <Database size={15} className="mr-1.5 text-blue-600" /> ③ 등록할 일정 {importState.rows.length}건 — 확인 후 아래 <span className="mx-1 px-1.5 bg-[#2563EB] text-white rounded text-xs">등록하기</span> 버튼을 눌러야 저장됩니다
                         </p>
                         <div className="max-h-32 overflow-y-auto text-xs text-gray-600 space-y-1 mb-3">
                           {importState.rows.slice(0, 20).map((r, i) => (
