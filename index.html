@@ -1930,7 +1930,7 @@
                           </button>
                         </td>
                         <td className={`py-1.5 px-2 text-center whitespace-nowrap ${dayName === '일' ? 'text-red-500' : dayName === '토' ? 'text-blue-500' : ''}`}>{dayName}</td>
-                        <td className="py-1.5 px-3 text-center"><div className="w-28 mx-auto break-keep leading-tight">{ev.time}</div></td>
+                        <td className="py-1.5 px-3 text-center"><div className="w-28 mx-auto break-all whitespace-normal leading-tight">{ev.time}</div></td>
                         <td className="py-1.5 px-2 text-center whitespace-nowrap"><DeptBadge name={ev.department} map={deptMap} /></td>
                         <td className="py-1.5 px-4">
                           <div className="flex items-center">
@@ -1995,7 +1995,7 @@
                             </>
                           ) : null}
                           
-                          <td className="py-1.5 px-3 text-center"><div className="w-28 mx-auto break-keep leading-tight">{ev.time}</div></td>
+                          <td className="py-1.5 px-3 text-center"><div className="w-28 mx-auto break-all whitespace-normal leading-tight">{ev.time}</div></td>
                           <td className="py-1.5 px-2 text-center whitespace-nowrap"><DeptBadge name={ev.department} map={deptMap} /></td>
                           <td className="py-1.5 px-4">
                             <div className="flex items-center">
