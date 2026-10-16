@@ -139,7 +139,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = 'hwaseong-barun-timetable-test';
-const VERSION = 'v2.8';
+const VERSION = 'v2.9';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -365,7 +365,7 @@ function App() {
   const canEditClass = cid => isAdmin || (myRole?.type==='담임' && myRole.classId===cid);
   const canEditTeacher = tid => isAdmin || (myRole?.type==='전담' && myRole.teacherId===tid);
   const canEditLecture = grade => isAdmin || ((myRole?.type==='담임' || myRole?.type==='학년부장') && String(myRole.grade || gradeOf(myRole.classId))===String(grade));
-  const canBook = !!email || isAdmin;
+  const canBook = !!email || isAdmin || !!tryRole;
   const bell = year?.bell || DEFAULT_BELL;
   const editorName = () => tryRole ? `체험(${tryRole.name})` : (adminOn && !email ? '관리자' : (myRole?.name || email || '익명'));
 
