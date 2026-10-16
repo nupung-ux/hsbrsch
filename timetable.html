@@ -47,8 +47,7 @@
   .seg button{padding:6px 14px;border:none;background:#fff}
   .seg button.on{background:var(--ink);color:#fff}
   .wrap{padding:0 18px 40px}
-  html,body{overflow-x:auto}
-  table.tt thead th{position:sticky;z-index:6;box-shadow:inset 0 -1px 0 var(--line)}
+  table.tt thead th{position:sticky;z-index:6;background-clip:padding-box;box-shadow:inset 0 -1px 0 var(--line),inset -1px 0 0 var(--line)}
   table.tt thead tr:first-child th{top:var(--topbar,53px)}
   table.tt thead tr:nth-child(2) th{top:calc(var(--topbar,53px) + 35px)}
   table.tt thead tr:first-child th[rowspan]{top:var(--topbar,53px)}
@@ -150,7 +149,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = 'hwaseong-barun-timetable-test';
-const VERSION = 'v3.0';
+const VERSION = 'v3.1';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
