@@ -178,7 +178,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = 'hwaseong-barun-timetable-test';
-const VERSION = 'v4.6';
+const VERSION = 'v4.7';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -521,13 +521,14 @@ function App() {
     for (const k of keys) { if (slots[k]?.teacherId===teacherId && canonSubject(slots[k].t)===canonSubject(subject)) continue; const { reasons, hard } = checkDrop(classId, sem, teacherId, null, k); if (hard) { skipped.push(`${shortDate(parseKey(k).date)} — ${reasons[0]}`); continue; } if (reasons.length) soft.push(`${shortDate(parseKey(k).date)} — ${reasons.join(', ')}`); made.push(k); }
     if (!made.length && !skipped.length) return;
     const doAdd = async () => { const ns = { ...slots }; const removed = { ...(lessons[docId]?.removed||{}) }; for (const k of made) { ns[k] = { t: subject, teacherId, from:'manual' }; delete removed[k]; } await applyMove(docId, ns, `${classLabel(classId)} ${subject}(${tName}) ${made.length}칸 채우기`, { removed }); setModal(null); toast(`${made.length}칸 채웠습니다.`); };
-    if (!skipped.length && !soft.length) { doAdd(); return; }
-    setModal({ type:'confirm', title:'채우기 미리보기', body:<div style={{maxHeight:'55vh',overflow:'auto'}}><p style={{margin:'0 0 8px'}}><b>{classLabel(classId)} {subject}</b> ({tName}) · <b>{made.length}</b>칸</p>
+    const dates = made.map(k=>parseKey(k)).sort((a,b)=>a.date.localeCompare(b.date)||a.p-b.p);
+    setModal({ type:'confirm', title:'이대로 채울까요?', body:<div style={{maxHeight:'55vh',overflow:'auto'}}><p style={{margin:'0 0 8px'}}><b>{classLabel(classId)} {subject}</b> ({tName}) · <b>{made.length}</b>칸{dates.length>0 && <span className="hint"> · {shortDate(dates[0].date)} ~ {shortDate(dates.at(-1).date)}</span>}</p>
+      {made.length>0 && <div className="hint" style={{marginBottom:8,lineHeight:1.6}}>{dates.map(x=>`${shortDate(x.date)} ${x.p}`).join(', ')}</div>}
       {skipped.length>0 && <div style={{marginBottom:8}}><b className="warn">건너뜀 ({skipped.length})</b>{skipped.map((x,i)=><div key={i} className="hint">· {x}</div>)}</div>}
       {soft.length>0 && <div><b className="warn">확인 필요 ({soft.length})</b> — 행사 시간이지만 포함했습니다{soft.map((x,i)=><div key={i} className="hint">· {x}</div>)}</div>}</div>,
-      actions:[{label:'취소',on:()=>setModal(null)},{label:`${made.length}칸 채우기`,primary:true,on:doAdd}] });
+      actions:[{label:'취소',on:()=>setModal(null)},{label:made.length?`${made.length}칸 채우기`:'닫기',primary:true,on: made.length ? doAdd : ()=>setModal(null)}] });
   };
-  const askRepeat = (classId, sem, key, teacherId, subject) => setModal({ type:'repeat', key, onOnce: ()=>{ setModal(null); addLesson(classId, sem, key, teacherId, subject); }, onRepeat: (n)=>addLessonRepeat(classId, sem, key, teacherId, subject, n) });
+  const askRepeat = (classId, sem, key, teacherId, subject) => addLesson(classId, sem, key, teacherId, subject); // 반복은 채우기 핸들로 대체
   const addLesson = (classId, sem, key, teacherId, subject) => {
     const docId = `${classId}_${sem}`; const slots = lessons[docId]?.slots || {};
     const { reasons, hard } = checkDrop(classId, sem, teacherId, null, key);
@@ -724,8 +725,9 @@ function App() {
 // ---------- 연간표 격자 (담임·전담 공용) ----------
 function Grid({ weeks, renderCell, notes, onDragStart, onDrop, canDrop, dimPast, onCellClick, onNoteClick, onFill }) {
   const [over, setOver] = useState(null);
-  const [fill, setFill] = useState(null); // { fromKey, d, p, wi, toWi }
-  const fillKeys = useMemo(() => { if (!fill || fill.toWi==null) return new Set(); const a = Math.min(fill.wi, fill.toWi), b = Math.max(fill.wi, fill.toWi); const ks = new Set(); for (let i=a;i<=b;i++) { const k = slotKey(addDays(weeks[i].start, fill.d), fill.p); if (k!==fill.fromKey) ks.add(k); } return ks; }, [fill, weeks]);
+  const [fill, setFill] = useState(null); // { fromKey, col, wi, toWi, toCol }  (col = 요일*6 + 교시-1)
+  const fillKeys = useMemo(() => { if (!fill || fill.toWi==null) return new Set(); const a = Math.min(fill.wi, fill.toWi), b = Math.max(fill.wi, fill.toWi); const c1 = Math.min(fill.col, fill.toCol), c2 = Math.max(fill.col, fill.toCol); const ks = new Set();
+    for (let i=a;i<=b;i++) for (let c=c1;c<=c2;c++) { const k = slotKey(addDays(weeks[i].start, Math.floor(c/6)), (c%6)+1); if (k!==fill.fromKey) ks.add(k); } return ks; }, [fill, weeks]);
   useEffect(() => { if (!fill) return; document.body.classList.add('filling'); const up = () => { const ks = Array.from(fillKeys); setFill(null); if (ks.length && onFill) onFill(fill.fromKey, ks); }; addEventListener('mouseup', up); return () => { removeEventListener('mouseup', up); document.body.classList.remove('filling'); }; }, [fill, fillKeys]);
   return <table className="tt">
     <thead>
@@ -740,7 +742,7 @@ function Grid({ weeks, renderCell, notes, onDragStart, onDrop, canDrop, dimPast,
           const c = renderCell(key, date, p) || {};
           const droppable = onDrop && canDrop?.(key);
           return <td key={key} title={`${fmtDate(date)} ${p}교시${c.title?' · '+c.title:''}`}
-            onMouseEnter={fill && fill.d===di && fill.p===p ? ()=>setFill(f=>({ ...f, toWi: wi })) : undefined}
+            onMouseEnter={fill ? ()=>setFill(f=>({ ...f, toWi: wi, toCol: di*6+p-1 })) : undefined}
             className={['slot', p===1?'first':'', c.cls||'', over===key?(c.bad?'bad':'over'):'', dimPast&&isPast(date)?'past':'', fillKeys.has(key)?'fillsel':''].join(' ')}
             draggable={!!c.draggable}
             onDragStart={c.draggable ? e=>{ e.dataTransfer.effectAllowed='move'; onDragStart(key); } : undefined}
@@ -749,7 +751,7 @@ function Grid({ weeks, renderCell, notes, onDragStart, onDrop, canDrop, dimPast,
             onDrop={droppable ? e=>{ e.preventDefault(); setOver(null); onDrop(key); } : undefined}
             onClick={onCellClick ? ()=>onCellClick(key, date, p) : undefined}
             style={{ ...(c.style||{}), ...(onCellClick && c.clickable ? { cursor:'pointer' } : {}) }}
-          >{c.text||''}{onFill && c.fillable && <span className="fh" title="아래로 끌어서 같은 수업 채우기" onMouseDown={e=>{ e.preventDefault(); e.stopPropagation(); setFill({ fromKey:key, d:di, p, wi, toWi:null }); }} onClick={e=>e.stopPropagation()} />}</td>;
+          >{c.text||''}{onFill && c.fillable && <span className="fh" title="끌어서 같은 수업 채우기 (아래·옆 모두 가능)" onMouseDown={e=>{ e.preventDefault(); e.stopPropagation(); setFill({ fromKey:key, col:di*6+p-1, wi, toWi:null, toCol:null }); }} onClick={e=>e.stopPropagation()} />}</td>;
         }))}
         <td className={'note'+(onNoteClick?' ed':'')} title={(notes?.[w.no]||w.note||'')+(onNoteClick?' (누르면 수정)':'')} onClick={onNoteClick ? ()=>onNoteClick(w.no, notes?.[w.no]||w.note||'') : undefined}>{notes?.[w.no]||w.note||''}</td>
       </tr>)}
@@ -892,7 +894,7 @@ function TeacherView({ year, teachers, ctt, lessons, lectures, canEditTeacher, r
             if (arr.length===1) { requestMove(arr[0].classId, sem, from, k); return; }
             setModal({ type:'confirm', title:'어느 반을 옮길까요?', body:<p>{fmtDate(parseKey(from).date)} {parseKey(from).p}교시에 {arr.map(l=>classLabel(l.classId)).join(', ')} 수업이 겹쳐 있습니다. → {fmtDate(parseKey(k).date)} {parseKey(k).p}교시</p>,
               actions:[{label:'취소',on:()=>setModal(null)}, ...arr.map(l=>({ label: classLabel(l.classId)+' 옮기기', primary:true, on:()=>requestMove(l.classId, sem, from, k) }))] }); }} />
-        <p className="hint">빨간 테두리 = 같은 시간에 두 반. {edit && '빈 칸 누르면 추가, 수업 칸 누르면 삭제, 끌어서 놓으면 이동, 수업 칸 오른쪽 아래 점을 아래로 끌면 같은 수업 채우기 — 모두 그 반 담임시간표에도 함께 반영됩니다.'}</p>
+        <p className="hint">빨간 테두리 = 같은 시간에 두 반. {edit && '빈 칸 누르면 추가, 수업 칸 누르면 삭제, 끌어서 놓으면 이동, 수업 칸 오른쪽 아래 점을 끌면(아래·옆) 같은 수업 채우기 — 모두 그 반 담임시간표에도 함께 반영됩니다.'}</p>
       </div>}
   </div>;
 }
