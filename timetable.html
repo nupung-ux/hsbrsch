@@ -195,7 +195,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = 'hwaseong-barun-timetable-test';
-const VERSION = 'v5.6';
+const VERSION = 'v5.7';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -438,18 +438,23 @@ function App() {
   const calDoc = id => doc(db, 'artifacts', calAppId, 'public', 'data', 'school_events', id);
   useEffect(() => { if (!user || !year) return; return onSnapshot(query(calCol()), s => { const a=[]; s.forEach(d=>a.push({ id:d.id, ...d.data() })); a.sort((x,y)=>(x.date||'').localeCompare(y.date||'')); setCalEvents(a); }); }, [user, calAppId]);
   const email = user && !user.isAnonymous ? user.email : null;
-  const realRole = email ? roles[email] : null;
+  const accountRole = email ? roles[email] : null;            // 구글 계정에 연결된 역할
+  const [deviceRole, setDeviceRoleState] = useState(() => { try { return JSON.parse(localStorage.getItem('tt_device_role')||'null'); } catch { return null; } }); // 이 컴퓨터에 저장된 역할
+  const setDeviceRole = r => { try { r ? localStorage.setItem('tt_device_role', JSON.stringify(r)) : localStorage.removeItem('tt_device_role'); } catch {} setDeviceRoleState(r); };
+  const realRole = accountRole || deviceRole;                  // 계정 역할이 있으면 우선, 없으면 컴퓨터 역할
+  const roleSource = accountRole ? 'account' : deviceRole ? 'device' : null;
   const [tryRole, setTryRole] = useState(null); // 관리자용 역할 체험 (담임 4-1, 전담 ○○○ 으로 보기)
-  const myRole = tryRole || realRole;
+  const baseRole = realRole?.type==='관리자' && realRole.prev ? { ...realRole.prev, admin:true } : realRole; // 관리자도 원래 역할(전담 등)로 홈 이동
+  const myRole = tryRole || baseRole;
   const realAdmin = adminOn || realRole?.type==='관리자';
   const isAdmin = tryRole ? false : realAdmin;
   const canEditClass = cid => isAdmin || (myRole?.type==='담임' && myRole.classId===cid);
   const canEditTeacher = tid => isAdmin || (myRole?.type==='전담' && myRole.teacherId===tid);
   const canEditLecture = grade => isAdmin || ((myRole?.type==='담임' || myRole?.type==='학년부장') && String(myRole.grade || gradeOf(myRole.classId))===String(grade));
-  const canBook = !!email || isAdmin || !!tryRole;
+  const canBook = !!email || !!deviceRole || isAdmin || !!tryRole;
   const canSub = isAdmin || myRole?.type==='교무실무사';
   const bell = year?.bell || DEFAULT_BELL;
-  const editorName = () => tryRole ? `체험(${tryRole.name})` : (adminOn && !email ? '관리자' : (myRole?.name || email || '익명'));
+  const editorName = () => tryRole ? `체험(${tryRole.name})` : (myRole?.name || email || (adminOn ? '관리자' : '익명'));
 
   const goHome = () => { // 역할에 맞는 첫 화면: 담임 → 우리 반, 전담 → 내 시간표, 학년부장 → 우리 학년 외부강의
     if (myRole?.type==='전담') setTab('teacher'); else if (myRole?.type==='교무실무사') setTab('sub'); else setTab('class');
@@ -470,6 +475,10 @@ function App() {
     } catch (e) { toast(e.code==='auth/operation-not-allowed' ? 'Firebase 콘솔에서 Google 로그인을 먼저 켜야 합니다.' : '로그인에 실패했습니다: '+e.code, true); }
   };
   const saveRole = async (em, role) => {
+    if (em === '__device') { // 이 컴퓨터에 저장 (로그인 없이)
+      if (role.type==='전담' && role.teacherId==='__new') { const id = 't'+Math.random().toString(36).slice(2,8); const colors=['#fff3b0','#bfe6ff','#d5f5d0','#ffd6e0','#e8dcff','#ffe0b8'];
+        await setDoc(sref('teachers'), { list: [...teachers, { id, name: role.name||'전담', color: colors[teachers.length%6], type:'normal', subjects: [] }] }); role = { ...role, teacherId: id }; }
+      setDeviceRole(role); setModal(null); toast(role.type==='전담' ? '이 컴퓨터를 전담 역할로 저장했습니다. 전담시간표에서 [내 담당 설정]을 눌러 과목과 학급을 넣어 주세요.' : `이 컴퓨터를 ${role.type}${role.classId?' '+classLabel(role.classId):''} 역할로 저장했습니다.`); return; }
     if (role.type==='전담' && role.teacherId==='__new') { const id = 't'+Math.random().toString(36).slice(2,8); const colors=['#fff3b0','#bfe6ff','#d5f5d0','#ffd6e0','#e8dcff','#ffe0b8'];
       await setDoc(sref('teachers'), { list: [...teachers, { id, name: role.name||em, email: em, color: colors[teachers.length%6], type:'normal', subjects: [] }] }); role = { ...role, teacherId: id }; }
     await setDoc(sref('roles'), { byEmail: { ...roles, [em]: role } }, { merge: true }); setModal(null); toast(role.type==='전담' ? '등록했습니다. 전담시간표에서 [내 담당 설정]을 눌러 과목과 학급을 넣어 주세요.' : '역할을 저장했습니다.'); };
@@ -716,9 +725,12 @@ function App() {
           <optgroup label="전담으로 보기">{teachers.map(t=><option key={t.id} value={`전담:${t.id}`}>{t.name} ({teacherSubjects(t)})</option>)}</optgroup>
           <option value="교무실무사:x">교무실무사 (보결 관리)</option>
         </select></label>}
-      <span className="who">{tryRole ? `체험 중: ${tryRole.name}` : email ? `${myRole?.name||email}${myRole?` · ${myRole.type}${myRole.classId?' '+myRole.classId:''}`:' · 역할 미지정'}` : '로그인 안 됨 (보기만 가능)'}{adminOn && ' · 관리자'}</span>
-      {email ? <button className="btn" onClick={()=>signOut(auth)}>로그아웃</button> : <button className="btn" onClick={googleLogin}>학교 계정으로 로그인</button>}
-      {email && !myRole && <button className="btn" onClick={()=>setModal({type:'role', email, name:user.displayName})}>역할 선택</button>}
+      <span className="who" title={roleSource==='device' ? '이 컴퓨터에 저장된 역할입니다. 다른 컴퓨터에서는 다시 정하거나 학교 계정으로 로그인하세요.' : roleSource==='account' ? '학교 계정에 연결된 역할입니다.' : ''}>{tryRole ? `체험 중: ${tryRole.name}` : realRole ? `${roleSource==='device'?'이 컴퓨터: ':''}${realRole.name||email||''} · ${realRole.type}${realRole.classId?' '+classLabel(realRole.classId):''}${realRole.type==='관리자'&&realRole.prev?` (${realRole.prev.type}${realRole.prev.classId?' '+classLabel(realRole.prev.classId):''})`:''}` : email ? `${email} · 역할 미지정` : '역할 없음 (보기만 가능)'}{adminOn && ' · 관리자'}</span>
+      {!accountRole && (deviceRole
+        ? <button className="btn" onClick={()=>setModal({type:'confirm', title:'이 컴퓨터의 역할', body:<p>지금 이 컴퓨터는 <b>{deviceRole.name} · {deviceRole.type}{deviceRole.classId?' '+classLabel(deviceRole.classId):''}</b>으로 저장되어 있습니다.<br/><span className="hint">교실 컴퓨터처럼 한 사람이 쓰는 컴퓨터에만 저장해 두세요. 학교 계정으로 로그인하면 그 계정의 역할이 우선합니다.</span></p>, actions:[{label:'닫기',on:()=>setModal(null)},{label:'역할 지우기',on:()=>{ setDeviceRole(null); setModal(null); toast('이 컴퓨터의 역할을 지웠습니다.'); }},{label:'다시 정하기',primary:true,on:()=>setModal({type:'role', email:'__device', name:deviceRole.name})}] })}>이 컴퓨터 역할</button>
+        : <button className="btn primary" onClick={()=>setModal({type:'role', email:'__device', name:''})}>이 컴퓨터 역할 정하기</button>)}
+      {email ? <button className="btn" onClick={()=>signOut(auth)} title="로그아웃해도 이 컴퓨터에 저장한 역할은 남습니다">로그아웃</button> : <button className="btn" onClick={googleLogin} title="선택 사항 — 어느 컴퓨터에서든 내 역할로 쓰려면 학교 계정을 연결하세요">학교 계정 로그인</button>}
+      {email && !accountRole && <button className="btn" onClick={()=>setModal({type:'role', email, name:user.displayName})}>이 계정에 역할 연결</button>}
       {!isAdmin && <button className="btn" onClick={()=>setModal({type:'admin'})}>관리자</button>}
       <span className="hint" style={{fontSize:12}}>{VERSION}</span>
     </div>
@@ -1557,15 +1569,16 @@ function AdminModal({ adminHash, onOk, onClose }) {
 }
 function RoleModal({ email, name, classList, teachers, onSave, onClose }) {
   const [type, setType] = useState('담임'); const [classId, setClassId] = useState(classList[0]||''); const [teacherId, setTeacherId] = useState(teachers[0]?.id||'__new'); const [grade, setGrade] = useState('1'); const [nm, setNm] = useState(name||'');
-  return <Modal title="어떤 역할로 사용하시나요?" onClose={onClose}>
-    <p className="hint" style={{marginTop:0}}>{email}</p>
+  const device = email === '__device';
+  return <Modal title={device ? '이 컴퓨터의 역할 정하기' : '어떤 역할로 사용하시나요?'} onClose={onClose}>
+    <p className="hint" style={{marginTop:0}}>{device ? '로그인 없이 이 컴퓨터(브라우저)에만 저장됩니다. 교실 컴퓨터처럼 주로 한 분이 쓰는 컴퓨터에 알맞습니다. 다른 컴퓨터에서도 내 역할로 쓰려면 학교 계정으로 로그인한 뒤 역할을 연결하세요.' : email}</p>
     <table className="form"><tbody>
       <tr><th style={{width:90}}>이름</th><td><input value={nm} onChange={e=>setNm(e.target.value)}/></td></tr>
       <tr><th>역할</th><td><select value={type} onChange={e=>setType(e.target.value)}><option>담임</option><option>전담</option><option>교무실무사</option></select></td></tr>
       {type==='담임' && <tr><th>학급</th><td><select value={classId} onChange={e=>setClassId(e.target.value)}>{classList.map(c=><option key={c} value={c}>{classLabel(c)}</option>)}</select></td></tr>}
       {type==='전담' && <tr><th>전담</th><td><select value={teacherId} onChange={e=>setTeacherId(e.target.value)}>{teachers.map(t=><option key={t.id} value={t.id}>{t.name} ({teacherSubjects(t)||'담당 미입력'})</option>)}<option value="__new">+ 목록에 없음 — 내 이름으로 새로 등록</option></select><div className="hint">등록 후 전담시간표 화면의 [내 담당 설정]에서 과목·학급을 넣습니다.</div></td></tr>}
     </tbody></table>
-    <div className="row"><button className="btn" onClick={onClose}>나중에</button><button className="btn primary" onClick={()=>onSave(email, { type, name:nm, classId: type==='담임'?classId:null, teacherId: type==='전담'?teacherId:null, grade: type==='학년부장'?grade:null, at: nowIso() })}>저장</button></div>
+    <div className="row"><button className="btn" onClick={onClose}>나중에</button><button className="btn primary" disabled={!nm.trim()} onClick={()=>onSave(email, { type, name:nm.trim(), classId: type==='담임'?classId:null, teacherId: type==='전담'?teacherId:null, grade: type==='학년부장'?grade:null, at: nowIso() })}>저장</button></div>
   </Modal>;
 }
 function UploadModal({ parsed, failed, fileCount, teachers, existing, lessons, canEditClass, onSave, onClose }) {
