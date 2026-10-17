@@ -193,7 +193,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = 'hwaseong-barun-timetable-test';
-const VERSION = 'v5.2';
+const VERSION = 'v5.3';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -445,11 +445,12 @@ function App() {
   const canEditTeacher = tid => isAdmin || (myRole?.type==='전담' && myRole.teacherId===tid);
   const canEditLecture = grade => isAdmin || ((myRole?.type==='담임' || myRole?.type==='학년부장') && String(myRole.grade || gradeOf(myRole.classId))===String(grade));
   const canBook = !!email || isAdmin || !!tryRole;
+  const canSub = isAdmin || myRole?.type==='교무실무사';
   const bell = year?.bell || DEFAULT_BELL;
   const editorName = () => tryRole ? `체험(${tryRole.name})` : (adminOn && !email ? '관리자' : (myRole?.name || email || '익명'));
 
   const goHome = () => { // 역할에 맞는 첫 화면: 담임 → 우리 반, 전담 → 내 시간표, 학년부장 → 우리 학년 외부강의
-    if (myRole?.type==='전담') setTab('teacher'); else setTab('class');
+    if (myRole?.type==='전담') setTab('teacher'); else if (myRole?.type==='교무실무사') setTab('sub'); else setTab('class');
     setHomeKey(k=>k+1); history.replaceState(null,'','#/');
   };
   const roleKey = myRole ? `${myRole.type}|${myRole.classId||myRole.teacherId||myRole.grade||''}` : '';
@@ -703,10 +704,11 @@ function App() {
       <div className="spacer"/>
       {undoN>0 && <button className="btn" onClick={undo}>되돌리기 ({undoN})</button>}
       {(realAdmin || tryRole) && <label className="hint" style={{display:'flex',gap:4,alignItems:'center'}}>역할 체험
-        <select value={tryRole ? `${tryRole.type}:${tryRole.classId||tryRole.teacherId}` : ''} onChange={e=>{ const v=e.target.value; if (!v) { setTryRole(null); return; } const [ty,id]=v.split(':'); if (ty==='담임') setTryRole({ type:'담임', classId:id, name:`${id} 담임` }); else { const t=teachers.find(x=>x.id===id); setTryRole({ type:'전담', teacherId:id, name:`${t?.name||''} 전담` }); } }} style={{padding:'4px 6px',border:'1px solid var(--line-strong)',borderRadius:6}}>
+        <select value={tryRole ? `${tryRole.type}:${tryRole.classId||tryRole.teacherId}` : ''} onChange={e=>{ const v=e.target.value; if (!v) { setTryRole(null); return; } const [ty,id]=v.split(':'); if (ty==='담임') setTryRole({ type:'담임', classId:id, name:`${id} 담임` }); else if (ty==='교무실무사') setTryRole({ type:'교무실무사', name:'교무실무사' }); else { const t=teachers.find(x=>x.id===id); setTryRole({ type:'전담', teacherId:id, name:`${t?.name||''} 전담` }); } }} style={{padding:'4px 6px',border:'1px solid var(--line-strong)',borderRadius:6}}>
           <option value="">관리자(전체)</option>
           <optgroup label="담임으로 보기">{classList.filter(c=>!c.startsWith('유')).map(c=><option key={c} value={`담임:${c}`}>{classLabel(c)} 담임</option>)}</optgroup>
           <optgroup label="전담으로 보기">{teachers.map(t=><option key={t.id} value={`전담:${t.id}`}>{t.name} ({teacherSubjects(t)})</option>)}</optgroup>
+          <option value="교무실무사:x">교무실무사 (보결 관리)</option>
         </select></label>}
       <span className="who">{tryRole ? `체험 중: ${tryRole.name}` : email ? `${myRole?.name||email}${myRole?` · ${myRole.type}${myRole.classId?' '+myRole.classId:''}`:' · 역할 미지정'}` : '로그인 안 됨 (보기만 가능)'}{adminOn && ' · 관리자'}</span>
       {email ? <button className="btn" onClick={()=>signOut(auth)}>로그아웃</button> : <button className="btn" onClick={googleLogin}>학교 계정으로 로그인</button>}
@@ -720,7 +722,7 @@ function App() {
     {tab==='lecture' && <LectureView key={'l'+homeKey} defaultGrade={myRole?.grade || gradeOf(myRole?.classId)} {...{ year, bell, classList, teachers, ctt, lessons, lectures, bookings, canEditLecture, saveLecture, deleteLecture, toast, setModal }} />}
     {tab==='room' && <RoomView {...{ year, bell, classList, teachers, ctt, lessons, bookings, lectures, canBook, addBooking, deleteBooking, myRole, toast, setModal, goLecture: ()=>setTab('lecture') }} />}
     {tab==='calendar' && <CalendarView {...{ calEvents, calAppId, lectures }} />}
-    {tab==='sub' && <SubView {...{ year, bell, classList, teachers, ctt, lessons, lectures, subs, canEdit: canBook, setModal, toast, defaultCid: myRole?.classId, saveSub: async (id, data) => { await setDoc(dref('subs', id), { ...data, createdBy: editorName(), createdAt: nowIso() }); log('sub', `${classLabel(data.classId)} ${shortDate(data.date)} ${data.p}교시 보결 → ${data.label}`); }, deleteSub: async (id) => { const d = subs[id]; await deleteDoc(dref('subs', id)); if (d) log('sub', `${classLabel(d.classId)} ${shortDate(d.date)} ${d.p}교시 보결 삭제`); } }} />}
+    {tab==='sub' && <SubView {...{ year, bell, classList, teachers, ctt, lessons, lectures, subs, canEdit: canSub, setModal, toast, defaultCid: myRole?.classId, saveSub: async (id, data) => { await setDoc(dref('subs', id), { ...data, createdBy: editorName(), createdAt: nowIso() }); log('sub', `${classLabel(data.classId)} ${shortDate(data.date)} ${data.p}교시 보결 → ${data.label}`); }, deleteSub: async (id) => { const d = subs[id]; await deleteDoc(dref('subs', id)); if (d) log('sub', `${classLabel(d.classId)} ${shortDate(d.date)} ${d.p}교시 보결 삭제`); } }} />}
     {tab==='status' && <StatusView {...{ year, teachers, classList, ctt, lessons, lectures, logs, isAdmin }} />}
     {tab==='settings' && (isAdmin ? <Settings {...{ year, teachers, roles, isAdmin, classList, toast, log }} onBlankAll={createBlankAll} onBackup={backupAll} onReset={(keep)=>setModal({ type:'confirm', title: keep ? '시간표 데이터를 모두 지울까요?' : '학년도를 초기화할까요?', body:<div><p className="warn">되돌릴 수 없습니다. 먼저 [전체 백업 내려받기]를 해 두세요.</p><p>{keep ? '담임·전담 시간표, 외부강의, 특별실 예약, 메모가 모두 지워지고 학급·전담·특별실·시정표 설정은 남습니다.' : '모든 시간표 데이터와 역할이 지워지고 학년도가 1년 올라갑니다. 학급 수·전담·특별실·시정표 설정은 남으니 바뀐 것만 고치면 됩니다.'}</p><p className="hint">연동된 일정표에서 외부강의로 들어간 줄도 함께 지웁니다.</p></div>, actions:[{label:'취소',on:()=>setModal(null)},{label: keep ? '데이터 지우기' : '학년도 초기화', primary:true, on:async()=>{ setModal(null); await resetYear(keep); toast('초기화했습니다.'); }}] })} /> : tryRole ? <div className="empty"><p>역할 체험 중에는 학년도 설정을 볼 수 없습니다.</p><button className="btn primary" onClick={()=>setTryRole(null)}>관리자(전체)로 돌아가기</button></div> : <div className="empty"><p>학년도 설정은 관리자만 할 수 있습니다.</p><button className="btn primary" onClick={()=>setModal({type:'admin'})}>관리자 암호 입력</button></div>)}
 
@@ -940,10 +942,18 @@ function SubView({ year, bell, classList, teachers, ctt, lessons, lectures, subs
     // 이 반 담임 (전담 시간을 클릭한 경우)
     if (clicked) out.push({ whoType:'class', who:cid, label:`${classCode(cid)} 담임`, why:'자기 반 전담 시간', busy: busyBySub(`${classCode(cid)} 담임`) });
     // 다른 반 담임: 그 반이 전담 수업 중이면 비어 있음 (외부강의 시간은 담임이 있어야 하므로 제외)
-    for (const c of classList) { if (c===cid) continue; const Lc = lessons[`${c}_${sem}`]?.slots; if (!ctt[`${c}_${sem}`]) continue;
-      const free = Object.entries(Lc||{}).find(([k,v]) => parseKey(k).date===date && overlaps(me, periodTime(bell, gradeOf(c), parseKey(k).p)));
-      const lec = Object.values(lectures).some(l => (l.slots||[]).some(sl => sl.classId===c && sl.date===date && overlaps(me, periodTime(bell, gradeOf(c), sl.p))));
-      if (free && !lec) { const t = tById[free[1].teacherId]; out.push({ whoType:'class', who:c, label:`${classCode(c)} 담임`, why:`${free[1].t} 전담(${t?.name||''}) 시간`, busy: busyBySub(`${classCode(c)} 담임`) }); } }
+    for (const c of classList) { if (c===cid) continue; const Tc = ctt[`${c}_${sem}`]; if (!Tc) continue; const Lc = lessons[`${c}_${sem}`]?.slots || {};
+      const qs = PERIODS.filter(q => overlaps(me, periodTime(bell, gradeOf(c), q)));
+      if (!qs.length) continue;
+      const lec = Object.values(lectures).some(l => (l.slots||[]).some(sl => sl.classId===c && sl.date===date && qs.includes(sl.p)));
+      if (lec) continue;
+      const whys = []; let ok = true;
+      for (const q of qs) { const k = slotKey(date,q); const les = Lc[k]; const cell = Tc.cells?.[k];
+        if (les) { const t = tById[les.teacherId]; whys.push(`${les.t} 전담${t?' '+t.name:''}`); }
+        else if (!cell || cell.k==='h') { whys.push('휴업일'); }
+        else if (!cell.t) { whys.push('수업 없음'); }
+        else { ok = false; break; } }
+      if (ok) out.push({ whoType:'class', who:c, label:`${classCode(c)} 담임`, why: Array.from(new Set(whys)).join(', '), busy: busyBySub(`${classCode(c)} 담임`) }); }
     // 전담: 그 시간에 수업이 없으면
     for (const t of teachers) { if (t.type==='coop') continue; let busy = null;
       for (const [lid,Ld] of Object.entries(lessons)) { if (!lid.endsWith('_'+sem)) continue; for (const [k,v] of Object.entries(Ld.slots||{})) if (v.teacherId===t.id && parseKey(k).date===date && overlaps(me, periodTime(bell, gradeOf(Ld.classId), parseKey(k).p))) busy = `${classCode(Ld.classId)} ${v.t} 수업`; }
@@ -984,7 +994,7 @@ function SubView({ year, bell, classList, teachers, ctt, lessons, lectures, subs
       <label>학급 <select value={cid} onChange={e=>setCid(e.target.value)}>{classList.map(c=><option key={c} value={c}>{classLabel(c)}</option>)}</select></label>
       <div className="seg"><button className={sem===1?'on':''} onClick={()=>setSem(1)}>1학기</button><button className={sem===2?'on':''} onClick={()=>setSem(2)}>2학기</button></div>
       <PastToggle value={dimPast} onChange={setDimPast} />
-      <span className="hint">보결이 필요한 칸을 누르면 그 시간에 비어 있는 분이 나옵니다. 담임 과목 칸은 담임 부재, 전담 칸은 전담 부재로 봅니다. 보결은 이 탭에만 기록되고 다른 시간표에는 표시되지 않습니다.</span>
+      <span className="hint">{canEdit ? '보결이 필요한 칸을 누르면 그 시간에 비어 있는 분이 나옵니다. 담임 과목 칸은 담임 부재, 전담 칸은 전담 부재로 봅니다.' : '보결 배정은 교무실무사 또는 관리자만 할 수 있습니다. 보기만 가능합니다.'}</span>
       <div className="spacer"/>
       <div className="legend"><span><i style={{background:'#ffd9a8'}}/>보결 배정됨</span></div>
     </div></div>
@@ -1532,7 +1542,7 @@ function RoleModal({ email, name, classList, teachers, onSave, onClose }) {
     <p className="hint" style={{marginTop:0}}>{email}</p>
     <table className="form"><tbody>
       <tr><th style={{width:90}}>이름</th><td><input value={nm} onChange={e=>setNm(e.target.value)}/></td></tr>
-      <tr><th>역할</th><td><select value={type} onChange={e=>setType(e.target.value)}><option>담임</option><option>전담</option></select></td></tr>
+      <tr><th>역할</th><td><select value={type} onChange={e=>setType(e.target.value)}><option>담임</option><option>전담</option><option>교무실무사</option></select></td></tr>
       {type==='담임' && <tr><th>학급</th><td><select value={classId} onChange={e=>setClassId(e.target.value)}>{classList.map(c=><option key={c} value={c}>{classLabel(c)}</option>)}</select></td></tr>}
       {type==='전담' && <tr><th>전담</th><td><select value={teacherId} onChange={e=>setTeacherId(e.target.value)}>{teachers.map(t=><option key={t.id} value={t.id}>{t.name} ({teacherSubjects(t)||'담당 미입력'})</option>)}<option value="__new">+ 목록에 없음 — 내 이름으로 새로 등록</option></select><div className="hint">등록 후 전담시간표 화면의 [내 담당 설정]에서 과목·학급을 넣습니다.</div></td></tr>}
     </tbody></table>
