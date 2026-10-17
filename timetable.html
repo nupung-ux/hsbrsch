@@ -39,6 +39,8 @@
   .btn{padding:7px 14px;border:1px solid var(--line-strong);background:#fff;border-radius:6px}
   .btn.primary{background:var(--ink);color:#fff;border-color:var(--ink)}
   .btn.danger{color:var(--danger);border-color:var(--danger)}
+  .btn.save{background:#1d8a4a;color:#fff;border-color:#1d8a4a;font-size:16px;padding:9px 22px;font-weight:700;box-shadow:0 2px 6px rgba(29,138,74,.35)}
+  .btn.save:hover{background:#166d3a}
   .btn:disabled{opacity:.45;cursor:default}
   .bar{display:flex;align-items:center;gap:12px;padding:12px 18px;flex-wrap:wrap}
   .bar label{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:14px}
@@ -171,7 +173,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = 'hwaseong-barun-timetable-test';
-const VERSION = 'v3.9';
+const VERSION = 'v4.0';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -625,7 +627,6 @@ function App() {
         <button className={tab==='teacher'?'on':''} onClick={()=>setTab('teacher')}>전담시간표</button>
         <button className={tab==='lecture'?'on':''} onClick={()=>setTab('lecture')}>외부강의</button>
         <button className={tab==='room'?'on':''} onClick={()=>setTab('room')}>특별실</button>
-        <button className={tab==='calendar'?'on':''} onClick={()=>setTab('calendar')}>일정표</button>
         <button className={tab==='status'?'on':''} onClick={()=>setTab('status')}>현황</button>
         <button className={tab==='settings'?'on':''} onClick={()=>setTab('settings')}>학년도 설정</button>
       </div>
@@ -659,7 +660,7 @@ function App() {
       <div style={{display:'flex',flexDirection:'column',gap:6,maxHeight:'60vh',overflow:'auto'}}>{modal.options.map((o,i)=><button key={i} className="btn" disabled={o.disabled} style={{textAlign:'left',display:'flex',gap:10,alignItems:'center',background:o.color?undefined:'#fff'}} onClick={()=>{ setModal(null); modal.onPick(o); }}>{o.color && <i style={{display:'inline-block',width:16,height:16,background:o.color,border:'1px solid var(--line)'}}/>}<b>{o.label}</b>{o.sub && <span className="hint">{o.sub}</span>}</button>)}</div>
       <div className="row"><button className="btn" onClick={()=>setModal(null)}>취소</button></div>
     </Modal>}
-    {modal?.type==='teacherSelf' && <TeacherSelfModal teachers={teachers} teacherId={modal.teacherId} classList={classList} toast={toast} onClose={()=>setModal(null)} onSaved={()=>{ setModal(null); toast('저장했습니다.'); log('settings','전담 본인 담당 설정'); }} />}
+    {modal?.type==='teacherSelf' && <TeacherSelfModal teachers={teachers} teacherId={modal.teacherId} classList={classList} rooms={year.rooms||[]} toast={toast} onClose={()=>setModal(null)} onSaved={()=>{ setModal(null); toast('저장했습니다.'); log('settings','전담 본인 담당 설정'); }} />}
     {modal?.type==='book' && <BookModal room={modal.room} date={modal.date} col={modal.col} classList={classList} myRole={myRole} onClose={()=>setModal(null)} onSave={async(b,n)=>{ await addBooking(b,n); setModal(null); toast('예약했습니다.'); }} />}
     {modal?.type==='admin' && <AdminModal adminHash={adminHash} onOk={adminUnlock} onClose={()=>setModal(null)} />}
     {modal?.type==='role' && <RoleModal email={modal.email} name={modal.name} classList={classList} teachers={teachers} onSave={saveRole} onClose={()=>setModal(null)} />}
@@ -886,13 +887,13 @@ function ClassPicker({ classList: all, value, onChange, excludeKinder }) {
       {cs.map(c=><button type="button" key={c} className={sel.has(c)?'on':''} onClick={()=>toggle([c], !sel.has(c))}>{c.split('-')[1]}</button>)}</div>; })}</div>;
 }
 
-function TeacherEditor({ t: t0, classList, onChange, onDelete }) {
+function TeacherEditor({ t: t0, classList, onChange, onDelete, rooms }) {
   const t = normTeacher(t0); const updT = (k,v)=>onChange({ ...t, [k]: v }); const updS = (si,k,v)=>updT('subjects', t.subjects.map((x,j)=>j===si?{...x,[k]:v}:x));
   return <div style={{border:'1px solid var(--line)',borderRadius:8,padding:'10px 12px',marginBottom:10}}>
         <div style={{display:'flex',gap:8,alignItems:'center',marginBottom:6}}>
           <input placeholder="이름" value={t.name||''} onChange={e=>updT('name',e.target.value)} style={{width:120,padding:'5px 6px',border:'1px solid var(--line)',borderRadius:4}}/>
           <input placeholder="이메일(선택)" value={t.email||''} onChange={e=>updT('email',e.target.value)} style={{width:240,padding:'5px 6px',border:'1px solid var(--line)',borderRadius:4}}/>
-          <input placeholder="주 사용 특별실(선택)" value={t.room||''} onChange={e=>updT('room',e.target.value)} style={{width:200,padding:'5px 6px',border:'1px solid var(--line)',borderRadius:4}}/>
+          <select value={t.room||''} onChange={e=>updT('room',e.target.value)} style={{width:200,padding:'5px 6px',border:'1px solid var(--line)',borderRadius:4}} title="주 사용 특별실 — 이 전담의 수업이 특별실 시간표에 자동 표시됩니다"><option value="">주 사용 특별실 없음</option>{(rooms||[]).map(r=><option key={r.name} value={r.name}>{r.name}</option>)}{t.room && !(rooms||[]).some(r=>r.name===t.room) && <option value={t.room}>{t.room} (목록에 없음)</option>}</select>
           <input type="color" value={t.color||'#fff3b0'} onChange={e=>updT('color',e.target.value)} style={{width:44,height:30,padding:0}}/>
           <select value={t.type||'normal'} onChange={e=>updT('type',e.target.value)} style={{padding:'5px 6px',border:'1px solid var(--line)',borderRadius:4}}><option value="normal">일반</option><option value="coop">협력</option></select>
           <div className="spacer"/>
@@ -911,7 +912,7 @@ function TeacherEditor({ t: t0, classList, onChange, onDelete }) {
       </div>;
 }
 
-function TeacherSelfModal({ teachers, teacherId, classList, onSaved, onClose, toast }) {
+function TeacherSelfModal({ teachers, teacherId, classList, rooms, onSaved, onClose, toast }) {
   const base = teachers.find(t=>t.id===teacherId);
   const [t, setT] = useState(base ? normTeacher(base) : null);
   if (!t) return null;
@@ -920,7 +921,7 @@ function TeacherSelfModal({ teachers, teacherId, classList, onSaved, onClose, to
     await setDoc(sref('teachers'), { list }); onSaved(); };
   return <Modal title="내 담당 과목·학급 설정" onClose={onClose}>
     <p className="hint" style={{marginTop:0}}>과목을 고르고 학년 버튼(전체) 또는 반 버튼(반별)으로 담당 학급을 선택하세요. 저장하면 담임이 올린 연간시간표에서 내 수업이 자동으로 잡힙니다.</p>
-    <TeacherEditor t={t} classList={classList} onChange={setT} />
+    <TeacherEditor t={t} classList={classList} rooms={rooms} onChange={setT} />
     <div className="row"><button className="btn" onClick={onClose}>취소</button><button className="btn primary" onClick={save}>저장</button></div>
   </Modal>;
 }
@@ -972,7 +973,7 @@ function Settings({ year, teachers, roles, isAdmin, classList, toast, log, onBla
     </div>
     <div className="card"><h3>전담 교사</h3>
       <p className="hint" style={{marginTop:0}}>학급 수를 먼저 저장해야 학급 버튼이 나타납니다. 한 사람이 여러 과목을 맡으면 담당 항목을 줄로 추가합니다(예: 체육 전담이 1학년 통합 놀이체육도 맡는 경우). 창체는 "창"을 고르면 파일의 창·자·동·봉·진 칸을 모두 창체로 인식합니다. "일부 전담"은 담임과 나누는 과목으로 파일의 색칠 칸만 잡습니다. 학기별 시수(학급당)를 넣으면 업로드 때 그 학기 개수를 대조합니다.</p>
-      {ts.map((t0,i)=><TeacherEditor key={i} t={t0} classList={classList} onChange={nt=>setTs(a=>a.map((x,j)=>j===i?nt:x))} onDelete={()=>setTs(a=>a.filter((_,j)=>j!==i))} />)}
+      {ts.map((t0,i)=><TeacherEditor key={i} t={t0} classList={classList} rooms={year.rooms||[]} onChange={nt=>setTs(a=>a.map((x,j)=>j===i?nt:x))} onDelete={()=>setTs(a=>a.filter((_,j)=>j!==i))} />)}
       <div style={{display:'flex',justifyContent:'space-between',marginTop:12}}>
         <button className="btn" onClick={()=>setTs(a=>[...a,{ name:'', subjects:[{subject:'',coverage:'full',classes:[],semHours1:'',semHours2:''}], color:['#fff3b0','#bfe6ff','#d5f5d0','#ffd6e0','#e8dcff','#ffe0b8'][a.length%6], type:'normal' }])}>+ 전담 추가</button>
         <button className="btn primary" onClick={saveTeachers}>전담 교사 저장</button>
@@ -1044,7 +1045,7 @@ function LectureEditor({ year, bell, classList, teachers, ctt, lessons, lectures
   const [range, setRange] = useState('week'); // week | month | sem
   const [month, setMonth] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [plan, setPlan] = useState(() => { const per = {}; for (const c of (lec.classes||[])) { const first = (lec.slots||[]).filter(sl=>sl.classId===c).sort((a,b)=>a.date.localeCompare(b.date))[0]; per[c] = first ? { d: (new Date(first.date+'T00:00:00').getDay()+6)%7, p: first.p } : { d: 0, p: 1 }; } return { count: lec.count || 10, startWeek: 0, same: true, per }; });
+  const [plan, setPlan] = useState(() => { const per = {}; for (const c of (lec.classes||[])) { const first = (lec.slots||[]).filter(sl=>sl.classId===c).sort((a,b)=>a.date.localeCompare(b.date))[0]; per[c] = first ? { d: (new Date(first.date+'T00:00:00').getDay()+6)%7, p: first.p } : { d: 0, p: 1 }; } return { count: lec.count || 1, startWeek: 0, same: true, per, ev: 'skip' }; });
   const weeks = year.semesters?.[f.sem]?.weeks || [];
   const w = weeks[wi];
   const rooms = year.rooms || [];
@@ -1066,6 +1067,7 @@ function LectureEditor({ year, bell, classList, teachers, ctt, lessons, lectures
       for (const t of teachers) if (t.room===f.room) for (const [lid,L] of Object.entries(lessons)) { if (!lid.endsWith('_'+f.sem)) continue; const sl = L.slots?.[key]; if (sl && sl.teacherId===t.id && overlaps(me, periodTime(bell, gradeOf(L.classId), p))) soft.push(`${f.room}에서 ${t.name} 전담 수업(${classCode(L.classId)})`); } }
     return { soft };
   };
+  const setPer = (cid, k, v) => setPlan(pl => { const per = { ...pl.per }; if (pl.same) for (const c of f.classes) per[c] = { ...(per[c]||{d:0,p:1}), [k]: v }; else per[cid] = { ...(per[cid]||{d:0,p:1}), [k]: v }; return { ...pl, per }; });
   const toggle = (cid, date, p) => {
     const ps = f.session===2 ? [p, p+1] : [p];
     if (has(cid, slotKey(date,p))) { setSlots(s=>s.filter(sl=>!(sl.classId===cid && sl.date===date && ps.includes(sl.p)))); return; }
@@ -1073,7 +1075,8 @@ function LectureEditor({ year, bell, classList, teachers, ctt, lessons, lectures
     const results = ps.map(pp=>check(cid,date,pp));
     const hard = results.find(r=>r.hard); if (hard) { toast(`${hard.hard} — 넣을 수 없는 칸입니다.`, true); return; }
     const soft = results.flatMap(r=>r.soft||[]);
-    const add = () => setSlots(s=>[...s, ...ps.map(pp=>({ classId:cid, date, p:pp }))]);
+    const d = (new Date(date+'T00:00:00').getDay()+6)%7;
+    const add = () => { setSlots(s=>[...s, ...ps.map(pp=>({ classId:cid, date, p:pp }))]); setPer(cid, 'd', d); setPer(cid, 'p', p); };
     if (!soft.length) return add();
     setModal({ type:'confirm', title:'이 시간에 넣을까요?', body:<div><p style={{margin:'4px 0 8px'}}><b>{classLabel(cid)}</b> {fmtDate(date)} {periodsText(ps)}</p>{Array.from(new Set(soft)).map((r,i)=><div key={i} className="warn">· {r}</div>)}</div>,
       actions:[{label:'취소',on:()=>setModal(null)},{label:'그래도 넣기',primary:true,on:()=>{ add(); setModal(null); }}] });
@@ -1088,7 +1091,10 @@ function LectureEditor({ year, bell, classList, teachers, ctt, lessons, lectures
         if (ps.some(x=>x>6)) break;
         const rs = ps.map(x=>check(cid, date, x, true)); const hard = rs.find(r=>r.hard);
         if (hard) { skipped.push(`${classCode(cid)} ${shortDate(date)} — ${hard.hard}`); continue; }
-        const soft = rs.flatMap(r=>r.soft||[]); if (soft.length) softs.push(`${classCode(cid)} ${shortDate(date)} — ${Array.from(new Set(soft)).join(', ')}`);
+        const soft = rs.flatMap(r=>r.soft||[]);
+        const evHit = soft.find(x=>x.startsWith('행사'));
+        if (evHit && plan.ev==='skip') { skipped.push(`${classCode(cid)} ${shortDate(date)} — ${evHit} (건너뜀)`); continue; }
+        if (soft.length) softs.push(`${classCode(cid)} ${shortDate(date)} — ${Array.from(new Set(soft)).join(', ')}`);
         for (const x of ps) made.push({ classId:cid, date, p:x }); n++;
       }
       if (n < plan.count) skipped.push(`${classCode(cid)}: ${plan.count}회 중 ${n}회만 배정됨 (학기 주차 부족)`);
@@ -1096,7 +1102,7 @@ function LectureEditor({ year, bell, classList, teachers, ctt, lessons, lectures
     const apply = () => { setSlots(made); setF(x=>({ ...x, count: plan.count })); setModal(null); setRange('sem'); toast(`${made.length}칸 배정했습니다. 학기 전체 시간표에서 확인하고 필요하면 칸을 눌러 수정하세요.`); };
     setModal({ type:'confirm', title:'반복 일정 미리보기', body:<div style={{maxHeight:'55vh',overflow:'auto'}}>
       <p style={{margin:'0 0 8px'}}>{f.classes.map(c=>classCode(c)).join(', ')} 각 <b>{plan.count}회</b>, {weeks[plan.startWeek]?.label}부터 → 총 <b>{made.length}</b>칸{f.session===2?' (2차시 연속 포함)':''}</p>
-      {skipped.length>0 && <div style={{marginBottom:8}}><b className="warn">건너뛴 주 ({skipped.length})</b> — 전담·휴업·다른 강의와 겹쳐 다음 주로 밀었습니다{skipped.slice(0,12).map((x,i)=><div key={i} className="hint">· {x}</div>)}{skipped.length>12 && <div className="hint">… 외 {skipped.length-12}건</div>}</div>}
+      {skipped.length>0 && <div style={{marginBottom:8}}><b className="warn">건너뛴 주 ({skipped.length})</b> — 전담·휴업·다른 강의{plan.ev==='skip'?'·행사':''}와 겹쳐 다음 주로 밀었습니다{skipped.slice(0,12).map((x,i)=><div key={i} className="hint">· {x}</div>)}{skipped.length>12 && <div className="hint">… 외 {skipped.length-12}건</div>}</div>}
       {softs.length>0 && <div style={{marginBottom:8}}><b className="warn">확인 필요 ({softs.length})</b> — 행사 시간이거나 특별실이 겹치지만 배정에 포함했습니다{softs.slice(0,12).map((x,i)=><div key={i} className="hint">· {x}</div>)}{softs.length>12 && <div className="hint">… 외 {softs.length-12}건</div>}</div>}
       {slots.length>0 && <p className="warn">기존에 배정된 {slots.length}칸은 새 일정으로 바뀝니다.</p>}
     </div>, actions:[{label:'취소',on:()=>setModal(null)},{label:'이대로 배정',primary:true,on:apply}] });
@@ -1108,7 +1114,6 @@ function LectureEditor({ year, bell, classList, teachers, ctt, lessons, lectures
   };
   const del = () => setModal({ type:'confirm', title:'이 강의를 삭제할까요?', body:<p>{isNoncurr(f) ? '특별실 예약도 함께 지워집니다.' : '특별실 예약과 일정표 항목도 함께 지워집니다.'}</p>, actions:[{label:'취소',on:()=>setModal(null)},{label:'삭제',primary:true,on:async()=>{ await deleteLecture(f.id); setModal(null); toast('삭제했습니다.'); onClose(); }}] });
   const counts = {}; for (const sl of slots) counts[sl.classId]=(counts[sl.classId]||0)+1;
-  const setPer = (cid, k, v) => setPlan(pl => { const per = { ...pl.per }; if (pl.same) for (const c of f.classes) per[c] = { ...(per[c]||{d:0,p:1}), [k]: v }; else per[cid] = { ...(per[cid]||{d:0,p:1}), [k]: v }; return { ...pl, per }; });
   const field = (label, el) => <div className="field">{label}{el}</div>;
   const months = Array.from(new Set(weeks.map(x=>Number(x.start.slice(5,7)))));
   useEffect(()=>{ if (range==='month' && month==null && months.length) { const cur = months.find(m => weeks.some(x=>Number(x.start.slice(5,7))===m && TODAY>=x.start && TODAY<addDays(x.start,7))); setMonth(cur ?? months[0]); } }, [range]);
@@ -1123,7 +1128,8 @@ function LectureEditor({ year, bell, classList, teachers, ctt, lessons, lectures
       <div className="spacer"/>
       {f.id && <button className="btn danger" onClick={del}>삭제</button>}
       <button className="btn" onClick={onClose}>닫기</button>
-      <button className="btn primary" disabled={busy} onClick={save}>저장</button>
+      <span className="hint" style={{textAlign:'right',lineHeight:1.3}}>저장하면 담임시간표, 특별실 시간표{isNoncurr(f)?'':', 일정표'}에<br/>자동으로 입력됩니다</span>
+      <button className="btn save" disabled={busy} onClick={save}>저장</button>
     </div>
 
     <div className="sec">
@@ -1138,7 +1144,7 @@ function LectureEditor({ year, bell, classList, teachers, ctt, lessons, lectures
         {field('학기', <select value={f.sem} onChange={e=>{ up('sem',Number(e.target.value)); setWi(0); setSlots([]); }}><option value={1}>1학기</option><option value={2}>2학기</option></select>)}
         {field('대상 학급', <div style={{display:'flex',gap:4}}>{gradeClasses.map(c=><button key={c} type="button" className="btn" style={{padding:'5px 12px',background:f.classes.includes(c)?'var(--ink)':gradeColor(c),color:f.classes.includes(c)?'#fff':'var(--ink)',borderColor:f.classes.includes(c)?'var(--ink)':'transparent'}} onClick={()=>up('classes', f.classes.includes(c) ? f.classes.filter(x=>x!==c) : [...f.classes,c].sort())}>{c.split('-')[1]}반</button>)}<button type="button" className="btn" style={{padding:'5px 10px'}} onClick={()=>up('classes', f.classes.length===gradeClasses.length ? [] : gradeClasses)}>{f.classes.length===gradeClasses.length?'전체 해제':'전체'}</button></div>)}
       </div>
-      <p className="hint" style={{margin:'10px 0 0'}}>시간표 칸에는 <span className={'tag'+(isNoncurr(f)?' b':'')}>{lecLabel(f)}</span>로 표시됩니다{isNoncurr(f) ? '' : f.subject ? ` (과목 ${subjectName(f.subject)})` : ' — 과목을 고르면 외(창)처럼 과목 글자가 함께 나옵니다'}.</p>
+      <p className="hint" style={{margin:'10px 0 0'}}>저장하면 대상 학급의 담임시간표와 {f.room||'선택한 특별실'} 시간표{isNoncurr(f)?'':', 월간운영계획 일정표'}에 자동으로 들어갑니다. 시간표 칸에는 <span className={'tag'+(isNoncurr(f)?' b':'')}>{lecLabel(f)}</span>로 표시됩니다{isNoncurr(f) ? '' : f.subject ? ` (과목 ${subjectName(f.subject)})` : ' — 과목을 고르면 외(창)처럼 과목 글자가 함께 나옵니다'}.</p>
     </div>
 
     <div className="sec">
@@ -1147,6 +1153,7 @@ function LectureEditor({ year, bell, classList, teachers, ctt, lessons, lectures
         {field('횟수 (반마다)', <input type="number" min="1" max="40" value={plan.count} onChange={e=>setPlan({...plan,count:Number(e.target.value)})} style={{width:80}}/>)}
         {field('시작 주', <select value={plan.startWeek} onChange={e=>setPlan({...plan,startWeek:Number(e.target.value)})}>{weeks.map((x,i)=><option key={x.no} value={i}>{x.no}주 {x.label}</option>)}</select>)}
         {field('시간 방식', <div className="seg"><button className={plan.same?'on':''} onClick={()=>setPlan({...plan,same:true})}>모든 반 같은 시간</button><button className={!plan.same?'on':''} onClick={()=>setPlan({...plan,same:false})}>반마다 다른 시간</button></div>)}
+        {field('행사 시간(파란 밑줄)은', <div className="seg"><button className={plan.ev==='skip'?'on':''} onClick={()=>setPlan({...plan,ev:'skip'})}>건너뛰고 다음 주로</button><button className={plan.ev==='use'?'on':''} onClick={()=>setPlan({...plan,ev:'use'})}>행사 대신 배정</button></div>)}
         {(plan.same ? f.classes.slice(0,1) : f.classes).map(cid => { const pp = plan.per[cid]||{d:0,p:1}; return <div key={cid} style={{display:'flex',alignItems:'center',gap:6,border:'1px solid var(--line)',borderRadius:8,padding:'5px 10px',background:plan.same?'#f6f7f9':gradeColor(cid)}}>
           <b style={{minWidth:40}}>{plan.same ? '전체 반' : classCode(cid)}</b>
           <select value={pp.d} onChange={e=>setPer(cid,'d',Number(e.target.value))} style={{padding:'5px 6px',border:'1px solid var(--line-strong)',borderRadius:6,fontSize:15}}>{DAYS.map((d,i)=><option key={d} value={i}>{d}요일</option>)}</select>
@@ -1157,7 +1164,7 @@ function LectureEditor({ year, bell, classList, teachers, ctt, lessons, lectures
     </div>
 
     <div className="sec">
-      <h3><span className="num">3</span>시간표에서 확인·수정 <span className="desc">다른 반의 전담 시간과 함께 보며 빈 칸을 눌러 넣고, 보라 칸을 눌러 뺍니다</span></h3>
+      <h3><span className="num">3</span>시간표에서 확인·수정 <span className="desc">다른 반의 전담 시간과 함께 보며 빈 칸을 눌러 넣고, 보라 칸을 눌러 뺍니다. 칸을 누르면 2번의 그 반 요일·교시도 함께 바뀝니다</span></h3>
       <div style={{display:'flex',gap:10,alignItems:'center',marginBottom:10,flexWrap:'wrap'}}>
         <div className="seg"><button className={range==='week'?'on':''} onClick={()=>setRange('week')}>주별</button><button className={range==='month'?'on':''} onClick={()=>setRange('month')}>월별</button><button className={range==='sem'?'on':''} onClick={()=>setRange('sem')}>학기 전체</button></div>
         {range==='week' && <>
