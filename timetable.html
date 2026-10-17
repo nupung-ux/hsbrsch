@@ -174,7 +174,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = 'hwaseong-barun-timetable-test';
-const VERSION = 'v4.4';
+const VERSION = 'v4.5';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -317,6 +317,15 @@ function normalizeTeachers(ts) {
   return { list, dups };
 }
 const semHoursOf = (sub, sem) => { const v = sem===2 ? sub.semHours2 : sub.semHours1; return v ? Number(v) : null; };
+// 과목별 시수 현황: 학기별(기본) 또는 연간 기준
+function subjectHours(sub, tid, classId, sem, lessons, ctt) {
+  const cnt = sm => Object.values(lessons[`${classId}_${sm}`]?.slots||{}).filter(l=>l.teacherId===tid && canonSubject(l.t)===canonSubject(sub.subject)).length;
+  const fileTot = sm => { const T = ctt[`${classId}_${sm}`]; if (!T) return null; return sub.subject==='창' ? (T.totals?.['창체'] ?? null) : (Object.entries(T.totals||{}).find(([k])=>k.startsWith(sub.subject))?.[1] ?? null); };
+  if (sub.hoursMode==='year') { const f1 = fileTot(1), f2 = fileTot(2); return { mode:'year', n: cnt(1)+cnt(2), exp: sub.coverage==='full' ? ((f1??0)+(f2??0) || null) : (sub.yearHours ? Number(sub.yearHours) : null), has: !!ctt[`${classId}_1`] || !!ctt[`${classId}_2`] }; }
+  return { mode:'sem', n: cnt(sem), exp: sub.coverage==='full' ? fileTot(sem) : semHoursOf(sub, sem), has: !!ctt[`${classId}_${sem}`] };
+}
+// 전담 수업이 쓰는 특별실: 과목별 설정이 있으면 그것, 없으면 전담의 주 사용 특별실
+const roomForLesson = (t0, subjectLetter) => { if (!t0) return ''; const t = normTeacher(t0); const su = t.subjects.find(x => canonSubject(x.subject)===canonSubject(subjectLetter)); return (su && su.room) || t.room || ''; };
 const teacherSubjects = t => normTeacher(t).subjects.map(x=>x.subject).filter(Boolean).join('·');
 const teacherClasses = t => Array.from(new Set(normTeacher(t).subjects.flatMap(x=>x.classes||[])));
 function computeAssignments(parsed, teachers, patternChoices) {
@@ -755,7 +764,7 @@ function ClassView({ year, classList, teachers, ctt, lessons, lectures, canEditC
   const lecAt = useMemo(() => { const m = {}; for (const lec of Object.values(lectures)) for (const sl of (lec.slots||[])) if (sl.classId===cid) m[slotKey(sl.date, sl.p)] = lec; return m; }, [lectures, cid]);
   const myLectures = useMemo(() => Object.values(lectures).filter(l => (l.slots||[]).some(sl=>sl.classId===cid)).map(l => ({ ...l, mine: l.slots.filter(sl=>sl.classId===cid).sort((a,b)=>a.date.localeCompare(b.date)||a.p-b.p) })), [lectures, cid]);
   // 이 반을 맡는 전담의 과목별 시수 (현재/기준)
-  const subjectStats = useMemo(() => { const out = []; for (const t0 of teachers) { const t = normTeacher(t0); for (const sub of t.subjects) { if (!(sub.classes||[]).includes(cid)) continue; const n = Object.values(L).filter(l=>l.teacherId===t.id && canonSubject(l.t)===canonSubject(sub.subject)).length; const exp = sub.coverage==='full' ? (sub.subject==='창' ? (T?.totals?.['창체'] ?? null) : (Object.entries(T?.totals||{}).find(([k])=>k.startsWith(sub.subject))?.[1] ?? null)) : semHoursOf(sub, sem); out.push({ teacher:t, sub, n, exp }); } } return out; }, [teachers, L, cid, T, sem]);
+  const subjectStats = useMemo(() => { const out = []; for (const t0 of teachers) { const t = normTeacher(t0); for (const sub of t.subjects) { if (!(sub.classes||[]).includes(cid)) continue; const h = subjectHours(sub, t.id, cid, sem, lessons, ctt); out.push({ teacher:t, sub, n:h.n, exp:h.exp, mode:h.mode }); } } return out; }, [teachers, lessons, ctt, cid, sem]);
   const options = subjectStats.map(x=>({ teacherId:x.teacher.id, subject:x.sub.subject, label:`${x.sub.subject} ${x.teacher.name}`, color:x.teacher.color }));
   const renderCell = (key) => {
     const cell = T?.cells?.[key]; const les = L[key]; const lec = lecAt[key];
@@ -783,7 +792,7 @@ function ClassView({ year, classList, teachers, ctt, lessons, lectures, canEditC
       <label><input type="checkbox" checked={showAll} onChange={e=>setShowAll(e.target.checked)} /> 담임 과목도 보기</label>
       <PastToggle value={dimPast} onChange={setDimPast} />
       <div className="spacer"/>
-      <div className="legend">{subjectStats.map(x=><span key={x.teacher.id+x.sub.subject} title={x.exp!=null?`기준 ${x.exp}시간`:''}><i style={{background:x.teacher.color}}/>{x.sub.subject} {x.teacher.name} <b style={{color:x.exp!=null&&x.n!==x.exp?'var(--danger)':'inherit'}}>{x.n}</b>{x.exp!=null&&`/${x.exp}`}</span>)}<span><i style={{background:'var(--holiday)'}}/>휴업·행사</span><span style={{color:'var(--event)',textDecoration:'underline'}}>행사시간</span></div>
+      <div className="legend">{subjectStats.map(x=><span key={x.teacher.id+x.sub.subject} title={(x.mode==='year'?'연간 기준 · ':'')+(x.exp!=null?`기준 ${x.exp}시간`:'')}><i style={{background:x.teacher.color}}/>{x.sub.subject} {x.teacher.name} <b style={{color:x.exp!=null&&x.n!==x.exp?'var(--danger)':'inherit'}}>{x.n}</b>{x.exp!=null&&`/${x.exp}`}{x.mode==='year'&&<small style={{color:'var(--muted)'}}>연간</small>}</span>)}<span><i style={{background:'var(--holiday)'}}/>휴업·행사</span><span style={{color:'var(--event)',textDecoration:'underline'}}>행사시간</span></div>
       <input ref={fileRef} type="file" accept=".hwpx" style={{display:'none'}} onChange={e=>{ if(e.target.files[0]) onUpload(e.target.files[0]); e.target.value=''; }} />
       <button className="btn primary" disabled={!edit} onClick={()=>fileRef.current.click()}>연간시간표(hwpx) 올리기</button>
     </div></div>
@@ -816,8 +825,7 @@ function TeacherView({ year, teachers, ctt, lessons, lectures, canEditTeacher, r
   const mine = useMemo(() => { const m = {}; for (const [id,L] of Object.entries(lessons)) { if (!id.endsWith('_'+sem)) continue; for (const [k,v] of Object.entries(L.slots||{})) if (v.teacherId===tid) (m[k]=m[k]||[]).push({ classId: L.classId, ...v }); } return m; }, [lessons, tid, sem]);
   const counts = useMemo(() => { const c = {}; for (const arr of Object.values(mine)) for (const l of arr) { const k=`${canonSubject(l.t)}|${l.classId}`; c[k]=(c[k]||0)+1; } return c; }, [mine]);
   const memo = teacherNotes[`${tid}_${sem}`] || {};
-  const hourRows = useMemo(() => { if (!t) return []; const out = []; for (const su of normTeacher(t).subjects) for (const c of (su.classes||[])) { const T = ctt[`${c}_${sem}`]; const n = counts[`${canonSubject(su.subject)}|${c}`]||0;
-    const exp = su.coverage==='full' ? (su.subject==='창' ? (T?.totals?.['창체'] ?? null) : (Object.entries(T?.totals||{}).find(([k])=>k.startsWith(su.subject))?.[1] ?? null)) : semHoursOf(su, sem); out.push({ subject:su.subject, classId:c, n, exp, has:!!T }); } return out; }, [t, counts, ctt, sem]);
+  const hourRows = useMemo(() => { if (!t) return []; const out = []; for (const su of normTeacher(t).subjects) for (const c of (su.classes||[])) { const h = subjectHours(su, t.id, c, sem, lessons, ctt); out.push({ subject:su.subject, classId:c, ...h }); } return out; }, [t, lessons, ctt, sem]);
   const holiday = key => { const ids = teacherClasses(t||{}).map(c=>`${c}_${sem}`).filter(i=>ctt[i]); if (!ids.length) return null; const cells = ids.map(i=>ctt[i].cells?.[key]).filter(Boolean); if (cells.length && cells.every(c=>c.k==='h')) return cells[0].t; return null; };
   const renderCell = (key) => {
     const arr = mine[key];
@@ -848,8 +856,9 @@ function TeacherView({ year, teachers, ctt, lessons, lectures, canEditTeacher, r
     {t && hourRows.length>0 && <div style={{padding:'0 18px 10px'}}>
       <table className="ov"><thead><tr><th style={{width:50}}>과목</th>{hourRows.map(r=><th key={r.subject+r.classId} style={{background:gradeColor(r.classId),minWidth:44}}>{classCode(r.classId)}</th>)}<th style={{minWidth:50}}>합계</th></tr></thead>
         <tbody><tr><td className="wk">현재</td>{hourRows.map(r=><td key={r.subject+r.classId} style={{fontWeight:700,color: r.exp!=null && r.n!==r.exp ? 'var(--danger)' : 'inherit'}}>{r.has ? r.n : '—'}</td>)}<td style={{fontWeight:700}}>{hourRows.reduce((a,r)=>a+r.n,0)}</td></tr>
-        <tr><td className="wk">기준</td>{hourRows.map(r=><td key={r.subject+r.classId} className="hint">{r.exp ?? '·'}</td>)}<td className="hint">{hourRows.reduce((a,r)=>a+(r.exp||0),0)||'·'}</td></tr>
+        <tr><td className="wk">기준</td>{hourRows.map(r=><td key={r.subject+r.classId} className="hint">{r.exp ?? '·'}{r.mode==='year'&&<small> 연</small>}</td>)}<td className="hint">{hourRows.reduce((a,r)=>a+(r.exp||0),0)||'·'}</td></tr>
         <tr><td className="wk">과목</td>{hourRows.map(r=><td key={r.subject+r.classId}>{r.subject}</td>)}<td/></tr></tbody></table>
+      {hourRows.some(r=>r.mode==='year') && <div className="hint" style={{marginTop:4}}>"연" 표시 과목은 1·2학기를 합친 연간 시수 기준입니다.</div>}
     </div>}</div>
     {!t ? <div className="empty">학년도 설정에서 전담 교사를 먼저 등록해 주세요.</div>
     : !normTeacher(t).subjects.length ? <div className="empty">{t.name} 선생님의 담당 과목·학급이 아직 없습니다. {edit ? '[내 담당 설정]을 눌러 넣어 주세요.' : '전담 선생님이 설정하면 여기에 나타납니다.'}</div>
@@ -871,9 +880,7 @@ function StatusView({ year, teachers, classList, ctt, lessons, lectures, logs, i
   const [sub, setSub] = useState('hours');
   // 전담 시수: 전담 × 과목 × 학급 → 현재/기준
   const rows = [];
-  for (const t0 of teachers) { const t = normTeacher(t0); for (const su of t.subjects) { for (const c of (su.classes||[])) { const L = lessons[`${c}_${sem}`]; const T = ctt[`${c}_${sem}`]; const n = Object.values(L?.slots||{}).filter(l=>l.teacherId===t.id && canonSubject(l.t)===canonSubject(su.subject)).length;
-    const exp = su.coverage==='full' ? (su.subject==='창' ? (T?.totals?.['창체'] ?? null) : (Object.entries(T?.totals||{}).find(([k])=>k.startsWith(su.subject))?.[1] ?? null)) : semHoursOf(su, sem);
-    rows.push({ teacher:t, subject:su.subject, classId:c, n, exp, has: !!T }); } } }
+  for (const t0 of teachers) { const t = normTeacher(t0); for (const su of t.subjects) { for (const c of (su.classes||[])) { const h = subjectHours(su, t.id, c, sem, lessons, ctt); rows.push({ teacher:t, subject:su.subject, classId:c, ...h }); } } }
   const byTeacher = {}; for (const r of rows) (byTeacher[r.teacher.id] = byTeacher[r.teacher.id] || { teacher:r.teacher, rows:[] }).rows.push(r);
   // 전담 충돌(같은 시간 두 반)
   const conflicts = []; for (const t of teachers) { const m = {}; for (const [id,L] of Object.entries(lessons)) { if (!id.endsWith('_'+sem)) continue; for (const [k,v] of Object.entries(L.slots||{})) if (v.teacherId===t.id) (m[k]=m[k]||[]).push(L.classId); } for (const [k,cs] of Object.entries(m)) if (cs.length>1) conflicts.push({ teacher:t, key:k, classes:cs }); }
@@ -895,9 +902,9 @@ function StatusView({ year, teachers, classList, ctt, lessons, lectures, logs, i
       {Object.values(byTeacher).map(({ teacher, rows }) => <div key={teacher.id} className="sec"><h3>{teacher.name} <span className="desc">{teacherSubjects(teacher)} · 합계 {rows.reduce((a,r)=>a+r.n,0)}시간</span></h3>
         <table className="ov"><thead><tr><th>과목</th>{rows.map(r=><th key={r.subject+r.classId} style={{background:gradeColor(r.classId)}}>{classCode(r.classId)}</th>)}</tr></thead>
           <tbody><tr><td className="wk">현재</td>{rows.map(r=><td key={r.subject+r.classId} style={{color: r.exp!=null && r.n!==r.exp ? 'var(--danger)' : 'inherit', fontWeight: r.exp!=null && r.n!==r.exp ? 700 : 400}}>{r.has ? r.n : '—'}</td>)}</tr>
-          <tr><td className="wk">기준</td>{rows.map(r=><td key={r.subject+r.classId} className="hint">{r.exp ?? '·'}</td>)}</tr>
+          <tr><td className="wk">기준</td>{rows.map(r=><td key={r.subject+r.classId} className="hint">{r.exp ?? '·'}{r.mode==='year'&&<small> 연</small>}</td>)}</tr>
           <tr><td className="wk">과목</td>{rows.map(r=><td key={r.subject+r.classId}>{r.subject}</td>)}</tr></tbody></table>
-        <p className="hint" style={{margin:'6px 0 0'}}>빨간 숫자 = 기준 시수와 다름. "—" = 그 반 시간표가 아직 없음. 기준은 전체 전담이면 파일의 과목 시수, 일부 전담이면 설정한 학기 시수.</p>
+        <p className="hint" style={{margin:'6px 0 0'}}>빨간 숫자 = 기준 시수와 다름. "—" = 그 반 시간표가 아직 없음. 기준은 전체 전담이면 파일의 과목 시수, 일부 전담이면 설정한 시수. "연"은 1·2학기 합산 연간 기준.</p>
       </div>)}
       {!teachers.length && <div className="empty">전담 교사가 아직 없습니다.</div>}
     </>}
@@ -935,19 +942,20 @@ function TeacherEditor({ t: t0, classList, onChange, onDelete, rooms }) {
         <div style={{display:'flex',gap:8,alignItems:'center',marginBottom:6}}>
           <input placeholder="이름" value={t.name||''} onChange={e=>updT('name',e.target.value)} style={{width:120,padding:'5px 6px',border:'1px solid var(--line)',borderRadius:4}}/>
           <input placeholder="이메일(선택)" value={t.email||''} onChange={e=>updT('email',e.target.value)} style={{width:240,padding:'5px 6px',border:'1px solid var(--line)',borderRadius:4}}/>
-          <select value={t.room||''} onChange={e=>updT('room',e.target.value)} style={{width:200,padding:'5px 6px',border:'1px solid var(--line)',borderRadius:4}} title="주 사용 특별실 — 이 전담의 수업이 특별실 시간표에 자동 표시됩니다"><option value="">주 사용 특별실 없음</option>{(rooms||[]).map(r=><option key={r.name} value={r.name}>{r.name}</option>)}{t.room && !(rooms||[]).some(r=>r.name===t.room) && <option value={t.room}>{t.room} (목록에 없음)</option>}</select>
+          <select value={t.room||''} onChange={e=>updT('room',e.target.value)} style={{width:200,padding:'5px 6px',border:'1px solid var(--line)',borderRadius:4}} title="주 사용 특별실 — 과목별 특별실을 비워 두면 이곳이 쓰입니다"><option value="">주 사용 특별실 없음</option>{(rooms||[]).map(r=><option key={r.name} value={r.name}>{r.name}</option>)}{t.room && !(rooms||[]).some(r=>r.name===t.room) && <option value={t.room}>{t.room} (목록에 없음)</option>}</select>
           <input type="color" value={t.color||'#fff3b0'} onChange={e=>updT('color',e.target.value)} style={{width:44,height:30,padding:0}}/>
           <select value={t.type||'normal'} onChange={e=>updT('type',e.target.value)} style={{padding:'5px 6px',border:'1px solid var(--line)',borderRadius:4}}><option value="normal">일반</option><option value="coop">협력</option></select>
           <div className="spacer"/>
           {onDelete && <button className="btn danger" style={{padding:'2px 8px'}} onClick={onDelete}>교사 삭제</button>}
         </div>
-        <table className="form"><thead><tr><th style={{width:190}}>과목</th><th style={{width:110}} title="전체 전담 = 그 과목을 모두 전담이 수업 / 일부 전담 = 담임과 나누어 수업 (마우스를 올리면 설명이 나옵니다)">범위 ⓘ</th><th>담당 학급 (학년 버튼 = 전체, 숫자 = 반별)</th><th style={{width:80}}>1학기 시수</th><th style={{width:80}}>2학기 시수</th><th style={{width:40}}></th></tr></thead>
+        <table className="form"><thead><tr><th style={{width:190}}>과목</th><th style={{width:110}} title="전체 전담 = 그 과목을 모두 전담이 수업 / 일부 전담 = 담임과 나누어 수업 (마우스를 올리면 설명이 나옵니다)">범위 ⓘ</th><th>담당 학급 (학년 버튼 = 전체, 숫자 = 반별)</th><th style={{width:90}} title="학기별: 1·2학기 각각 맞춤 / 연간: 1년 합계로만 맞춤(창체 등)">시수 기준</th><th style={{width:150}}>시수 (학급당)</th><th style={{width:130}} title="이 과목 수업이 열리는 특별실. 비우면 전담의 주 사용 특별실">특별실</th><th style={{width:40}}></th></tr></thead>
         <tbody>{t.subjects.map((sub,si)=><tr key={si}>
           <td><select value={sub.subject||''} onChange={e=>updS(si,'subject',e.target.value)}><option value="">선택</option>{SUBJECTS.map(([l,n])=><option key={l} value={l}>{l} · {n}</option>)}</select></td>
           <td><select value={sub.coverage||'full'} onChange={e=>updS(si,'coverage',e.target.value)} title={sub.coverage==='partial' ? '일부 전담: 담임과 과목을 나누어 수업하는 경우. 담임이 연간시간표에서 전담 시간 칸에 색을 칠해 올려야 그 칸만 전담으로 잡힙니다.' : '전체 전담: 그 과목 수업을 모두 전담이 하는 경우. 연간시간표의 그 과목 칸이 전부 전담으로 잡힙니다.'}><option value="full" title="그 과목 수업을 모두 전담이 하는 경우">전체 전담</option><option value="partial" title="담임과 과목을 나누어 수업하는 경우 (색칠 칸만 전담)">일부 전담</option></select></td>
           <td><ClassPicker classList={classList} excludeKinder value={sub.classes||[]} onChange={v=>updS(si,'classes',v)} /></td>
-          <td><input type="number" min="0" value={sub.semHours1||''} placeholder="학급당" onChange={e=>updS(si,'semHours1',e.target.value)}/></td>
-          <td><input type="number" min="0" value={sub.semHours2||''} placeholder="학급당" onChange={e=>updS(si,'semHours2',e.target.value)}/></td>
+          <td><select value={sub.hoursMode||'sem'} onChange={e=>updS(si,'hoursMode',e.target.value)}><option value="sem">학기별</option><option value="year">연간</option></select></td>
+          <td>{(sub.hoursMode||'sem')==='year' ? <input type="number" min="0" value={sub.yearHours||''} placeholder="연간" onChange={e=>updS(si,'yearHours',e.target.value)}/> : <div style={{display:'flex',gap:4,alignItems:'center'}}><input type="number" min="0" value={sub.semHours1||''} placeholder="1학기" onChange={e=>updS(si,'semHours1',e.target.value)}/><input type="number" min="0" value={sub.semHours2||''} placeholder="2학기" onChange={e=>updS(si,'semHours2',e.target.value)}/></div>}</td>
+          <td><select value={sub.room||''} onChange={e=>updS(si,'room',e.target.value)}><option value="">(주 사용 특별실)</option>{(rooms||[]).map(r=><option key={r.name} value={r.name}>{r.name}</option>)}</select></td>
           <td><button className="btn danger" style={{padding:'2px 8px'}} onClick={()=>updT('subjects', t.subjects.filter((_,j)=>j!==si))}>×</button></td>
         </tr>)}</tbody></table>
         <button className="btn" style={{marginTop:6,padding:'3px 10px'}} onClick={()=>updT('subjects',[...t.subjects,{subject:'',coverage:'full',classes:[],semHours1:'',semHours2:''}])}>+ 담당 항목</button>
@@ -1014,7 +1022,7 @@ function Settings({ year, teachers, roles, isAdmin, classList, toast, log, onBla
       <div style={{display:'flex',justifyContent:'space-between'}}><button className="btn" onClick={()=>setBell([...bellG,{name:'새 학년군',grades:[],periods:{...DEFAULT_BELL.groups[0].periods}}])}>+ 학년군 추가</button><button className="btn primary" onClick={saveYear}>학년도 설정 저장</button></div>
     </div>
     <div className="card"><h3>전담 교사</h3>
-      <p className="hint" style={{marginTop:0}}>학급 수를 먼저 저장해야 학급 버튼이 나타납니다. 한 사람이 여러 과목을 맡으면 담당 항목을 줄로 추가합니다(예: 체육 전담이 1학년 통합 놀이체육도 맡는 경우). 창체는 "창"을 고르면 파일의 창·자·동·봉·진 칸을 모두 창체로 인식합니다. "일부 전담"은 담임과 나누는 과목으로 파일의 색칠 칸만 잡습니다. 학기별 시수(학급당)를 넣으면 업로드 때 그 학기 개수를 대조합니다.</p>
+      <p className="hint" style={{marginTop:0}}>학급 수를 먼저 저장해야 학급 버튼이 나타납니다. 한 사람이 여러 과목을 맡으면 담당 항목을 줄로 추가합니다(예: 체육 전담이 1학년 통합 놀이체육도 맡는 경우). 창체는 "창"을 고르면 파일의 창·자·동·봉·진 칸을 모두 창체로 인식합니다. "일부 전담"은 담임과 나누는 과목으로 파일의 색칠 칸만 잡습니다. 시수(학급당)를 넣으면 시간표에서 개수를 대조합니다. 창체처럼 1년 합계로만 맞추는 과목은 시수 기준을 "연간"으로 두세요. 과목마다 특별실이 다르면(과학은 과학실, 창체는 컴퓨터실) 줄마다 특별실을 고르세요.</p>
       {ts.map((t0,i)=><TeacherEditor key={i} t={t0} classList={classList} rooms={year.rooms||[]} onChange={nt=>setTs(a=>a.map((x,j)=>j===i?nt:x))} onDelete={()=>setTs(a=>a.filter((_,j)=>j!==i))} />)}
       <div style={{display:'flex',justifyContent:'space-between',marginTop:12}}>
         <button className="btn" onClick={()=>setTs(a=>[...a,{ name:'', subjects:[{subject:'',coverage:'full',classes:[],semHours1:'',semHours2:''}], color:['#fff3b0','#bfe6ff','#d5f5d0','#ffd6e0','#e8dcff','#ffe0b8'][a.length%6], type:'normal' }])}>+ 전담 추가</button>
@@ -1109,7 +1117,7 @@ function LectureEditor({ year, bell, classList, teachers, ctt, lessons, lectures
     const soft = [];
     if (cell.k==='e') soft.push(`행사(${cell.ev||cell.t})로 잡힌 시간`);
     if (f.room) { const me = periodTime(bell, gradeOf(cid), p); for (const b of Object.values(bookings)) if (b.room===f.room && b.date===date && b.lectureId!==f.id && overlaps(me, b.s ? { s:b.s, e:b.e } : periodTime(bell, b.grade||gradeOf(b.classId)||'3', b.p))) soft.push(`${f.room} ${b.text} 예약과 겹침`);
-      for (const t of teachers) if (t.room===f.room) for (const [lid,L] of Object.entries(lessons)) { if (!lid.endsWith('_'+sem)) continue; const sl = L.slots?.[key]; if (sl && sl.teacherId===t.id && overlaps(me, periodTime(bell, gradeOf(L.classId), p))) soft.push(`${f.room}에서 ${t.name} 전담 수업(${classCode(L.classId)})`); } }
+      for (const t of teachers) for (const [lid,L] of Object.entries(lessons)) { if (!lid.endsWith('_'+sem)) continue; const sl = L.slots?.[key]; if (sl && sl.teacherId===t.id && roomForLesson(t, sl.t)===f.room && overlaps(me, periodTime(bell, gradeOf(L.classId), p))) soft.push(`${f.room}에서 ${t.name} 전담 수업(${classCode(L.classId)})`); } }
     return { soft };
   };
   const setPer = (cid, k, v) => setPlan(pl => { const per = { ...pl.per }; if (pl.same) for (const c of f.classes) per[c] = { ...(per[c]||{d:0,p:1}), [k]: v }; else per[cid] = { ...(per[cid]||{d:0,p:1}), [k]: v }; return { ...pl, per }; });
@@ -1257,12 +1265,12 @@ function RoomView({ year, bell, classList, teachers, ctt, lessons, bookings, lec
   useEffect(()=>{ if (room) history.replaceState(null,'',`#/room/${encodeURIComponent(room)}`); }, [room]);
   const weeks = year.semesters?.[sem]?.weeks || [];
   const cols = useMemo(()=>roomColumns(bell), [bell]);
-  const roomTeachers = teachers.filter(t=>t.room===room);
+  const roomTeachers = teachers.filter(t => t.room===room || normTeacher(t).subjects.some(x=>x.room===room));
   const colKeyFor = (grade, p) => { const t = periodTime(bell, grade||'3', p); return t ? `${t.s}-${t.e}` : null; };
   // 날짜|시간열 → 항목들
   const entries = useMemo(() => { const m = {}; const put = (date, ck, e) => { if (!ck) return; (m[`${date}|${ck}`] = m[`${date}|${ck}`]||[]).push(e); };
     for (const [bid,b] of Object.entries(bookings)) if (b.room===room) put(b.date, b.colKey || colKeyFor(b.grade||gradeOf(b.classId), b.p), { id:bid, kind: b.lectureId?'lec':'book', text:b.text, b });
-    for (const t of roomTeachers) for (const [lid,L] of Object.entries(lessons)) { if (!lid.endsWith('_'+sem)) continue; for (const [k,sl] of Object.entries(L.slots||{})) if (sl.teacherId===t.id) { const { date, p } = parseKey(k); put(date, colKeyFor(gradeOf(L.classId), p), { kind:'room', text: classCode(L.classId), teacher:t.name }); } }
+    for (const t of roomTeachers) for (const [lid,L] of Object.entries(lessons)) { if (!lid.endsWith('_'+sem)) continue; for (const [k,sl] of Object.entries(L.slots||{})) if (sl.teacherId===t.id && roomForLesson(t, sl.t)===room) { const { date, p } = parseKey(k); put(date, colKeyFor(gradeOf(L.classId), p), { kind:'room', text: classCode(L.classId), teacher:`${t.name} ${sl.t}` }); } }
     return m; }, [bookings, lessons, room, sem, roomTeachers, bell]);
   const cellOf = (date, col) => { const arr = entries[`${date}|${col.key}`]; if (!arr?.length) return canBook ? { cls:'free', title:'눌러서 예약' } : {}; const c = arr.length>1; const main = arr[0]; const cls = main.kind==='lec'?'lock':main.kind==='book'?'book':'room'; return { text: arr.map(e=>e.text).join('/'), cls: cls+(c?' conflict':''), title: arr.map(e=>e.kind==='lec'?`외부강의 ${lectures[e.b.lectureId]?.name||''}`:e.kind==='room'?`${e.teacher} 전담 수업`:`예약 (${e.b.createdBy||''})`).join(', ')+(c?' · 겹침':'') }; };
   const onClick = (date, col) => {
