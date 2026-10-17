@@ -193,7 +193,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = 'hwaseong-barun-timetable-test';
-const VERSION = 'v5.4';
+const VERSION = 'v5.5';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -656,10 +656,14 @@ function App() {
   const createBlankAll = async (sem) => { let n=0; for (const c of classList) if (!ctt[`${c}_${sem}`]) { await createBlank(c, sem); n++; } toast(n ? `${n}개 학급에 ${sem}학기 빈 시간표를 만들었습니다.` : '이미 모든 학급에 시간표가 있습니다.'); };
 
   // ----- hwpx 업로드 -----
-  const onUpload = async (file) => {
-    let parsed; try { parsed = await parseHwpx(file); } catch (e) { console.error(e); toast('파일을 읽지 못했습니다. 스쿨마스터에서 내려받은 hwpx인지 확인해 주세요.', true); return; }
-    if (!parsed.length) { toast('연간시간표 표를 찾지 못했습니다.', true); return; }
-    setModal({ type:'upload', parsed, choices: {} });
+  const onUpload = async (fileOrList) => {
+    const files = Array.from(fileOrList?.length!=null && !(fileOrList instanceof File) ? fileOrList : [fileOrList]).filter(Boolean);
+    if (!files.length) return;
+    const parsed = []; const failed = [];
+    for (const f of files) { try { const r = await parseHwpx(f); if (!r.length) failed.push(`${f.name}: 연간시간표 표를 찾지 못함`); parsed.push(...r); } catch (e) { console.error(e); failed.push(`${f.name}: 읽기 실패`); } }
+    if (!parsed.length) { toast(failed[0] || '파일을 읽지 못했습니다.', true); return; }
+    parsed.sort((a,b)=>(a.classId||'').localeCompare(b.classId||'', 'ko', { numeric:true }) || a.sem-b.sem);
+    setModal({ type:'upload', parsed, choices: {}, failed, fileCount: files.length });
   };
   const saveUpload = async (parsed, choices, modes) => {
     const list = parsed.filter(p => p.classId);
@@ -683,7 +687,7 @@ function App() {
       if (!year.semesters?.[p.sem]?.weeks?.length) await setDoc(sref('year'), { ...year, year: p.year, semesters: { ...(year.semesters||{}), [p.sem]: { weeks: p.weeks.map(w=>({no:w.no,start:w.start,label:w.label})) } } }, { merge:true });
       log('upload', `${classLabel(p.classId)} ${p.sem}학기 연간시간표 업로드`);
     }
-    setModal(null); toast(`${list.map(p=>`${classLabel(p.classId)} ${p.sem}학기`).join(', ')} 저장했습니다.`);
+    setModal(null); toast(list.length>4 ? `${list.length}개 시간표를 저장했습니다.` : `${list.map(p=>`${classLabel(p.classId)} ${p.sem}학기`).join(', ')} 저장했습니다.`);
   };
 
   if (!user || !year) return <div className="empty">불러오는 중…</div>;
@@ -738,7 +742,7 @@ function App() {
     {modal?.type==='book' && <BookModal room={modal.room} date={modal.date} col={modal.col} classList={classList} myRole={myRole} onClose={()=>setModal(null)} onSave={async(b,n)=>{ await addBooking(b,n); setModal(null); toast('예약했습니다.'); }} />}
     {modal?.type==='admin' && <AdminModal adminHash={adminHash} onOk={adminUnlock} onClose={()=>setModal(null)} />}
     {modal?.type==='role' && <RoleModal email={modal.email} name={modal.name} classList={classList} teachers={teachers} onSave={saveRole} onClose={()=>setModal(null)} />}
-    {modal?.type==='upload' && <UploadModal parsed={modal.parsed} teachers={teachers} existing={ctt} lessons={lessons} canEditClass={canEditClass} onSave={saveUpload} onClose={()=>setModal(null)} />}
+    {modal?.type==='upload' && <UploadModal parsed={modal.parsed} failed={modal.failed} fileCount={modal.fileCount} teachers={teachers} existing={ctt} lessons={lessons} canEditClass={canEditClass} onSave={saveUpload} onClose={()=>setModal(null)} />}
     {toastEl}
   </>;
 }
@@ -837,8 +841,8 @@ function ClassView({ year, classList, teachers, ctt, lessons, lectures, canEditC
       <PastToggle value={dimPast} onChange={setDimPast} />
       <div className="spacer"/>
       <div className="legend">{subjectStats.map(x=><span key={x.teacher.id+x.sub.subject} title={(x.mode==='year'?'연간 기준 · ':'')+(x.exp!=null?`기준 ${x.exp}시간`:'')}><i style={{background:x.teacher.color}}/>{x.sub.subject} {x.teacher.name} <b style={{color:x.exp!=null&&x.n!==x.exp?'var(--danger)':'inherit'}}>{x.n}</b>{x.exp!=null&&`/${x.exp}`}{x.mode==='year'&&<small style={{color:'var(--muted)'}}>연간</small>}</span>)}<span><i style={{background:'var(--holiday)'}}/>휴업·행사</span><span style={{color:'var(--event)',textDecoration:'underline'}}>행사시간</span></div>
-      <input ref={fileRef} type="file" accept=".hwpx" style={{display:'none'}} onChange={e=>{ if(e.target.files[0]) onUpload(e.target.files[0]); e.target.value=''; }} />
-      <button className="btn primary" disabled={!edit} onClick={()=>fileRef.current.click()}>연간시간표(hwpx) 올리기</button>
+      <input ref={fileRef} type="file" accept=".hwpx" multiple style={{display:'none'}} onChange={e=>{ if(e.target.files.length) onUpload(e.target.files); e.target.value=''; }} />
+      <button className="btn primary" disabled={!edit} onClick={()=>fileRef.current.click()} title="여러 파일을 한 번에 선택할 수 있습니다">연간시간표(hwpx) 올리기</button>
     </div></div>
     {!classList.length ? <div className="empty">학년도 설정에서 학급 수를 먼저 입력해 주세요.</div>
     : !T ? <div className="empty"><p>{classLabel(cid)} {sem}학기 시간표가 아직 없습니다.</p>{edit ? <div style={{display:'flex',gap:10,justifyContent:'center'}}><button className="btn primary" onClick={()=>fileRef.current.click()}>스쿨마스터 연간시간표(hwpx) 올리기</button>{year.semesters?.[sem]?.weeks?.length ? <button className="btn" onClick={()=>createBlank(cid, sem)}>빈 시간표로 시작</button> : <span className="hint" style={{alignSelf:'center'}}>빈 시간표로 시작하려면 학년도 설정에서 {sem}학기 기간을 정해 주세요.</span>}</div> : <p className="hint">담임 선생님이 올리면 여기에 나타납니다.</p>}<p className="hint" style={{marginTop:12}}>빈 시간표로 시작하면 전담·외부강의·행사를 바로 넣을 수 있고, 나중에 한글 파일을 올리면 입력한 내용은 유지한 채 나머지가 채워집니다.</p></div>
@@ -1550,7 +1554,8 @@ function RoleModal({ email, name, classList, teachers, onSave, onClose }) {
     <div className="row"><button className="btn" onClick={onClose}>나중에</button><button className="btn primary" onClick={()=>onSave(email, { type, name:nm, classId: type==='담임'?classId:null, teacherId: type==='전담'?teacherId:null, grade: type==='학년부장'?grade:null, at: nowIso() })}>저장</button></div>
   </Modal>;
 }
-function UploadModal({ parsed, teachers, existing, lessons, canEditClass, onSave, onClose }) {
+function UploadModal({ parsed, failed, fileCount, teachers, existing, lessons, canEditClass, onSave, onClose }) {
+  const [saving, setSaving] = useState(false);
   const [choices, setChoices] = useState({}); // {docId:{teacherId:[pk,...]}}
   const [modes, setModes] = useState({}); // {docId: 'merge'|'replace'}
   const list = parsed.filter(p=>p.classId);
@@ -1559,9 +1564,14 @@ function UploadModal({ parsed, teachers, existing, lessons, canEditClass, onSave
   const pending = results.some(r=>r.needPattern.length);
   const togglePat = (id, tid, pk) => setChoices(c => { const cur = c[id]?.[tid] || []; const next = cur.includes(pk) ? cur.filter(x=>x!==pk) : [...cur, pk]; return { ...c, [id]: { ...(c[id]||{}), [tid]: next } }; });
   const confirmPat = (id, tid) => setChoices(c => ({ ...c, [id]: { ...(c[id]||{}), [tid]: c[id]?.[tid] || [] } }));
-  return <Modal title="연간시간표 확인" onClose={onClose}>
+  const allExisting = results.filter(r=>existing[r.id]).map(r=>r.id);
+  const setAllModes = m => setModes(Object.fromEntries(allExisting.map(id=>[id,m])));
+  return <Modal title={`연간시간표 확인${fileCount>1?` — 파일 ${fileCount}개, 표 ${list.length}개`:''}`} onClose={onClose}>
+    {failed?.length>0 && <div className="warn" style={{marginBottom:8}}>{failed.map((x,i)=><div key={i}>· {x}</div>)}</div>}
+    {allExisting.length>1 && <div style={{marginBottom:10,padding:'8px 10px',background:'#fff8e1',borderRadius:6,fontSize:14}}>이미 올라온 시간표 {allExisting.length}개 — 한꺼번에: <button className="btn" style={{padding:'2px 10px'}} onClick={()=>setAllModes('merge')}>기존 수정 유지</button> <button className="btn" style={{padding:'2px 10px',marginLeft:4}} onClick={()=>setAllModes('replace')}>전부 덮어쓰기</button></div>}
     {!list.length && <p className="warn">파일에서 학급(예: 6학년 1반)을 찾지 못했습니다.</p>}
     {blocked.length>0 && <p className="warn">{blocked.map(p=>classLabel(p.classId)).join(', ')} 시간표는 편집 권한이 없어 저장할 수 없습니다.</p>}
+    <div style={{maxHeight:'55vh',overflow:'auto',paddingRight:4}}>
     {results.map(({ p, id, report, needPattern }) => <div key={id} style={{marginBottom:16,paddingBottom:12,borderBottom:'1px solid var(--line)'}}>
       <div style={{fontWeight:700}}>{classLabel(p.classId)} {p.sem}학기 <span className="hint" style={{fontWeight:400}}>· {p.weeks.length}주 · {p.weeks[0]?.label} ~ {p.weeks.at(-1)?.label}</span></div>
       {existing[id] && (()=>{ const L = lessons[id]; const nEdit = Object.values(L?.slots||{}).filter(v=>v.from==='manual'||v.from==='move').length + Object.keys(L?.removed||{}).length; const nEv = Object.values(existing[id].cells||{}).filter(c=>c.app).length; const mode = modes[id]||'merge';
@@ -1582,7 +1592,8 @@ function UploadModal({ parsed, teachers, existing, lessons, canEditClass, onSave
         <button className="btn" onClick={()=>confirmPat(id,np.pid)}>이 시간으로 정하기</button>
       </div>)}
     </div>)}
-    <div className="row"><button className="btn" onClick={onClose}>취소</button><button className="btn primary" disabled={pending || !list.length || blocked.length>0} onClick={()=>onSave(parsed, choices, modes)}>저장</button></div>
+    </div>
+    <div className="row"><button className="btn" onClick={onClose}>취소</button><button className="btn primary" disabled={saving || pending || !list.length || blocked.length>0} onClick={async()=>{ setSaving(true); try { await onSave(parsed, choices, modes); } finally { setSaving(false); } }}>{saving ? '저장 중…' : `저장 (${list.length}개)`}</button></div>
   </Modal>;
 }
 
