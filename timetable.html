@@ -193,7 +193,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = 'hwaseong-barun-timetable-test';
-const VERSION = 'v5.3';
+const VERSION = 'v5.4';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -922,7 +922,8 @@ function TeacherView({ year, teachers, ctt, lessons, lectures, canEditTeacher, r
 
 // ---------- 보결 ----------
 function SubView({ year, bell, classList, teachers, ctt, lessons, lectures, subs, canEdit, setModal, toast, defaultCid, saveSub, deleteSub }) {
-  const [cid, setCid] = useState(defaultCid || classList[0] || '');
+  const subClasses = classList.filter(c=>!c.startsWith('유'));
+  const [cid, setCid] = useState(defaultCid || subClasses[0] || '');
   const [sem, setSem] = useState((new Date().getMonth()+1)>=8 || (new Date().getMonth()+1)<=1 ? 2 : 1);
   const [dimPast, setDimPast] = useState(readPref('dimPast', true));
   const [headRef, fixedStyle] = useFixedHead();
@@ -942,7 +943,7 @@ function SubView({ year, bell, classList, teachers, ctt, lessons, lectures, subs
     // 이 반 담임 (전담 시간을 클릭한 경우)
     if (clicked) out.push({ whoType:'class', who:cid, label:`${classCode(cid)} 담임`, why:'자기 반 전담 시간', busy: busyBySub(`${classCode(cid)} 담임`) });
     // 다른 반 담임: 그 반이 전담 수업 중이면 비어 있음 (외부강의 시간은 담임이 있어야 하므로 제외)
-    for (const c of classList) { if (c===cid) continue; const Tc = ctt[`${c}_${sem}`]; if (!Tc) continue; const Lc = lessons[`${c}_${sem}`]?.slots || {};
+    for (const c of classList) { if (c===cid || c.startsWith('유')) continue; const Tc = ctt[`${c}_${sem}`]; if (!Tc) continue; const Lc = lessons[`${c}_${sem}`]?.slots || {};
       const qs = PERIODS.filter(q => overlaps(me, periodTime(bell, gradeOf(c), q)));
       if (!qs.length) continue;
       const lec = Object.values(lectures).some(l => (l.slots||[]).some(sl => sl.classId===c && sl.date===date && qs.includes(sl.p)));
@@ -991,7 +992,7 @@ function SubView({ year, bell, classList, teachers, ctt, lessons, lectures, subs
   const byWho = useMemo(() => { const m = {}; for (const v of Object.values(subs)) { const w = year.semesters?.[sem]?.weeks||[]; if (!w.length) continue; if (v.date>=w[0].start && v.date<addDays(w.at(-1).start,7)) (m[v.label]=m[v.label]||[]).push(v); } return Object.entries(m).sort((a,b)=>b[1].length-a[1].length); }, [subs, year, sem]);
   return <div style={fixedStyle}>
     <div className="fixedhead" ref={headRef}><div className="bar">
-      <label>학급 <select value={cid} onChange={e=>setCid(e.target.value)}>{classList.map(c=><option key={c} value={c}>{classLabel(c)}</option>)}</select></label>
+      <label>학급 <select value={cid} onChange={e=>setCid(e.target.value)}>{subClasses.map(c=><option key={c} value={c}>{classLabel(c)}</option>)}</select></label>
       <div className="seg"><button className={sem===1?'on':''} onClick={()=>setSem(1)}>1학기</button><button className={sem===2?'on':''} onClick={()=>setSem(2)}>2학기</button></div>
       <PastToggle value={dimPast} onChange={setDimPast} />
       <span className="hint">{canEdit ? '보결이 필요한 칸을 누르면 그 시간에 비어 있는 분이 나옵니다. 담임 과목 칸은 담임 부재, 전담 칸은 전담 부재로 봅니다.' : '보결 배정은 교무실무사 또는 관리자만 할 수 있습니다. 보기만 가능합니다.'}</span>
