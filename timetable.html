@@ -188,7 +188,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = 'hwaseong-barun-timetable-test';
-const VERSION = 'v4.9';
+const VERSION = 'v5.0';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -1245,15 +1245,19 @@ function LectureEditor({ year, bell, classList, teachers, ctt, lessons, lectures
       <h3><span className="num">2</span>매주 반복 일정 만들기</h3>
       <p className="hint" style={{margin:'0 0 10px'}}>전담, 휴업일, 다른 강의와 겹치는 주는 건너뜁니다.</p>
       <div className="vform">
-        {field('횟수 (반마다)', <input type="number" min="1" max="40" value={plan.count} onChange={e=>setPlan({...plan,count:Number(e.target.value)})} style={{width:80}}/>)}
-        {field('시작 주', <select value={plan.startWeek} onChange={e=>setPlan({...plan,startWeek:Number(e.target.value)})}>{weeks.map((x,i)=><option key={i} value={i}>{x.sem}학기 {x.no}주 {x.label}</option>)}</select>)}
-        {field('시간 방식', <div className="seg"><button className={plan.same?'on':''} onClick={()=>setPlan({...plan,same:true})}>모든 반 같은 시간</button><button className={!plan.same?'on':''} onClick={()=>setPlan({...plan,same:false})}>반마다 다른 시간</button></div>)}
-        {field('행사 시간(파란 밑줄)은', <div className="seg"><button className={plan.ev==='skip'?'on':''} onClick={()=>setPlan({...plan,ev:'skip'})}>건너뛰고 다음 주로</button><button className={plan.ev==='use'?'on':''} onClick={()=>setPlan({...plan,ev:'use'})}>행사 대신 배정</button></div>)}
+        <div style={{display:'flex',gap:18,alignItems:'flex-end'}}>
+          {field('횟수 (반마다)', <input type="number" min="1" max="40" value={plan.count} onChange={e=>setPlan({...plan,count:Number(e.target.value)})} style={{width:80}}/>)}
+          {field('시작 주', <select value={plan.startWeek} onChange={e=>setPlan({...plan,startWeek:Number(e.target.value)})}>{weeks.map((x,i)=><option key={i} value={i}>{x.sem}학기 {x.no}주 {x.label}</option>)}</select>)}
+        </div>
+        <div style={{display:'flex',gap:18,alignItems:'flex-end',flexWrap:'wrap'}}>
+          {field('시간 방식', <div className="seg"><button className={plan.same?'on':''} onClick={()=>setPlan({...plan,same:true})}>모든 반 같은 시간</button><button className={!plan.same?'on':''} onClick={()=>setPlan({...plan,same:false})}>반마다 다른 시간</button></div>)}
+          {field('행사 시간(파란 밑줄)은', <div className="seg"><button className={plan.ev==='skip'?'on':''} onClick={()=>setPlan({...plan,ev:'skip'})}>건너뜀</button><button className={plan.ev==='use'?'on':''} onClick={()=>setPlan({...plan,ev:'use'})}>행사 대신 배정</button></div>)}
+        </div>
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6}}>
         {(plan.same ? f.classes.slice(0,1) : f.classes).map(cid => { const pp = plan.per[cid]||{d:0,p:1}; return <div key={cid} style={{display:'flex',alignItems:'center',gap:6,border:'1px solid var(--line)',borderRadius:8,padding:'5px 10px',background:plan.same?'#f6f7f9':gradeColor(cid)}}>
-          <b style={{minWidth:40}}>{plan.same ? '전체 반' : classCode(cid)}</b>
-          <select value={pp.d} onChange={e=>setPer(cid,'d',Number(e.target.value))} style={{padding:'5px 6px',border:'1px solid var(--line-strong)',borderRadius:6,fontSize:15}}>{DAYS.map((d,i)=><option key={d} value={i}>{d}요일</option>)}</select>
-          <select value={pp.p} onChange={e=>setPer(cid,'p',Number(e.target.value))} style={{padding:'5px 6px',border:'1px solid var(--line-strong)',borderRadius:6,fontSize:15}}>{PERIODS.map(p=><option key={p} value={p}>{p}교시{f.session===2?`~${p+1}교시`:''}</option>)}</select>
+          <b style={{minWidth:40,fontSize:17}}>{plan.same ? '전체 반' : classCode(cid)}</b>
+          <select value={pp.d} onChange={e=>setPer(cid,'d',Number(e.target.value))} style={{padding:'6px 8px',border:'1px solid var(--line-strong)',borderRadius:6,fontSize:17,fontWeight:700}}>{DAYS.map((d,i)=><option key={d} value={i}>{d}</option>)}</select>
+          <select value={pp.p} onChange={e=>setPer(cid,'p',Number(e.target.value))} style={{padding:'6px 8px',border:'1px solid var(--line-strong)',borderRadius:6,fontSize:17,fontWeight:700}}>{PERIODS.map(p=><option key={p} value={p}>{p}교시{f.session===2?`~${p+1}`:''}</option>)}</select>
         </div>; })}
         </div>
         <button className="btn primary" onClick={generate} disabled={!weeks.length} style={{padding:'10px 18px',fontSize:15}}>반복 일정 만들기</button>
