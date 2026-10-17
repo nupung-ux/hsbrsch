@@ -171,7 +171,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = 'hwaseong-barun-timetable-test';
-const VERSION = 'v3.8';
+const VERSION = 'v3.9';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -537,8 +537,8 @@ function App() {
     // 특별실 예약 재생성
     for (const [bid,b] of Object.entries(bookings)) if (b.lectureId===id) await deleteDoc(dref('room_bookings', bid));
     if (L.room) for (const sl of L.slots) { const tt = periodTime(bell, gradeOf(sl.classId), sl.p); await setDoc(dref('room_bookings', `lec_${id}_${sl.classId}_${sl.date}_${sl.p}`), { room: L.room, date: sl.date, p: sl.p, colKey: tt?`${tt.s}-${tt.e}`:null, classId: sl.classId, grade: gradeOf(sl.classId), text: classCode(sl.classId), lectureId: id, createdBy: editorName(), createdAt: nowIso() }); }
-    // 일정표: 날짜별 한 줄
-    const byDate = {}; for (const sl of L.slots) (byDate[sl.date] = byDate[sl.date] || []).push(sl.p);
+    // 일정표: 외부강의만 날짜별 한 줄 (영양·보건·상담은 일정표에 넣지 않음)
+    const byDate = {}; if (!isNoncurr(L)) for (const sl of L.slots) (byDate[sl.date] = byDate[sl.date] || []).push(sl.p);
     const keep = new Set();
     for (const [date, ps] of Object.entries(byDate)) { const eid = `lec_${id}_${date}`; keep.add(eid);
       await setDoc(calDoc(eid), { date, endDate: date, activity: L.name, time: periodsText(ps), department: `${L.grade}학년`, manager: L.instructor || '', location: L.room || '', note: [isNoncurr(L) ? L.kind : '', L.subject && !isNoncurr(L) ? subjectName(L.subject) : ''].filter(Boolean).join(' · '), isImportant: false, groupId: `lec_${id}`, lectureId: id, isRepeating: false, repeatDays: [], excludeWeekends: false }); }
@@ -1104,9 +1104,9 @@ function LectureEditor({ year, bell, classList, teachers, ctt, lessons, lectures
   const save = async () => {
     if (!isNoncurr(f) && !f.name.trim()) { toast('강의명을 넣어 주세요.', true); return; }
     if (!slots.length) { toast('배정된 시간이 없습니다. 반복 일정을 만들거나 시간표에서 칸을 골라 주세요.', true); return; }
-    setBusy(true); try { await saveLecture({ ...f, name: lecName(f), subject: isNoncurr(f) ? '' : f.subject, slots }); toast('저장했습니다. 특별실·일정표·담임시간표에 반영됐습니다.'); onClose(); } catch(e) { console.error(e); toast('저장 실패: '+e.message, true); } setBusy(false);
+    setBusy(true); try { await saveLecture({ ...f, name: lecName(f), subject: isNoncurr(f) ? '' : f.subject, slots }); toast(isNoncurr(f) ? '저장했습니다. 특별실·담임시간표에 반영됐습니다.' : '저장했습니다. 특별실·일정표·담임시간표에 반영됐습니다.'); onClose(); } catch(e) { console.error(e); toast('저장 실패: '+e.message, true); } setBusy(false);
   };
-  const del = () => setModal({ type:'confirm', title:'이 강의를 삭제할까요?', body:<p>특별실 예약과 일정표 항목도 함께 지워집니다.</p>, actions:[{label:'취소',on:()=>setModal(null)},{label:'삭제',primary:true,on:async()=>{ await deleteLecture(f.id); setModal(null); toast('삭제했습니다.'); onClose(); }}] });
+  const del = () => setModal({ type:'confirm', title:'이 강의를 삭제할까요?', body:<p>{isNoncurr(f) ? '특별실 예약도 함께 지워집니다.' : '특별실 예약과 일정표 항목도 함께 지워집니다.'}</p>, actions:[{label:'취소',on:()=>setModal(null)},{label:'삭제',primary:true,on:async()=>{ await deleteLecture(f.id); setModal(null); toast('삭제했습니다.'); onClose(); }}] });
   const counts = {}; for (const sl of slots) counts[sl.classId]=(counts[sl.classId]||0)+1;
   const setPer = (cid, k, v) => setPlan(pl => { const per = { ...pl.per }; if (pl.same) for (const c of f.classes) per[c] = { ...(per[c]||{d:0,p:1}), [k]: v }; else per[cid] = { ...(per[cid]||{d:0,p:1}), [k]: v }; return { ...pl, per }; });
   const field = (label, el) => <div className="field">{label}{el}</div>;
@@ -1127,7 +1127,7 @@ function LectureEditor({ year, bell, classList, teachers, ctt, lessons, lectures
     </div>
 
     <div className="sec">
-      <h3><span className="num">1</span>강의 정보 <span className="desc">무엇을, 누가, 어디서, 어느 반에</span></h3>
+      <h3><span className="num">1</span>강의 정보 <span className="desc">무엇을, 누가, 어디서, 어느 반에{isNoncurr(f) ? ' · 영양·보건·상담은 일정표에 넣지 않습니다' : ''}</span></h3>
       <div className="formgrid">
         {field('종류', <select value={f.kind} onChange={e=>up('kind',e.target.value)}><option>외부강의</option><option>영양</option><option>보건</option><option>상담</option></select>)}
         {field(isNoncurr(f) ? '수업명 (선택)' : '강의명', <input value={f.name} onChange={e=>up('name',e.target.value)} style={{width:240}} placeholder={isNoncurr(f) ? `비우면 "${f.kind}"으로 표시` : '예: 문화예술수업(캘리그래피)'}/>)}
