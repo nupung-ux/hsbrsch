@@ -171,7 +171,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = 'hwaseong-barun-timetable-test';
-const VERSION = 'v3.4';
+const VERSION = 'v3.5';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -438,11 +438,28 @@ function App() {
   // ----- 수업 슬롯 편집 (양방향 공통) -----
   const applyMove = async (docId, newSlots, detail) => {
     const prev = lessons[docId]?.slots || {};
-    undoRef.current.push({ docId, prev }); setUndoN(undoRef.current.length);
+    undoRef.current.push({ kind:'lessons', docId, prev }); setUndoN(undoRef.current.length);
     await setDoc(dref('lessons', docId), { ...(lessons[docId]||{}), slots: newSlots, updatedAt: nowIso(), updatedBy: editorName() });
     log('move', detail);
   };
-  const undo = async () => { const u = undoRef.current.pop(); if (!u) return; setUndoN(undoRef.current.length); await setDoc(dref('lessons', u.docId), { ...(lessons[u.docId]||{}), slots: u.prev, updatedAt: nowIso(), updatedBy: editorName() }); toast('되돌렸습니다.'); };
+  const undo = async () => { const u = undoRef.current.pop(); if (!u) return; setUndoN(undoRef.current.length);
+    if (u.kind==='cells') { const T = ctt[u.docId]; if (T) await setDoc(dref('class_timetables', u.docId), { ...T, cells: u.prev }); }
+    else await setDoc(dref('lessons', u.docId), { ...(lessons[u.docId]||{}), slots: u.prev, updatedAt: nowIso(), updatedBy: editorName() });
+    toast('되돌렸습니다.'); };
+  // 행사 칸(파란 밑줄) 표시·해제·이동 — 담임시간표의 칸 정보(cells)를 수정
+  const editCells = async (classId, sem, mutate, detail) => { const id = `${classId}_${sem}`; const T = ctt[id]; if (!T) return; const cells = { ...T.cells }; mutate(cells); undoRef.current.push({ kind:'cells', docId:id, prev:T.cells }); setUndoN(undoRef.current.length); await setDoc(dref('class_timetables', id), { ...T, cells, updatedAt: nowIso(), updatedBy: editorName() }); log('event', detail); };
+  const markEvent = (classId, sem, key, text) => editCells(classId, sem, cells => { cells[key] = { ...(cells[key]||{ t:'' }), k:'e', ev: text||'' }; }, `${classLabel(classId)} ${shortDate(parseKey(key).date)} ${parseKey(key).p}교시 행사 표시 "${text||''}"`);
+  const unmarkEvent = (classId, sem, key) => editCells(classId, sem, cells => { const c = { ...(cells[key]||{}) }; c.k = 'n'; delete c.ev; cells[key] = c; }, `${classLabel(classId)} ${shortDate(parseKey(key).date)} ${parseKey(key).p}교시 행사 해제`);
+  const requestMoveEvent = (classId, sem, fromKey, toKey) => {
+    if (fromKey===toKey) return; const T = ctt[`${classId}_${sem}`]; const from = T?.cells?.[fromKey]; const to = T?.cells?.[toKey]; if (!from || from.k!=='e') return;
+    const reasons = []; let hard = false;
+    if (!to) { reasons.push('시간표에 없는 칸입니다.'); hard = true; } else if (to.k==='h') { reasons.push(`휴업일(${to.t}) 칸입니다.`); hard = true; } else if (to.k==='e') reasons.push(`이미 행사(${to.ev||to.t})로 잡힌 칸입니다. 두 행사가 겹칩니다.`);
+    if (lessons[`${classId}_${sem}`]?.slots?.[toKey]) { const l = lessons[`${classId}_${sem}`].slots[toKey]; reasons.push(`전담 ${l.t} 수업이 있는 시간입니다 (전담 수업이 우선 표시됩니다).`); }
+    for (const o of Object.values(lectures)) if ((o.slots||[]).some(sl=>sl.classId===classId && slotKey(sl.date,sl.p)===toKey)) reasons.push(`${o.kind} "${o.name}"이 있는 시간입니다.`);
+    const doMove = async () => { await editCells(classId, sem, cells => { cells[fromKey] = { ...cells[fromKey], k:'n' }; delete cells[fromKey].ev; cells[toKey] = { ...(cells[toKey]||{ t:'' }), k:'e', ev: from.ev||'' }; }, `${classLabel(classId)} 행사(${from.ev||from.t}) ${shortDate(parseKey(fromKey).date)} ${parseKey(fromKey).p}교시 → ${shortDate(parseKey(toKey).date)} ${parseKey(toKey).p}교시`); setModal(null); toast('행사 시간을 옮겼습니다.'); };
+    setModal({ type:'confirm', title: hard ? '옮길 수 없습니다' : '행사 시간을 옮길까요?', body:<div><p style={{margin:'4px 0 10px'}}><b>행사{from.ev?` · ${from.ev}`:''}</b> ({from.t})<br/>{fmtDate(parseKey(fromKey).date)} {parseKey(fromKey).p}교시 → <b>{fmtDate(parseKey(toKey).date)} {parseKey(toKey).p}교시</b></p>{reasons.map((r,i)=><div key={i} className="warn">· {r}</div>)}<p className="hint" style={{marginTop:8}}>원래 칸은 담임 과목({from.t})으로 돌아갑니다.</p></div>,
+      actions: hard ? [{label:'닫기',on:()=>setModal(null)}] : [{label:'취소',on:()=>setModal(null)},{label: reasons.length?'그래도 옮기기':'옮기기', primary:true, on:doMove}] });
+  };
 
   // 전담 메모(칸·비고) / 담임 비고
   const saveTeacherCell = async (tid, sem, key, text) => { const id = `${tid}_${sem}`; const cur = teacherNotes[id] || {}; const cells = { ...(cur.cells||{}) }; if (text) cells[key] = text; else delete cells[key]; await setDoc(dref('teacher_notes', id), { ...cur, cells, updatedAt: nowIso(), updatedBy: editorName() }); log('memo', `전담 메모 ${key} "${text||'(삭제)'}"`); };
@@ -472,7 +489,7 @@ function App() {
     const cell = ctt[docId]?.cells?.[toKey];
     if (!cell) { reasons.push('시간표에 없는 칸입니다.'); hard = true; }
     else if (cell.k==='h') { reasons.push(`휴업일·학교행사(${cell.t}) 칸입니다.`); hard = true; }
-    else if (cell.k==='e') reasons.push(`행사(${cell.t})로 잡힌 시간입니다.`);
+    else if (cell.k==='e') reasons.push(`행사(${cell.ev||cell.t})로 잡힌 시간입니다.`);
     const mySlots = lessons[docId]?.slots || {};
     if (mySlots[toKey] && fromKey && toKey!==fromKey) { const tt = teachers.find(t=>t.id===mySlots[toKey].teacherId); reasons.push(`${classLabel(classId)}에 이미 ${tt?.name||''} ${mySlots[toKey].t} 수업이 있습니다.`); }
     if (mySlots[toKey] && !fromKey) { const tt = teachers.find(t=>t.id===mySlots[toKey].teacherId); reasons.push(`${classLabel(classId)}에 이미 ${tt?.name||''} ${mySlots[toKey].t} 수업이 있습니다.`); hard = true; }
@@ -583,7 +600,7 @@ function App() {
       <span className="hint" style={{fontSize:12}}>{VERSION}</span>
     </div>
 
-    {tab==='class' && <ClassView key={'c'+homeKey} defaultCid={myRole?.classId} {...{ year, classList, teachers, ctt, lessons, lectures, canEditClass, requestMove, onUpload, toast, addLesson, deleteLesson, setModal, askText, saveClassWeekNote }} />}
+    {tab==='class' && <ClassView key={'c'+homeKey} defaultCid={myRole?.classId} {...{ year, classList, teachers, ctt, lessons, lectures, canEditClass, requestMove, onUpload, toast, addLesson, deleteLesson, setModal, askText, saveClassWeekNote, markEvent, unmarkEvent, requestMoveEvent }} />}
     {tab==='teacher' && <TeacherView key={'t'+homeKey} defaultTid={myRole?.teacherId} onSelfEdit={tid=>setModal({type:'teacherSelf', teacherId:tid})} setModal={setModal} {...{ year, teachers, ctt, lessons, lectures, canEditTeacher, requestMove, addLesson, deleteLesson, toast, teacherNotes, saveTeacherCell, saveTeacherWeekNote, askText }} />}
     {tab==='lecture' && <LectureView key={'l'+homeKey} defaultGrade={myRole?.grade || gradeOf(myRole?.classId)} {...{ year, bell, classList, teachers, ctt, lessons, lectures, bookings, canEditLecture, saveLecture, deleteLecture, toast, setModal }} />}
     {tab==='room' && <RoomView {...{ year, bell, classList, teachers, ctt, lessons, bookings, lectures, canBook, addBooking, deleteBooking, myRole, toast, setModal, goLecture: ()=>setTab('lecture') }} />}
@@ -640,7 +657,7 @@ function Grid({ weeks, renderCell, notes, onDragStart, onDrop, canDrop, dimPast,
 
 // ---------- 담임시간표 ----------
 function PastToggle({ value, onChange }) { return <label><input type="checkbox" checked={value} onChange={e=>{ onChange(e.target.checked); writePref('dimPast', e.target.checked); }} /> 지난 날짜 흐리게</label>; }
-function ClassView({ year, classList, teachers, ctt, lessons, lectures, canEditClass, requestMove, onUpload, toast, defaultCid, addLesson, deleteLesson, setModal, askText, saveClassWeekNote }) {
+function ClassView({ year, classList, teachers, ctt, lessons, lectures, canEditClass, requestMove, onUpload, toast, defaultCid, addLesson, deleteLesson, setModal, askText, saveClassWeekNote, markEvent, unmarkEvent, requestMoveEvent }) {
   const [dimPast, setDimPast] = useState(readPref('dimPast', true));
   const [cid, setCid] = useState(location.hash.match(/#\/class\/([^/]+)/)?.[1] || defaultCid || classList[0] || '');
   const [sem, setSem] = useState(1);
@@ -667,15 +684,17 @@ function ClassView({ year, classList, teachers, ctt, lessons, lectures, canEditC
     if (les) { const t = tById[les.teacherId]; return { text: les.t, cls: 'lesson'+(conflictKeys.has(key)?' conflict':''), style: { background: t?.color||'#fff3b0' }, draggable: edit, clickable: edit, title: (t?.name||'전담')+(conflictKeys.has(key)?' · 다른 반과 겹침':'')+(edit?' · 누르면 삭제':'') }; }
     if (!cell) return { text:'', style:{background:'#f5f5f3'} };
     if (cell.k==='h') return { text: cell.t, cls:'h', title:'휴업일·행사' };
-    if (cell.k==='e') return { text: cell.t, cls:'e', clickable: edit, title:'행사로 잡힌 시간'+(edit?' · 누르면 전담 수업 추가':'') };
+    if (cell.k==='e') return { text: cell.t, cls:'e', clickable: edit, draggable: edit, title:'행사'+(cell.ev?` · ${cell.ev}`:'')+(edit?' · 누르면 수정, 끌어서 이동':'') };
     return { text: showAll ? cell.t : '', cls:'faint', clickable: edit, title: edit ? '누르면 전담 수업 추가' : '' };
   };
+  const pickAdd = (key, date, p) => setModal({ type:'pick', title:`${fmtDate(date)} ${p}교시에 추가`, hint:`${classLabel(cid)} — 무엇을 넣을까요?`, options: [...options, { ev:true, label:'행사 시간으로 표시', sub:'파란 밑줄로 표시됩니다. 외부강의 배정 때 확인 대상이 됩니다.' }], onPick: o => o.ev ? askText('행사명 (비워도 됩니다)', '', v=>markEvent(cid, sem, key, v), `${fmtDate(date)} ${p}교시`) : addLesson(cid, sem, key, o.teacherId, o.subject) });
   const onCellClick = (key, date, p) => {
     if (!edit) return; if (lecAt[key]) return;
     if (L[key]) { deleteLesson(cid, sem, key); return; }
     const cell = T?.cells?.[key]; if (!cell || cell.k==='h') return;
-    if (!options.length) { toast('이 반을 맡는 전담이 설정에 없습니다.', true); return; }
-    setModal({ type:'pick', title:`${fmtDate(date)} ${p}교시에 추가`, hint:`${classLabel(cid)} — 어느 전담 수업인가요?`, options, onPick: o=>addLesson(cid, sem, key, o.teacherId, o.subject) });
+    if (cell.k==='e') { setModal({ type:'confirm', title:`행사 · ${fmtDate(date)} ${p}교시`, body:<p>{cell.ev ? <b>{cell.ev}</b> : <span className="hint">행사명 없음</span>} <span className="hint">(담임 과목 {cell.t})</span><br/><span className="hint">끌어서 다른 칸에 놓으면 옮길 수 있습니다.</span></p>,
+      actions:[{label:'취소',on:()=>setModal(null)},{label:'행사 해제',on:()=>{ setModal(null); unmarkEvent(cid, sem, key); }},{label:'전담 수업 추가',on:()=>{ setModal(null); pickAdd(key,date,p); }},{label:'행사명 수정',primary:true,on:()=>{ setModal(null); askText('행사명', cell.ev||'', v=>markEvent(cid, sem, key, v), `${fmtDate(date)} ${p}교시`); }}] }); return; }
+    pickAdd(key, date, p);
   };
   const canDrop = key => edit && !!T?.cells?.[key];
   return <>
@@ -693,8 +712,8 @@ function ClassView({ year, classList, teachers, ctt, lessons, lectures, canEditC
     : !T ? <div className="empty">{classLabel(cid)} {sem}학기 시간표가 아직 없습니다. {edit ? '스쿨마스터 연간시간표(hwpx)를 올려 주세요.' : '담임 선생님이 올리면 여기에 나타납니다.'}</div>
     : <div className="wrap">
         <Grid weeks={T.weeks} renderCell={renderCell} canDrop={canDrop} dimPast={dimPast} onCellClick={onCellClick} onNoteClick={edit ? (no, cur)=>askText(`${no}주 비고`, cur, v=>saveClassWeekNote(cid, sem, no, v)) : undefined}
-          onDragStart={k=>{ dragRef.current=k; }} onDrop={k=>{ if(dragRef.current) requestMove(cid, sem, dragRef.current, k); dragRef.current=null; }} />
-        <p className="hint">올린 사람 {T.uploadedBy} · {T.uploadedAt?.slice(0,16).replace('T',' ')}{edit && ' · 빈 칸 누르면 전담 수업 추가, 전담 칸 누르면 삭제, 끌어서 놓으면 이동.'} · <span className="tag">외</span> 외부강의 <span className="tag">비</span> 비교과</p>
+          onDragStart={k=>{ dragRef.current=k; }} onDrop={k=>{ const from=dragRef.current; dragRef.current=null; if(!from) return; if (L[from]) requestMove(cid, sem, from, k); else if (T?.cells?.[from]?.k==='e') requestMoveEvent(cid, sem, from, k); }} />
+        <p className="hint">올린 사람 {T.uploadedBy} · {T.uploadedAt?.slice(0,16).replace('T',' ')}{edit && ' · 빈 칸 누르면 전담 수업 또는 행사 추가, 전담 칸 누르면 삭제, 행사 칸 누르면 수정, 끌어서 놓으면 이동.'} · <span className="tag">외</span> 외부강의 <span className="tag">비</span> 비교과</p>
         {myLectures.length>0 && <div className="card" style={{margin:'8px 0 0'}}><h3>{classLabel(cid)} 외부강의·비교과</h3>
           {myLectures.map(l => <div key={l.id} style={{marginBottom:6}}><span className="tag">{l.kind}{l.subject?` · ${subjectName(l.subject)}`:''}</span> <b>{l.name}</b> {l.instructor && `· ${l.instructor}`} {l.room && `· ${l.room}`} — {l.mine.map(sl=>`${shortDate(sl.date)} ${sl.p}교시`).join(', ')}</div>)}
         </div>}
@@ -924,7 +943,7 @@ function LectureEditor({ year, bell, classList, teachers, ctt, lessons, lectures
     for (const o of Object.values(lectures)) if (o.id!==f.id && (o.slots||[]).some(sl=>sl.classId===cid && slotKey(sl.date,sl.p)===key)) return { hard: `${o.kind} ${o.name}` };
     if (!ignoreSelf && has(cid,key)) return { hard: '이미 배정' };
     const soft = [];
-    if (cell.k==='e') soft.push(`행사(${cell.t})로 잡힌 시간`);
+    if (cell.k==='e') soft.push(`행사(${cell.ev||cell.t})로 잡힌 시간`);
     if (f.room) { const me = periodTime(bell, gradeOf(cid), p); for (const b of Object.values(bookings)) if (b.room===f.room && b.date===date && b.lectureId!==f.id && overlaps(me, b.s ? { s:b.s, e:b.e } : periodTime(bell, b.grade||gradeOf(b.classId)||'3', b.p))) soft.push(`${f.room} ${b.text} 예약과 겹침`);
       for (const t of teachers) if (t.room===f.room) for (const [lid,L] of Object.entries(lessons)) { if (!lid.endsWith('_'+f.sem)) continue; const sl = L.slots?.[key]; if (sl && sl.teacherId===t.id && overlaps(me, periodTime(bell, gradeOf(L.classId), p))) soft.push(`${f.room}에서 ${t.name} 전담 수업(${classCode(L.classId)})`); } }
     return { soft };
