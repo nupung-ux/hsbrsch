@@ -50,9 +50,10 @@
   .seg button.on{background:var(--ink);color:#fff}
   .wrap{padding:0 18px 40px}
   table.tt thead th{position:sticky;z-index:6;background-clip:padding-box;box-shadow:inset 0 -1px 0 var(--line),inset -1px 0 0 var(--line)}
-  table.tt thead tr:first-child th{top:var(--topbar,53px)}
-  table.tt thead tr:nth-child(2) th{top:calc(var(--topbar,53px) + 35px)}
-  table.tt thead tr:first-child th[rowspan]{top:var(--topbar,53px)}
+  table.tt thead tr:first-child th{top:var(--fixed,var(--topbar,53px))}
+  table.tt thead tr:nth-child(2) th{top:calc(var(--fixed,var(--topbar,53px)) + 35px)}
+  table.tt thead tr:first-child th[rowspan]{top:var(--fixed,var(--topbar,53px))}
+  .fixedhead{position:sticky;top:var(--topbar,53px);z-index:12;background:var(--paper);box-shadow:0 1px 0 var(--line)}
   table.tt td.slot.memo{background:#fff8e1;color:#7a4b00;font-size:12px;font-weight:500;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:var(--cell)}
   table.tt td.note.ed{cursor:pointer}
   table.tt td.note.ed:hover{background:#f6f7f9}
@@ -78,7 +79,7 @@
   table.ov tr.cur td{background:#fffbe6}
   table.tt td.slot.lec small,table.tt td.slot.pick small{font-size:10px;letter-spacing:-.5px}
   .roomside{display:flex;gap:14px;align-items:flex-start;padding:0 18px 40px}
-  .roombtns{display:flex;flex-direction:column;gap:6px;position:sticky;top:calc(var(--topbar,53px) + 10px);min-width:110px}
+  .roombtns{display:flex;flex-direction:column;gap:6px;position:sticky;top:calc(var(--fixed,var(--topbar,53px)) + 10px);min-width:110px}
   .roombtns button{padding:8px 12px;border:1px solid var(--line-strong);background:#fff;border-radius:6px;text-align:left;font-size:15px}
   .roombtns button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
   table.tt{border-collapse:collapse;background:#fff;table-layout:fixed}
@@ -173,7 +174,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = 'hwaseong-barun-timetable-test';
-const VERSION = 'v4.3';
+const VERSION = 'v4.4';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -727,9 +728,16 @@ function Grid({ weeks, renderCell, notes, onDragStart, onDrop, canDrop, dimPast,
 }
 
 // ---------- 담임시간표 ----------
+function useFixedHead() {
+  const ref = useRef(null); const [h, setH] = useState(0);
+  useEffect(() => { const el = ref.current; if (!el) return; const f = () => setH(el.offsetHeight); f(); const ro = new ResizeObserver(f); ro.observe(el); return () => ro.disconnect(); }, []);
+  const top = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--topbar')) || 53;
+  return [ref, { '--fixed': `${top + h}px` }];
+}
 function PastToggle({ value, onChange }) { return <label><input type="checkbox" checked={value} onChange={e=>{ onChange(e.target.checked); writePref('dimPast', e.target.checked); }} /> 지난 날짜 흐리게</label>; }
 function ClassView({ year, classList, teachers, ctt, lessons, lectures, canEditClass, requestMove, onUpload, toast, defaultCid, addLesson, askRepeat, deleteLesson, setModal, askText, saveClassWeekNote, markEvent, unmarkEvent, requestMoveEvent, createBlank }) {
   const [dimPast, setDimPast] = useState(readPref('dimPast', true));
+  const [headRef, fixedStyle] = useFixedHead();
   const [cid, setCid] = useState(location.hash.match(/#\/class\/([^/]+)/)?.[1] || defaultCid || classList[0] || '');
   const [sem, setSem] = useState(1);
   const [showAll, setShowAll] = useState(false);
@@ -768,8 +776,8 @@ function ClassView({ year, classList, teachers, ctt, lessons, lectures, canEditC
     pickAdd(key, date, p);
   };
   const canDrop = key => edit && !!T?.cells?.[key];
-  return <>
-    <div className="bar">
+  return <div style={fixedStyle}>
+    <div className="fixedhead" ref={headRef}><div className="bar">
       <label>학급 <select value={cid} onChange={e=>setCid(e.target.value)}>{classList.map(c=><option key={c} value={c}>{classLabel(c)}</option>)}</select></label>
       <div className="seg"><button className={sem===1?'on':''} onClick={()=>setSem(1)}>1학기</button><button className={sem===2?'on':''} onClick={()=>setSem(2)}>2학기</button></div>
       <label><input type="checkbox" checked={showAll} onChange={e=>setShowAll(e.target.checked)} /> 담임 과목도 보기</label>
@@ -778,7 +786,7 @@ function ClassView({ year, classList, teachers, ctt, lessons, lectures, canEditC
       <div className="legend">{subjectStats.map(x=><span key={x.teacher.id+x.sub.subject} title={x.exp!=null?`기준 ${x.exp}시간`:''}><i style={{background:x.teacher.color}}/>{x.sub.subject} {x.teacher.name} <b style={{color:x.exp!=null&&x.n!==x.exp?'var(--danger)':'inherit'}}>{x.n}</b>{x.exp!=null&&`/${x.exp}`}</span>)}<span><i style={{background:'var(--holiday)'}}/>휴업·행사</span><span style={{color:'var(--event)',textDecoration:'underline'}}>행사시간</span></div>
       <input ref={fileRef} type="file" accept=".hwpx" style={{display:'none'}} onChange={e=>{ if(e.target.files[0]) onUpload(e.target.files[0]); e.target.value=''; }} />
       <button className="btn primary" disabled={!edit} onClick={()=>fileRef.current.click()}>연간시간표(hwpx) 올리기</button>
-    </div>
+    </div></div>
     {!classList.length ? <div className="empty">학년도 설정에서 학급 수를 먼저 입력해 주세요.</div>
     : !T ? <div className="empty"><p>{classLabel(cid)} {sem}학기 시간표가 아직 없습니다.</p>{edit ? <div style={{display:'flex',gap:10,justifyContent:'center'}}><button className="btn primary" onClick={()=>fileRef.current.click()}>스쿨마스터 연간시간표(hwpx) 올리기</button>{year.semesters?.[sem]?.weeks?.length ? <button className="btn" onClick={()=>createBlank(cid, sem)}>빈 시간표로 시작</button> : <span className="hint" style={{alignSelf:'center'}}>빈 시간표로 시작하려면 학년도 설정에서 {sem}학기 기간을 정해 주세요.</span>}</div> : <p className="hint">담임 선생님이 올리면 여기에 나타납니다.</p>}<p className="hint" style={{marginTop:12}}>빈 시간표로 시작하면 전담·외부강의·행사를 바로 넣을 수 있고, 나중에 한글 파일을 올리면 입력한 내용은 유지한 채 나머지가 채워집니다.</p></div>
     : <div className="wrap">
@@ -789,12 +797,13 @@ function ClassView({ year, classList, teachers, ctt, lessons, lectures, canEditC
           {myLectures.map(l => <div key={l.id} style={{marginBottom:6}}><span className={'tag'+(isNoncurr(l)?' b':'')}>{l.kind}{l.subject&&!isNoncurr(l)?` · ${subjectName(l.subject)}`:''}</span> <b>{lecName(l)}</b> {l.instructor && `· ${l.instructor}`} {l.room && `· ${l.room}`} — {l.mine.map(sl=>`${shortDate(sl.date)} ${sl.p}교시`).join(', ')}</div>)}
         </div>}
       </div>}
-  </>;
+  </div>;
 }
 
 // ---------- 전담시간표 ----------
 function TeacherView({ year, teachers, ctt, lessons, lectures, canEditTeacher, requestMove, defaultTid, onSelfEdit, setModal, addLesson, askRepeat, deleteLesson, toast, teacherNotes, saveTeacherCell, saveTeacherWeekNote, askText }) {
   const [dimPast, setDimPast] = useState(readPref('dimPast', true));
+  const [headRef, fixedStyle] = useFixedHead();
   const [tid, setTid] = useState(location.hash.match(/#\/teacher\/([^/]+)/)?.[1] || defaultTid || teachers[0]?.id || '');
   const [sem, setSem] = useState(1);
   const dragRef = useRef(null);
@@ -828,8 +837,8 @@ function TeacherView({ year, teachers, ctt, lessons, lectures, canEditTeacher, r
     setModal({ type:'pick', title:`${fmtDate(date)} ${p}교시에 추가`, hint:`${t.name} — 어느 반 수업인가요?`, options: opts, onPick: o=> o.free ? askText('메모 입력', '', v=>saveTeacherCell(tid, sem, key, v), `${fmtDate(date)} ${p}교시`) : askRepeat(o.classId, sem, key, o.teacherId, o.subject) });
   };
   const canDrop = key => edit && !holiday(key);
-  return <>
-    <div className="bar">
+  return <div style={fixedStyle}>
+    <div className="fixedhead" ref={headRef}><div className="bar">
       <label>전담 <select value={tid} onChange={e=>setTid(e.target.value)}>{teachers.map(x=><option key={x.id} value={x.id}>{x.name} ({teacherSubjects(x)})</option>)}</select></label>
       <div className="seg"><button className={sem===1?'on':''} onClick={()=>setSem(1)}>1학기</button><button className={sem===2?'on':''} onClick={()=>setSem(2)}>2학기</button></div>
       {edit && t && <button className="btn" onClick={()=>onSelfEdit(tid)}>내 담당 설정</button>}
@@ -841,7 +850,7 @@ function TeacherView({ year, teachers, ctt, lessons, lectures, canEditTeacher, r
         <tbody><tr><td className="wk">현재</td>{hourRows.map(r=><td key={r.subject+r.classId} style={{fontWeight:700,color: r.exp!=null && r.n!==r.exp ? 'var(--danger)' : 'inherit'}}>{r.has ? r.n : '—'}</td>)}<td style={{fontWeight:700}}>{hourRows.reduce((a,r)=>a+r.n,0)}</td></tr>
         <tr><td className="wk">기준</td>{hourRows.map(r=><td key={r.subject+r.classId} className="hint">{r.exp ?? '·'}</td>)}<td className="hint">{hourRows.reduce((a,r)=>a+(r.exp||0),0)||'·'}</td></tr>
         <tr><td className="wk">과목</td>{hourRows.map(r=><td key={r.subject+r.classId}>{r.subject}</td>)}<td/></tr></tbody></table>
-    </div>}
+    </div>}</div>
     {!t ? <div className="empty">학년도 설정에서 전담 교사를 먼저 등록해 주세요.</div>
     : !normTeacher(t).subjects.length ? <div className="empty">{t.name} 선생님의 담당 과목·학급이 아직 없습니다. {edit ? '[내 담당 설정]을 눌러 넣어 주세요.' : '전담 선생님이 설정하면 여기에 나타납니다.'}</div>
     : !weeks.length ? <div className="empty">{sem}학기 연간시간표가 아직 하나도 올라오지 않았습니다. 담임시간표 탭에서 학급 파일을 올리면 주차가 만들어집니다.</div>
@@ -853,7 +862,7 @@ function TeacherView({ year, teachers, ctt, lessons, lectures, canEditTeacher, r
               actions:[{label:'취소',on:()=>setModal(null)}, ...arr.map(l=>({ label: classLabel(l.classId)+' 옮기기', primary:true, on:()=>requestMove(l.classId, sem, from, k) }))] }); }} />
         <p className="hint">빨간 테두리 = 같은 시간에 두 반. {edit && '빈 칸 누르면 추가, 수업 칸 누르면 삭제, 끌어서 놓으면 이동 — 모두 그 반 담임시간표에도 함께 반영됩니다.'}</p>
       </div>}
-  </>;
+  </div>;
 }
 
 // ---------- 현황: 시수 검증, 외부강의 분배, 수정 기록 ----------
@@ -1153,13 +1162,14 @@ function LectureEditor({ year, bell, classList, teachers, ctt, lessons, lectures
   const del = () => setModal({ type:'confirm', title:'이 강의를 삭제할까요?', body:<p>{isNoncurr(f) ? '특별실 예약도 함께 지워집니다.' : '특별실 예약과 일정표 항목도 함께 지워집니다.'}</p>, actions:[{label:'취소',on:()=>setModal(null)},{label:'삭제',primary:true,on:async()=>{ await deleteLecture(f.id); setModal(null); toast('삭제했습니다.'); onClose(); }}] });
   const counts = {}; for (const sl of slots) counts[sl.classId]=(counts[sl.classId]||0)+1;
   const field = (label, el) => <div className="field">{label}{el}</div>;
+  const [headRef, fixedStyle] = useFixedHead();
   const months = Array.from(new Set(weeks.map(x=>Number(x.start.slice(5,7)))));
   useEffect(()=>{ if (range==='month' && month==null && months.length) { const cur = months.find(m => weeks.some(x=>Number(x.start.slice(5,7))===m && TODAY>=x.start && TODAY<addDays(x.start,7))); setMonth(cur ?? months[0]); } }, [range]);
   const shownWeeks = weeks.map((x,i)=>({ ...x, i })).filter(x => range==='sem' ? true : range==='sem1' ? x.sem===1 : range==='sem2' ? x.sem===2 : range==='month' ? Number(x.start.slice(5,7))===Number(month ?? months[0]) : x.i===wi);
   const slotsIn = (cid, wk) => slots.filter(sl=>sl.classId===cid && sl.date>=wk.start && sl.date<addDays(wk.start,7)).sort((a,b)=>a.date.localeCompare(b.date)||a.p-b.p);
   const curWeekIdx = weeks.findIndex(x => TODAY>=x.start && TODAY<addDays(x.start,7));
-  return <>
-    <div className="top" style={{top:'var(--topbar,53px)',zIndex:15,padding:'8px 18px'}}>
+  return <div style={fixedStyle}>
+    <div className="top fixedhead" ref={headRef} style={{zIndex:15,padding:'8px 18px'}}>
       <span style={{fontWeight:700,fontSize:17,background:GRADE_COLORS[f.grade],padding:'2px 10px',borderRadius:6}}>{f.grade==='유'?'유치원':f.grade+'학년'}</span>
       <span style={{fontWeight:700,fontSize:17}}>{f.id ? '강의 수정' : '새 강의 배정'}</span>
       <span className="hint">{lecName(f) || '강의명 미입력'} · {slots.length}칸 배정됨</span>
@@ -1233,7 +1243,7 @@ function LectureEditor({ year, bell, classList, teachers, ctt, lessons, lectures
       </div>)}
     </div>
     <div style={{height:40}}/>
-  </>;
+  </div>;
 }
 
 // ---------- 특별실 시간표 ----------
@@ -1242,6 +1252,7 @@ function RoomView({ year, bell, classList, teachers, ctt, lessons, bookings, lec
   const [room, setRoom] = useState(decodeURIComponent(location.hash.match(/#\/room\/([^/]+)/)?.[1]||'') || rooms[0]?.name || '');
   const [sem, setSem] = useState(1);
   const [dimPast, setDimPast] = useState(readPref('dimPast', true));
+  const [headRef, fixedStyle] = useFixedHead();
   useEffect(()=>{ if (!room && rooms.length) setRoom(rooms[0].name); }, [rooms]);
   useEffect(()=>{ if (room) history.replaceState(null,'',`#/room/${encodeURIComponent(room)}`); }, [room]);
   const weeks = year.semesters?.[sem]?.weeks || [];
@@ -1262,13 +1273,14 @@ function RoomView({ year, bell, classList, teachers, ctt, lessons, bookings, lec
     if (!canBook) { toast('로그인하면 예약할 수 있습니다.', true); return; }
     setModal({ type:'book', room, date, col });
   };
-  return <>
-    <div className="bar">
+  return <div style={fixedStyle}>
+    <div className="fixedhead" ref={headRef}><div className="bar">
+      <span style={{fontWeight:700,fontSize:17}}>{room}</span>
       <div className="seg"><button className={sem===1?'on':''} onClick={()=>setSem(1)}>1학기</button><button className={sem===2?'on':''} onClick={()=>setSem(2)}>2학기</button></div>
       <PastToggle value={dimPast} onChange={setDimPast} />
       <div className="spacer"/>
       <div className="legend"><span><i style={{background:'#dff4ec'}}/>전담 수업{roomTeachers.length?` (${roomTeachers.map(t=>t.name).join(', ')})`:''}</span><span><i style={{background:'#fff0c2'}}/>예약</span><span><i style={{background:'#e9dcff'}}/>외부강의(잠금)</span><span style={{color:'var(--danger)'}}>빨간 테두리 = 겹침</span></div>
-    </div>
+    </div></div>
     {!rooms.length ? <div className="empty">학년도 설정에서 특별실을 먼저 등록해 주세요.</div>
     : !weeks.length ? <div className="empty">{sem}학기 연간시간표가 아직 없습니다.</div>
     : <div className="roomside">
@@ -1283,7 +1295,7 @@ function RoomView({ year, bell, classList, teachers, ctt, lessons, bookings, lec
       <p className="hint">시정표에 따라 시간이 다른 교시(예: 5교시)는 열이 나뉩니다. 열 머리글에 마우스를 올리면 시간과 학년군이 보입니다. 빈 칸을 누르면 예약(학년반 또는 자유 글, 매주 반복 가능), 예약 칸을 누르면 삭제.</p>
       </div>
     </div>}
-  </>;
+  </div>;
 }
 function BookModal({ room, date, col, classList, myRole, onSave, onClose }) {
   const remembered = readPref('lastBookClass', null);
