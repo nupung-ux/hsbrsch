@@ -169,6 +169,8 @@
   .field input,.field select{padding:6px 8px;border:1px solid var(--line-strong);border-radius:6px;background:#fff;font-size:15px;color:var(--ink)}
   @media (prefers-reduced-motion:no-preference){.toast{animation:up .18s ease-out}}
   @keyframes up{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
+.dropzone{position:fixed;inset:0;z-index:900;background:rgba(61,95,214,.12);border:4px dashed var(--event);display:flex;align-items:center;justify-content:center;pointer-events:none;font-size:18px;text-align:center}
+.dropzone>div{background:#fff;padding:22px 30px;border-radius:12px;box-shadow:0 6px 24px rgba(0,0,0,.15)}
 </style>
 </head>
 <body>
@@ -193,7 +195,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = 'hwaseong-barun-timetable-test';
-const VERSION = 'v5.5';
+const VERSION = 'v5.6';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -800,6 +802,17 @@ function ClassView({ year, classList, teachers, ctt, lessons, lectures, canEditC
   const [showAll, setShowAll] = useState(false);
   const dragRef = useRef(null);
   const fileRef = useRef();
+  const [fileOver, setFileOver] = useState(false);
+  const overCnt = useRef(0);
+  const isFileDrag = e => Array.from(e.dataTransfer?.types||[]).includes('Files');
+  const onFileDragEnter = e => { if (!isFileDrag(e)) return; e.preventDefault(); overCnt.current++; setFileOver(true); };
+  const onFileDragOver = e => { if (!isFileDrag(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = edit ? 'copy' : 'none'; };
+  const onFileDragLeave = e => { if (!isFileDrag(e)) return; overCnt.current = Math.max(0, overCnt.current-1); if (!overCnt.current) setFileOver(false); };
+  const onFileDrop = e => { if (!isFileDrag(e)) return; e.preventDefault(); overCnt.current = 0; setFileOver(false);
+    const files = Array.from(e.dataTransfer.files||[]).filter(f => /\.hwpx$/i.test(f.name));
+    if (!edit) { toast('이 학급의 시간표를 올릴 권한이 없습니다.'); return; }
+    if (!files.length) { toast('hwpx 파일만 올릴 수 있습니다.'); return; }
+    onUpload(files); };
   useEffect(()=>{ if (!cid && classList.length) setCid(classList[0]); }, [classList]);
   useEffect(()=>{ if (cid) history.replaceState(null,'',`#/class/${cid}`); }, [cid]);
   const id = `${cid}_${sem}`; const T = ctt[id]; const L = lessons[id]?.slots || {};
@@ -833,7 +846,8 @@ function ClassView({ year, classList, teachers, ctt, lessons, lectures, canEditC
     pickAdd(key, date, p);
   };
   const canDrop = key => edit && !!T?.cells?.[key];
-  return <div style={fixedStyle}>
+  return <div style={{...fixedStyle, position:'relative'}} onDragEnter={onFileDragEnter} onDragOver={onFileDragOver} onDragLeave={onFileDragLeave} onDrop={onFileDrop}>
+    {fileOver && <div className="dropzone"><div><b>여기에 놓으면 연간시간표(hwpx)를 올립니다</b><br/><span className="hint">여러 파일을 한꺼번에 놓아도 됩니다. 학급은 파일 안의 정보로 자동 구분됩니다.</span></div></div>}
     <div className="fixedhead" ref={headRef}><div className="bar">
       <label>학급 <select value={cid} onChange={e=>setCid(e.target.value)}>{classList.map(c=><option key={c} value={c}>{classLabel(c)}</option>)}</select></label>
       <div className="seg"><button className={sem===1?'on':''} onClick={()=>setSem(1)}>1학기</button><button className={sem===2?'on':''} onClick={()=>setSem(2)}>2학기</button></div>
@@ -842,7 +856,7 @@ function ClassView({ year, classList, teachers, ctt, lessons, lectures, canEditC
       <div className="spacer"/>
       <div className="legend">{subjectStats.map(x=><span key={x.teacher.id+x.sub.subject} title={(x.mode==='year'?'연간 기준 · ':'')+(x.exp!=null?`기준 ${x.exp}시간`:'')}><i style={{background:x.teacher.color}}/>{x.sub.subject} {x.teacher.name} <b style={{color:x.exp!=null&&x.n!==x.exp?'var(--danger)':'inherit'}}>{x.n}</b>{x.exp!=null&&`/${x.exp}`}{x.mode==='year'&&<small style={{color:'var(--muted)'}}>연간</small>}</span>)}<span><i style={{background:'var(--holiday)'}}/>휴업·행사</span><span style={{color:'var(--event)',textDecoration:'underline'}}>행사시간</span></div>
       <input ref={fileRef} type="file" accept=".hwpx" multiple style={{display:'none'}} onChange={e=>{ if(e.target.files.length) onUpload(e.target.files); e.target.value=''; }} />
-      <button className="btn primary" disabled={!edit} onClick={()=>fileRef.current.click()} title="여러 파일을 한 번에 선택할 수 있습니다">연간시간표(hwpx) 올리기</button>
+      <button className="btn primary" disabled={!edit} onClick={()=>fileRef.current.click()} title="여러 파일을 한 번에 선택하거나, 파일을 이 화면에 끌어다 놓아도 됩니다">연간시간표(hwpx) 올리기</button>
     </div></div>
     {!classList.length ? <div className="empty">학년도 설정에서 학급 수를 먼저 입력해 주세요.</div>
     : !T ? <div className="empty"><p>{classLabel(cid)} {sem}학기 시간표가 아직 없습니다.</p>{edit ? <div style={{display:'flex',gap:10,justifyContent:'center'}}><button className="btn primary" onClick={()=>fileRef.current.click()}>스쿨마스터 연간시간표(hwpx) 올리기</button>{year.semesters?.[sem]?.weeks?.length ? <button className="btn" onClick={()=>createBlank(cid, sem)}>빈 시간표로 시작</button> : <span className="hint" style={{alignSelf:'center'}}>빈 시간표로 시작하려면 학년도 설정에서 {sem}학기 기간을 정해 주세요.</span>}</div> : <p className="hint">담임 선생님이 올리면 여기에 나타납니다.</p>}<p className="hint" style={{marginTop:12}}>빈 시간표로 시작하면 전담·외부강의·행사를 바로 넣을 수 있고, 나중에 한글 파일을 올리면 입력한 내용은 유지한 채 나머지가 채워집니다.</p></div>
