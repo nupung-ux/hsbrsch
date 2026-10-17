@@ -173,7 +173,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = 'hwaseong-barun-timetable-test';
-const VERSION = 'v4.2';
+const VERSION = 'v4.3';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -477,6 +477,30 @@ function App() {
   const askText = (title, value, onSave, hint) => setModal({ type:'text', title, value: value||'', hint, onSave });
 
   // 수업 추가 / 삭제 (담임·전담 공용)
+  // 반복 추가: 같은 요일·교시로 count회(또는 학기 끝까지). 휴업일·기존 수업·외부강의·전담 중복은 건너뜀
+  const addLessonRepeat = (classId, sem, key, teacherId, subject, count) => {
+    const docId = `${classId}_${sem}`; const slots = lessons[docId]?.slots || {}; const weeks = year.semesters?.[sem]?.weeks || [];
+    const { date, p } = parseKey(key); const d = (new Date(date+'T00:00:00').getDay()+6)%7;
+    const startIdx = weeks.findIndex(w => date>=w.start && date<addDays(w.start,7)); if (startIdx<0) { toast('학기 주차에 없는 날짜입니다.', true); return; }
+    const tName = teachers.find(t=>t.id===teacherId)?.name || '';
+    const made = [], skipped = [], soft = []; const max = count==='end' ? weeks.length : Number(count);
+    for (let i = startIdx; i < weeks.length && made.length < max; i++) {
+      const dd = addDays(weeks[i].start, d); const k = slotKey(dd, p);
+      const { reasons, hard } = checkDrop(classId, sem, teacherId, null, k);
+      if (hard) { skipped.push(`${shortDate(dd)} — ${reasons[0]}`); continue; }
+      if (reasons.length) soft.push(`${shortDate(dd)} — ${reasons.join(', ')}`);
+      made.push(k);
+    }
+    const doAdd = async () => { const ns = { ...slots }; const removed = { ...(lessons[docId]?.removed||{}) }; for (const k of made) { ns[k] = { t: subject, teacherId, from:'manual' }; delete removed[k]; }
+      await applyMove(docId, ns, `${classLabel(classId)} ${subject}(${tName}) ${DAYS[d]} ${p}교시 ${made.length}회 반복 추가 (${shortDate(date)}부터)`, { removed }); setModal(null); toast(`${made.length}회 추가했습니다.`); };
+    setModal({ type:'confirm', title:'반복 추가 미리보기', body:<div style={{maxHeight:'55vh',overflow:'auto'}}>
+      <p style={{margin:'0 0 8px'}}><b>{classLabel(classId)} {subject}</b> ({tName}) · 매주 {DAYS[d]}요일 {p}교시 · {shortDate(date)}부터 <b>{made.length}</b>회{count==='end' ? ' (학기 끝까지)' : ` (요청 ${count}회)`}</p>
+      {made.length>0 && <div className="hint" style={{marginBottom:8}}>{made.map(k=>shortDate(parseKey(k).date)).join(', ')}</div>}
+      {skipped.length>0 && <div style={{marginBottom:8}}><b className="warn">건너뜀 ({skipped.length})</b>{skipped.map((x,i)=><div key={i} className="hint">· {x}</div>)}</div>}
+      {soft.length>0 && <div><b className="warn">확인 필요 ({soft.length})</b> — 행사 시간이지만 포함했습니다{soft.map((x,i)=><div key={i} className="hint">· {x}</div>)}</div>}
+    </div>, actions:[{label:'취소',on:()=>setModal(null)},{label:`${made.length}회 추가`,primary:true,on:doAdd}] });
+  };
+  const askRepeat = (classId, sem, key, teacherId, subject) => setModal({ type:'repeat', key, onOnce: ()=>{ setModal(null); addLesson(classId, sem, key, teacherId, subject); }, onRepeat: (n)=>addLessonRepeat(classId, sem, key, teacherId, subject, n) });
   const addLesson = (classId, sem, key, teacherId, subject) => {
     const docId = `${classId}_${sem}`; const slots = lessons[docId]?.slots || {};
     const { reasons, hard } = checkDrop(classId, sem, teacherId, null, key);
@@ -645,8 +669,8 @@ function App() {
       <span className="hint" style={{fontSize:12}}>{VERSION}</span>
     </div>
 
-    {tab==='class' && <ClassView key={'c'+homeKey} defaultCid={myRole?.classId} {...{ year, classList, teachers, ctt, lessons, lectures, canEditClass, requestMove, onUpload, toast, addLesson, deleteLesson, setModal, askText, saveClassWeekNote, markEvent, unmarkEvent, requestMoveEvent, createBlank }} />}
-    {tab==='teacher' && <TeacherView key={'t'+homeKey} defaultTid={myRole?.teacherId} onSelfEdit={tid=>setModal({type:'teacherSelf', teacherId:tid})} setModal={setModal} {...{ year, teachers, ctt, lessons, lectures, canEditTeacher, requestMove, addLesson, deleteLesson, toast, teacherNotes, saveTeacherCell, saveTeacherWeekNote, askText }} />}
+    {tab==='class' && <ClassView key={'c'+homeKey} defaultCid={myRole?.classId} {...{ year, classList, teachers, ctt, lessons, lectures, canEditClass, requestMove, onUpload, toast, addLesson, askRepeat, deleteLesson, setModal, askText, saveClassWeekNote, markEvent, unmarkEvent, requestMoveEvent, createBlank }} />}
+    {tab==='teacher' && <TeacherView key={'t'+homeKey} defaultTid={myRole?.teacherId} onSelfEdit={tid=>setModal({type:'teacherSelf', teacherId:tid})} setModal={setModal} {...{ year, teachers, ctt, lessons, lectures, canEditTeacher, requestMove, addLesson, askRepeat, deleteLesson, toast, teacherNotes, saveTeacherCell, saveTeacherWeekNote, askText }} />}
     {tab==='lecture' && <LectureView key={'l'+homeKey} defaultGrade={myRole?.grade || gradeOf(myRole?.classId)} {...{ year, bell, classList, teachers, ctt, lessons, lectures, bookings, canEditLecture, saveLecture, deleteLecture, toast, setModal }} />}
     {tab==='room' && <RoomView {...{ year, bell, classList, teachers, ctt, lessons, bookings, lectures, canBook, addBooking, deleteBooking, myRole, toast, setModal, goLecture: ()=>setTab('lecture') }} />}
     {tab==='calendar' && <CalendarView {...{ calEvents, calAppId, lectures }} />}
@@ -654,6 +678,7 @@ function App() {
     {tab==='settings' && (isAdmin ? <Settings {...{ year, teachers, roles, isAdmin, classList, toast, log }} onBlankAll={createBlankAll} onBackup={backupAll} onReset={(keep)=>setModal({ type:'confirm', title: keep ? '시간표 데이터를 모두 지울까요?' : '학년도를 초기화할까요?', body:<div><p className="warn">되돌릴 수 없습니다. 먼저 [전체 백업 내려받기]를 해 두세요.</p><p>{keep ? '담임·전담 시간표, 외부강의, 특별실 예약, 메모가 모두 지워지고 학급·전담·특별실·시정표 설정은 남습니다.' : '모든 시간표 데이터와 역할이 지워지고 학년도가 1년 올라갑니다. 학급 수·전담·특별실·시정표 설정은 남으니 바뀐 것만 고치면 됩니다.'}</p><p className="hint">연동된 일정표에서 외부강의로 들어간 줄도 함께 지웁니다.</p></div>, actions:[{label:'취소',on:()=>setModal(null)},{label: keep ? '데이터 지우기' : '학년도 초기화', primary:true, on:async()=>{ setModal(null); await resetYear(keep); toast('초기화했습니다.'); }}] })} /> : tryRole ? <div className="empty"><p>역할 체험 중에는 학년도 설정을 볼 수 없습니다.</p><button className="btn primary" onClick={()=>setTryRole(null)}>관리자(전체)로 돌아가기</button></div> : <div className="empty"><p>학년도 설정은 관리자만 할 수 있습니다.</p><button className="btn primary" onClick={()=>setModal({type:'admin'})}>관리자 암호 입력</button></div>)}
 
     {modal?.type==='confirm' && <Modal title={modal.title} onClose={()=>setModal(null)}>{modal.body}<div className="row">{modal.actions.map((a,i)=><button key={i} className={'btn'+(a.primary?' primary':'')} onClick={a.on}>{a.label}</button>)}</div></Modal>}
+    {modal?.type==='repeat' && <RepeatModal date={parseKey(modal.key).date} p={parseKey(modal.key).p} onOnce={modal.onOnce} onRepeat={modal.onRepeat} onClose={()=>setModal(null)} />}
     {modal?.type==='text' && <TextModal title={modal.title} value={modal.value} hint={modal.hint} onClose={()=>setModal(null)} onSave={async v=>{ await modal.onSave(v); setModal(null); }} />}
     {modal?.type==='pick' && <Modal title={modal.title} onClose={()=>setModal(null)}>
       {modal.hint && <p className="hint" style={{marginTop:0}}>{modal.hint}</p>}
@@ -703,7 +728,7 @@ function Grid({ weeks, renderCell, notes, onDragStart, onDrop, canDrop, dimPast,
 
 // ---------- 담임시간표 ----------
 function PastToggle({ value, onChange }) { return <label><input type="checkbox" checked={value} onChange={e=>{ onChange(e.target.checked); writePref('dimPast', e.target.checked); }} /> 지난 날짜 흐리게</label>; }
-function ClassView({ year, classList, teachers, ctt, lessons, lectures, canEditClass, requestMove, onUpload, toast, defaultCid, addLesson, deleteLesson, setModal, askText, saveClassWeekNote, markEvent, unmarkEvent, requestMoveEvent, createBlank }) {
+function ClassView({ year, classList, teachers, ctt, lessons, lectures, canEditClass, requestMove, onUpload, toast, defaultCid, addLesson, askRepeat, deleteLesson, setModal, askText, saveClassWeekNote, markEvent, unmarkEvent, requestMoveEvent, createBlank }) {
   const [dimPast, setDimPast] = useState(readPref('dimPast', true));
   const [cid, setCid] = useState(location.hash.match(/#\/class\/([^/]+)/)?.[1] || defaultCid || classList[0] || '');
   const [sem, setSem] = useState(1);
@@ -733,7 +758,7 @@ function ClassView({ year, classList, teachers, ctt, lessons, lectures, canEditC
     if (cell.k==='e') return { text: cell.t, cls:'e', clickable: edit, draggable: edit, title:'행사'+(cell.ev?` · ${cell.ev}`:'')+(edit?' · 누르면 수정, 끌어서 이동':'') };
     return { text: showAll ? cell.t : '', cls:'faint', clickable: edit, title: edit ? '누르면 전담 수업 추가' : '' };
   };
-  const pickAdd = (key, date, p) => setModal({ type:'pick', title:`${fmtDate(date)} ${p}교시에 추가`, hint:`${classLabel(cid)} — 무엇을 넣을까요?`, options: [...options, { ev:true, label:'행사 시간으로 표시', sub:'파란 밑줄로 표시됩니다. 외부강의 배정 때 확인 대상이 됩니다.' }], onPick: o => o.ev ? askText('행사명 (비워도 됩니다)', '', v=>markEvent(cid, sem, key, v), `${fmtDate(date)} ${p}교시`) : addLesson(cid, sem, key, o.teacherId, o.subject) });
+  const pickAdd = (key, date, p) => setModal({ type:'pick', title:`${fmtDate(date)} ${p}교시에 추가`, hint:`${classLabel(cid)} — 무엇을 넣을까요?`, options: [...options, { ev:true, label:'행사 시간으로 표시', sub:'파란 밑줄로 표시됩니다. 외부강의 배정 때 확인 대상이 됩니다.' }], onPick: o => o.ev ? askText('행사명 (비워도 됩니다)', '', v=>markEvent(cid, sem, key, v), `${fmtDate(date)} ${p}교시`) : askRepeat(cid, sem, key, o.teacherId, o.subject) });
   const onCellClick = (key, date, p) => {
     if (!edit) return; if (lecAt[key]) return;
     if (L[key]) { deleteLesson(cid, sem, key); return; }
@@ -768,7 +793,7 @@ function ClassView({ year, classList, teachers, ctt, lessons, lectures, canEditC
 }
 
 // ---------- 전담시간표 ----------
-function TeacherView({ year, teachers, ctt, lessons, lectures, canEditTeacher, requestMove, defaultTid, onSelfEdit, setModal, addLesson, deleteLesson, toast, teacherNotes, saveTeacherCell, saveTeacherWeekNote, askText }) {
+function TeacherView({ year, teachers, ctt, lessons, lectures, canEditTeacher, requestMove, defaultTid, onSelfEdit, setModal, addLesson, askRepeat, deleteLesson, toast, teacherNotes, saveTeacherCell, saveTeacherWeekNote, askText }) {
   const [dimPast, setDimPast] = useState(readPref('dimPast', true));
   const [tid, setTid] = useState(location.hash.match(/#\/teacher\/([^/]+)/)?.[1] || defaultTid || teachers[0]?.id || '');
   const [sem, setSem] = useState(1);
@@ -782,6 +807,8 @@ function TeacherView({ year, teachers, ctt, lessons, lectures, canEditTeacher, r
   const mine = useMemo(() => { const m = {}; for (const [id,L] of Object.entries(lessons)) { if (!id.endsWith('_'+sem)) continue; for (const [k,v] of Object.entries(L.slots||{})) if (v.teacherId===tid) (m[k]=m[k]||[]).push({ classId: L.classId, ...v }); } return m; }, [lessons, tid, sem]);
   const counts = useMemo(() => { const c = {}; for (const arr of Object.values(mine)) for (const l of arr) { const k=`${canonSubject(l.t)}|${l.classId}`; c[k]=(c[k]||0)+1; } return c; }, [mine]);
   const memo = teacherNotes[`${tid}_${sem}`] || {};
+  const hourRows = useMemo(() => { if (!t) return []; const out = []; for (const su of normTeacher(t).subjects) for (const c of (su.classes||[])) { const T = ctt[`${c}_${sem}`]; const n = counts[`${canonSubject(su.subject)}|${c}`]||0;
+    const exp = su.coverage==='full' ? (su.subject==='창' ? (T?.totals?.['창체'] ?? null) : (Object.entries(T?.totals||{}).find(([k])=>k.startsWith(su.subject))?.[1] ?? null)) : semHoursOf(su, sem); out.push({ subject:su.subject, classId:c, n, exp, has:!!T }); } return out; }, [t, counts, ctt, sem]);
   const holiday = key => { const ids = teacherClasses(t||{}).map(c=>`${c}_${sem}`).filter(i=>ctt[i]); if (!ids.length) return null; const cells = ids.map(i=>ctt[i].cells?.[key]).filter(Boolean); if (cells.length && cells.every(c=>c.k==='h')) return cells[0].t; return null; };
   const renderCell = (key) => {
     const arr = mine[key];
@@ -798,7 +825,7 @@ function TeacherView({ year, teachers, ctt, lessons, lectures, canEditTeacher, r
     if (memo.cells?.[key]) { askText('메모 수정', memo.cells[key], v=>saveTeacherCell(tid, sem, key, v), `${fmtDate(date)} ${p}교시`); return; }
     const opts = []; for (const sub of normTeacher(t).subjects) for (const c of (sub.classes||[])) { if (!ctt[`${c}_${sem}`]) continue; const cell = ctt[`${c}_${sem}`].cells?.[key]; if (!cell || cell.k==='h') continue; const taken = lessons[`${c}_${sem}`]?.slots?.[key]; opts.push({ teacherId:t.id, subject:sub.subject, classId:c, label:`${classLabel(c)} ${sub.subject}`, sub: taken ? `이미 ${taken.t} 수업 있음` : (cell.k==='e' ? `행사(${cell.t})` : `담임 ${cell.t}`), disabled: !!taken && taken.teacherId!==t.id }); }
     opts.push({ free:true, label:'✎ 직접 글자 입력', sub:'행사, 출장, 연수 등 메모 (내 시간표에만 표시)' });
-    setModal({ type:'pick', title:`${fmtDate(date)} ${p}교시에 추가`, hint:`${t.name} — 어느 반 수업인가요?`, options: opts, onPick: o=> o.free ? askText('메모 입력', '', v=>saveTeacherCell(tid, sem, key, v), `${fmtDate(date)} ${p}교시`) : addLesson(o.classId, sem, key, o.teacherId, o.subject) });
+    setModal({ type:'pick', title:`${fmtDate(date)} ${p}교시에 추가`, hint:`${t.name} — 어느 반 수업인가요?`, options: opts, onPick: o=> o.free ? askText('메모 입력', '', v=>saveTeacherCell(tid, sem, key, v), `${fmtDate(date)} ${p}교시`) : askRepeat(o.classId, sem, key, o.teacherId, o.subject) });
   };
   const canDrop = key => edit && !holiday(key);
   return <>
@@ -808,8 +835,13 @@ function TeacherView({ year, teachers, ctt, lessons, lectures, canEditTeacher, r
       {edit && t && <button className="btn" onClick={()=>onSelfEdit(tid)}>내 담당 설정</button>}
       <PastToggle value={dimPast} onChange={setDimPast} />
       <div className="spacer"/>
-      <div className="legend">{t && normTeacher(t).subjects.map(sub=><span key={sub.subject}><b>{sub.subject}</b> {(sub.classes||[]).map(c=><span key={c} style={{background:gradeColor(c),padding:'1px 5px',borderRadius:4,marginRight:2}}>{classCode(c)} <b>{counts[`${sub.subject}|${c}`]||0}</b>{semHoursOf(sub,sem)?'/'+semHoursOf(sub,sem):''}</span>)}</span>)}</div>
     </div>
+    {t && hourRows.length>0 && <div style={{padding:'0 18px 10px'}}>
+      <table className="ov"><thead><tr><th style={{width:50}}>과목</th>{hourRows.map(r=><th key={r.subject+r.classId} style={{background:gradeColor(r.classId),minWidth:44}}>{classCode(r.classId)}</th>)}<th style={{minWidth:50}}>합계</th></tr></thead>
+        <tbody><tr><td className="wk">현재</td>{hourRows.map(r=><td key={r.subject+r.classId} style={{fontWeight:700,color: r.exp!=null && r.n!==r.exp ? 'var(--danger)' : 'inherit'}}>{r.has ? r.n : '—'}</td>)}<td style={{fontWeight:700}}>{hourRows.reduce((a,r)=>a+r.n,0)}</td></tr>
+        <tr><td className="wk">기준</td>{hourRows.map(r=><td key={r.subject+r.classId} className="hint">{r.exp ?? '·'}</td>)}<td className="hint">{hourRows.reduce((a,r)=>a+(r.exp||0),0)||'·'}</td></tr>
+        <tr><td className="wk">과목</td>{hourRows.map(r=><td key={r.subject+r.classId}>{r.subject}</td>)}<td/></tr></tbody></table>
+    </div>}
     {!t ? <div className="empty">학년도 설정에서 전담 교사를 먼저 등록해 주세요.</div>
     : !normTeacher(t).subjects.length ? <div className="empty">{t.name} 선생님의 담당 과목·학급이 아직 없습니다. {edit ? '[내 담당 설정]을 눌러 넣어 주세요.' : '전담 선생님이 설정하면 여기에 나타납니다.'}</div>
     : !weeks.length ? <div className="empty">{sem}학기 연간시간표가 아직 하나도 올라오지 않았습니다. 담임시간표 탭에서 학급 파일을 올리면 주차가 만들어집니다.</div>
@@ -1293,6 +1325,20 @@ function CalendarView({ calEvents, calAppId, lectures }) {
 }
 
 // ---------- 모달들 ----------
+function RepeatModal({ date, p, onOnce, onRepeat, onClose }) {
+  const [n, setN] = useState(10);
+  const d = DAYS[(new Date(date+'T00:00:00').getDay()+6)%7];
+  return <Modal title="어떻게 넣을까요?" onClose={onClose}>
+    <p className="hint" style={{marginTop:0}}>{fmtDate(date)} {p}교시</p>
+    <div style={{display:'flex',flexDirection:'column',gap:8}}>
+      <button className="btn" style={{textAlign:'left',padding:'10px 14px'}} onClick={onOnce}><b>이 날만</b> <span className="hint">— {fmtDate(date)} 한 번</span></button>
+      <div style={{display:'flex',gap:8,alignItems:'center'}}><button className="btn" style={{textAlign:'left',padding:'10px 14px',flex:1}} onClick={()=>onRepeat(n)}><b>매주 {d}요일 {p}교시, {n}회</b> <span className="hint">— 이 날부터</span></button><input type="number" min="1" max="40" value={n} onChange={e=>setN(Number(e.target.value))} style={{width:70,padding:8,border:'1px solid var(--line-strong)',borderRadius:6,fontSize:15}}/>회</div>
+      <button className="btn" style={{textAlign:'left',padding:'10px 14px'}} onClick={()=>onRepeat('end')}><b>매주 {d}요일 {p}교시, 학기 끝까지</b></button>
+    </div>
+    <p className="hint" style={{marginTop:10}}>휴업일, 이미 수업이 있는 칸, 외부강의, 같은 시간 다른 반 수업은 건너뛰고 미리보기로 보여 줍니다.</p>
+    <div className="row"><button className="btn" onClick={onClose}>취소</button></div>
+  </Modal>;
+}
 function TextModal({ title, value, hint, onSave, onClose }) {
   const [v, setV] = useState(value||'');
   return <Modal title={title} onClose={onClose}>
