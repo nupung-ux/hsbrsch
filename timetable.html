@@ -39,7 +39,7 @@
   .btn{padding:7px 14px;border:1px solid var(--line-strong);background:#fff;border-radius:6px}
   .btn.primary{background:var(--ink);color:#fff;border-color:var(--ink)}
   .btn.danger{color:var(--danger);border-color:var(--danger)}
-  .btn.save{background:#1d8a4a;color:#fff;border-color:#1d8a4a;font-size:16px;padding:9px 22px;font-weight:700;box-shadow:0 2px 6px rgba(29,138,74,.35)}
+  .btn.save{background:#1d8a4a;color:#fff;border-color:#1d8a4a;font-size:19px;padding:10px 48px;font-weight:700;box-shadow:0 2px 6px rgba(29,138,74,.35);letter-spacing:2px}
   .btn.save:hover{background:#166d3a}
   .btn:disabled{opacity:.45;cursor:default}
   .bar{display:flex;align-items:center;gap:12px;padding:12px 18px;flex-wrap:wrap}
@@ -60,7 +60,9 @@
   .sec{background:#fff;border:1px solid var(--line);border-radius:10px;margin:14px 18px 0;padding:16px 18px}
   .lecwrap{display:flex;gap:14px;align-items:stretch;padding:0 18px;height:calc(100vh - var(--fixed,53px) - 8px)}
   .lecwrap .left{flex:0 0 600px;overflow:auto;padding-bottom:20px}
-  .lecwrap .right{flex:1;min-width:0;overflow:auto;padding-bottom:20px}
+  .lecwrap .right{flex:1;min-width:0;display:flex;flex-direction:column;min-height:0;padding-bottom:12px}
+  .lecwrap .right .sec{display:flex;flex-direction:column;min-height:0;flex:1}
+  .lecwrap .right .ttscroll{overflow:auto;flex:1;min-height:0}
   .lecwrap .sec{margin:14px 0 0}
   .lecwrap .right table.tt thead tr:first-child th{top:0}
   .lecwrap .right table.tt thead tr:nth-child(2) th{top:35px}
@@ -188,7 +190,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = 'hwaseong-barun-timetable-test';
-const VERSION = 'v5.0';
+const VERSION = 'v5.1';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -1260,7 +1262,10 @@ function LectureEditor({ year, bell, classList, teachers, ctt, lessons, lectures
           <select value={pp.p} onChange={e=>setPer(cid,'p',Number(e.target.value))} style={{padding:'6px 8px',border:'1px solid var(--line-strong)',borderRadius:6,fontSize:17,fontWeight:700}}>{PERIODS.map(p=><option key={p} value={p}>{p}교시{f.session===2?`~${p+1}`:''}</option>)}</select>
         </div>; })}
         </div>
-        <button className="btn primary" onClick={generate} disabled={!weeks.length} style={{padding:'10px 18px',fontSize:15}}>반복 일정 만들기</button>
+        <div style={{display:'flex',gap:8}}>
+          <button className="btn primary" onClick={generate} disabled={!weeks.length} style={{padding:'10px 18px',fontSize:15,flex:1}}>반복 일정 만들기</button>
+          <button className="btn danger" disabled={!slots.length} onClick={()=>setModal({ type:'confirm', title:'배정한 시간을 모두 지울까요?', body:<p>현재 배정 {slots.length}칸이 지워집니다. 저장 전까지는 실제 데이터에 영향이 없습니다.</p>, actions:[{label:'취소',on:()=>setModal(null)},{label:'모두 지우기',primary:true,on:()=>{ setSlots([]); setModal(null); }}] })} style={{padding:'10px 14px'}}>시간 초기화</button>
+        </div>
       </div>
       <p className="hint" style={{margin:'10px 0 0'}}>오른쪽 시간표에서 칸을 클릭하면 요일·교시와 시작 주가 자동으로 바뀝니다.</p>
     </div>
@@ -1281,6 +1286,7 @@ function LectureEditor({ year, bell, classList, teachers, ctt, lessons, lectures
         <div className="spacer"/>
         <div className="legend">{f.classes.map(c=><span key={c} className="chip" style={{background:gradeColor(c)}}>{classCode(c)} <b>{counts[c]||0}</b></span>)}</div>
       </div>
+      <div className="ttscroll">
       {!weeks.length ? <div className="empty">연간시간표가 아직 없습니다. 담임시간표에서 올리거나 학년도 설정에서 학기 기간을 정해 주세요.</div>
       : shownWeeks.map(x => <div key={x.i} style={{marginBottom:18}}>
         <table className="tt">
@@ -1297,6 +1303,7 @@ function LectureEditor({ year, bell, classList, teachers, ctt, lessons, lectures
           </tr>)}</tbody>
         </table>
       </div>)}
+      </div>
     </div>
     </div>
     </div>
