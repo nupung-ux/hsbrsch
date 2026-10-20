@@ -128,7 +128,11 @@
   .empty{padding:60px 18px;color:var(--muted);text-align:center}
   .modal-bg{position:fixed;inset:0;background:rgba(20,25,35,.45);display:flex;align-items:center;justify-content:center;z-index:50}
   .modal{background:#fff;border-radius:10px;padding:22px 24px;min-width:380px;max-width:760px;max-height:88vh;overflow:auto;box-shadow:0 20px 50px rgba(0,0,0,.25)}
+  .modal.wide{max-width:min(1180px,96vw);width:min(1180px,96vw)}
   .modal h2{margin:0 0 12px;font-size:17px}
+  .tedit table.form{min-width:980px}
+  .tedit table.form th{white-space:nowrap}
+  .tedit .tblwrap{overflow-x:auto}
   .modal .row{display:flex;gap:8px;justify-content:flex-end;margin-top:18px}
   .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 18px;border-radius:8px;z-index:60;font-size:14px}
   .toast.err{background:var(--danger)}
@@ -201,7 +205,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = 'hwaseong-barun-timetable-test';
-const VERSION = 'v6.3';
+const VERSION = 'v6.4';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -401,9 +405,9 @@ function computeAssignments(parsed, teachers, patternChoices) {
 }
 
 // ---------- 공통 UI ----------
-function Modal({ title, children, onClose }) {
+function Modal({ title, children, onClose, wide }) {
   return <div className="modal-bg" onMouseDown={e=>{ if(e.target===e.currentTarget && onClose) onClose(); }}>
-    <div className="modal">{title && <h2>{title}</h2>}{children}</div>
+    <div className={'modal'+(wide?' wide':'')}>{title && <h2>{title}</h2>}{children}</div>
   </div>;
 }
 function useToast(){ const [t,setT]=useState(null); const show=(msg,err)=>{ setT({msg,err}); setTimeout(()=>setT(null),2600); }; const el = t ? <div className={'toast'+(t.err?' err':'')}>{t.msg}</div> : null; return [show, el]; }
@@ -1158,7 +1162,7 @@ function ClassPicker({ classList: all, value, onChange, excludeKinder }) {
 
 function TeacherEditor({ t: t0, classList, onChange, onDelete, rooms }) {
   const t = normTeacher(t0); const updT = (k,v)=>onChange({ ...t, [k]: v }); const updS = (si,k,v)=>updT('subjects', t.subjects.map((x,j)=>j===si?{...x,[k]:v}:x));
-  return <div style={{border:'1px solid var(--line)',borderRadius:8,padding:'10px 12px',marginBottom:10}}>
+  return <div className="tedit" style={{border:'1px solid var(--line)',borderRadius:8,padding:'10px 12px',marginBottom:10}}>
         <div style={{display:'flex',gap:8,alignItems:'center',marginBottom:6}}>
           <input placeholder="이름" value={t.name||''} onChange={e=>updT('name',e.target.value)} style={{width:120,padding:'5px 6px',border:'1px solid var(--line)',borderRadius:4}}/>
           <input placeholder="이메일(선택)" value={t.email||''} onChange={e=>updT('email',e.target.value)} style={{width:240,padding:'5px 6px',border:'1px solid var(--line)',borderRadius:4}}/>
@@ -1167,7 +1171,7 @@ function TeacherEditor({ t: t0, classList, onChange, onDelete, rooms }) {
           <div className="spacer"/>
           {onDelete && <button className="btn danger" style={{padding:'2px 8px'}} onClick={onDelete}>교사 삭제</button>}
         </div>
-        <table className="form"><thead><tr><th style={{width:190}}>과목</th><th style={{width:110}} title="전체 전담 = 그 과목을 모두 전담이 수업 / 일부 전담 = 담임과 나누어 수업 (마우스를 올리면 설명이 나옵니다)">범위 ⓘ</th><th style={{minWidth:280,whiteSpace:'nowrap'}}>담당 학급 <span className="hint" style={{fontWeight:400}}>(학년 버튼 = 전체, 숫자 = 반별)</span></th><th style={{width:90}} title="학기별: 1·2학기 각각 맞춤 / 연간: 1년 합계로만 맞춤(창체 등)">시수 기준</th><th style={{width:150}}>시수 (학급당)</th><th style={{width:150}} title="이 과목 수업이 열리는 특별실. 고르면 그 수업이 특별실 시간표에 자동으로 표시됩니다">특별실</th><th style={{width:40}}></th></tr></thead>
+        <div className="tblwrap"><table className="form"><thead><tr><th style={{width:190}}>과목</th><th style={{width:110}} title="전체 전담 = 그 과목을 모두 전담이 수업 / 일부 전담 = 담임과 나누어 수업 (마우스를 올리면 설명이 나옵니다)">범위 ⓘ</th><th style={{minWidth:280,whiteSpace:'nowrap'}}>담당 학급 <span className="hint" style={{fontWeight:400}}>(학년 버튼 = 전체, 숫자 = 반별)</span></th><th style={{width:90}} title="학기별: 1·2학기 각각 맞춤 / 연간: 1년 합계로만 맞춤(창체 등)">시수 기준</th><th style={{width:150}}>시수 (학급당)</th><th style={{width:150}} title="이 과목 수업이 열리는 특별실. 고르면 그 수업이 특별실 시간표에 자동으로 표시됩니다">특별실</th><th style={{width:40}}></th></tr></thead>
         <tbody>{!t.subjects.length && <tr><td colSpan={7} className="hint" style={{padding:'14px 8px'}}>아직 담당 항목이 없습니다. 아래 [+ 담당 항목]을 눌러 과목과 학급을 넣어 주세요.</td></tr>}
         {t.subjects.map((sub,si)=><tr key={si}>
           <td><select value={sub.subject||''} onChange={e=>updS(si,'subject',e.target.value)}><option value="">선택</option>{SUBJECTS.map(([l,n])=><option key={l} value={l}>{l} · {n}</option>)}</select></td>
@@ -1177,7 +1181,7 @@ function TeacherEditor({ t: t0, classList, onChange, onDelete, rooms }) {
           <td>{(sub.hoursMode||'sem')==='year' ? <input type="number" min="0" value={sub.yearHours||''} placeholder="연간" onChange={e=>updS(si,'yearHours',e.target.value)}/> : <div style={{display:'flex',gap:4,alignItems:'center'}}><input type="number" min="0" value={sub.semHours1||''} placeholder="1학기" onChange={e=>updS(si,'semHours1',e.target.value)}/><input type="number" min="0" value={sub.semHours2||''} placeholder="2학기" onChange={e=>updS(si,'semHours2',e.target.value)}/></div>}</td>
           <td><select value={sub.room||t.room||''} onChange={e=>updS(si,'room',e.target.value)} style={{width:140,padding:'5px 6px'}}><option value="">없음 (교실)</option>{(rooms||[]).map(r=><option key={r.name} value={r.name}>{r.name}</option>)}{t.room && !(rooms||[]).some(r=>r.name===t.room) && <option value={t.room}>{t.room} (목록에 없음)</option>}</select></td>
           <td><button className="btn danger" style={{padding:'2px 8px'}} onClick={()=>updT('subjects', t.subjects.filter((_,j)=>j!==si))}>×</button></td>
-        </tr>)}</tbody></table>
+        </tr>)}</tbody></table></div>
         <button className="btn" style={{marginTop:6,padding:'3px 10px'}} onClick={()=>updT('subjects',[...t.subjects,{subject:'',coverage:'full',classes:[],semHours1:'',semHours2:''}])}>+ 담당 항목</button>
       </div>;
 }
@@ -1189,7 +1193,7 @@ function TeacherSelfModal({ teachers, teacherId, classList, rooms, onSaved, onCl
   const save = async () => { const all = teachers.map(x=>x.id===teacherId ? t : x); const { list, dups } = normalizeTeachers(all);
     if (dups.length) { toast(`같은 반 같은 과목이 다른 전담에게 있습니다: ${dups.slice(0,3).join(', ')}`, true); return; }
     await setDoc(sref('teachers'), { list }); onSaved(); };
-  return <Modal title="내 담당 과목·학급 설정" onClose={onClose}>
+  return <Modal title="내 담당 과목·학급 설정" onClose={onClose} wide>
     <p className="hint" style={{marginTop:0}}>과목을 고르고 학년 버튼(전체) 또는 반 버튼(반별)으로 담당 학급을 선택하세요. 저장하면 담임이 올린 연간시간표에서 내 수업이 자동으로 잡힙니다.</p>
     <TeacherEditor t={t} classList={classList} rooms={rooms} onChange={setT} />
     <div className="row"><button className="btn" onClick={onClose}>취소</button><button className="btn primary" onClick={save}>저장</button></div>
