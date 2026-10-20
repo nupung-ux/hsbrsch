@@ -201,7 +201,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = 'hwaseong-barun-timetable-test';
-const VERSION = 'v5.9';
+const VERSION = 'v6.0';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -985,6 +985,8 @@ function SubView({ year, bell, classList, teachers, ctt, lessons, lectures, subs
   const lunchMin = Number(year.lunchMin ?? 30);
   const lunchWindow = useMemo(() => { const ls = (bell?.groups||[]).map(g=>g.lunch).filter(l=>l&&l[0]&&l[1]); if (!ls.length) return { s:'11:30', e:'14:00' }; return { s: ls.map(l=>l[0]).sort()[0], e: ls.map(l=>l[1]).sort().at(-1) }; }, [bell]);
   const subsOf = useMemo(() => { const m = {}; for (const [k,v] of Object.entries(subs)) if (v.classId===cid) m[slotKey(v.date, v.p)] = { id:k, ...v }; return m; }, [subs, cid]);
+  // 점심 칸 위치: 이 학년군 점심 시작 전에 끝나는 마지막 교시 뒤 (예: 4교시 후 점심이면 1 2 3 4 점 5 6)
+  const subPeriods = useMemo(() => { const lt = lunchTime(bell, gradeOf(cid)); if (!lt) return [...PERIODS, LUNCH]; let after = 0; for (const q of PERIODS) { const t = periodTime(bell, gradeOf(cid), q); if (t && t.e <= lt.s) after = q; } const arr = []; if (after===0) arr.push(LUNCH); for (const q of PERIODS) { arr.push(q); if (q===after) arr.push(LUNCH); } return arr; }, [bell, cid]);
   // 그 날 어떤 사람(이름표 기준)의 바쁜 시간: 전담 수업 + 이미 배정된 보결
   const busyOf = (date, label, teacherId) => { const out = [];
     if (teacherId) for (const [lid,Ld] of Object.entries(lessons)) { if (!lid.endsWith('_'+sem)) continue; for (const [k,v] of Object.entries(Ld.slots||{})) if (v.teacherId===teacherId && parseKey(k).date===date) { const t = periodTime(bell, gradeOf(Ld.classId), parseKey(k).p); if (t) out.push(t); } }
@@ -1064,11 +1066,11 @@ function SubView({ year, bell, classList, teachers, ctt, lessons, lectures, subs
       <PastToggle value={dimPast} onChange={setDimPast} />
       <span className="hint">{canEdit ? '보결이 필요한 칸을 누르면 그 시간에 비어 있는 분이 나옵니다. 담임 과목 칸은 담임 부재, 전담 칸은 전담 부재로 봅니다.' : '보결 배정은 교무실무사 또는 관리자만 할 수 있습니다. 보기만 가능합니다.'}</span>
       <div className="spacer"/>
-      <div className="legend"><span><i style={{background:'#ffd9a8'}}/>보결 배정됨</span><span><i style={{background:'#eef6ff'}}/>점(점심시간)</span></div>
+      <div className="legend"><span><i style={{background:'#ffd9a8'}}/>보결 배정됨</span><span><i style={{background:'#eef6ff'}}/>점 = 점심시간 ({(()=>{ const lt=lunchTime(bell,gradeOf(cid)); return lt?`${lt.s}~${lt.e}`:'미설정'; })()})</span></div>
     </div></div>
     {!T ? <div className="empty">{classLabel(cid)} {sem}학기 시간표가 없습니다. 담임시간표에서 먼저 올려 주세요.</div>
     : <div className="wrap">
-      <Grid weeks={T.weeks} renderCell={renderCell} dimPast={dimPast} onCellClick={onCellClick} periods={[...PERIODS, LUNCH]} />
+      <Grid weeks={T.weeks} renderCell={renderCell} dimPast={dimPast} onCellClick={onCellClick} periods={subPeriods} />
       <div style={{display:'flex',gap:14,alignItems:'flex-start',marginTop:14,flexWrap:'wrap'}}>
         <div className="card" style={{margin:0,flex:'1 1 420px'}}><h3>{classLabel(cid)} 보결 기록 ({mine.length})</h3>
           {!mine.length && <p className="hint">아직 없습니다.</p>}
@@ -1188,6 +1190,7 @@ function TeacherSelfModal({ teachers, teacherId, classList, rooms, onSaved, onCl
 // ---------- 학년도 설정 ----------
 function Settings({ year, teachers, roles, isAdmin, classList, toast, log, onBlankAll, onBackup, onReset }) {
   const [y, setY] = useState(year); const [ts, setTs] = useState(teachers);
+  const [st, setSt] = useState(readPref('settingsTab', 'year'));
   useEffect(()=>setY(year),[year]); useEffect(()=>setTs(teachers),[teachers]);
   if (!isAdmin) return null;
   const saveYear = async () => { const { roomsText, ...rest } = y; const rooms = (roomsText ?? (y.rooms||[]).map(r=>r.name).join(',')).split(/[,，]+/).map(x=>x.trim()).filter(Boolean).map(name=>({name})); await setDoc(sref('year'), { ...rest, rooms, bell: y.bell||DEFAULT_BELL }, { merge:true }); toast('학년도 설정을 저장했습니다.'); log('settings','학년도 설정 저장'); };
@@ -1198,8 +1201,11 @@ function Settings({ year, teachers, roles, isAdmin, classList, toast, log, onBla
     if (dups.length) { toast(`같은 반 같은 과목이 두 전담에게 있습니다: ${dups.slice(0,3).join(', ')}`, true); return; }
     await setDoc(sref('teachers'), { list }); toast('전담 교사를 저장했습니다.'); log('settings','전담 교사 저장'); };
   const upd = (i, k, v) => setTs(a => a.map((t,j)=> j===i ? { ...t, [k]: v } : t));
+  const pick = k => { setSt(k); writePref('settingsTab', k); };
+  const TABS = [['year','학년도 · 학급'],['bell','시정표 · 점심'],['teachers','전담 교사'],['roles','역할 · 관리자'],['backup','백업 · 마감']];
   return <div style={{paddingTop:16}}>
-    <div className="card"><h3>학년도 · 학급</h3>
+    <div className="seg" style={{marginBottom:14,background:'#fff'}}>{TABS.map(([k,n])=><button key={k} className={st===k?'on':''} style={{padding:'7px 16px',fontSize:15}} onClick={()=>pick(k)}>{n}</button>)}</div>
+    {st==='year' && <div className="card"><h3>학년도 · 학급</h3>
       <table className="form"><tbody>
         <tr><th style={{width:160}}>학년도</th><td><input type="number" value={y.year||''} onChange={e=>setY({...y, year:Number(e.target.value)})} style={{width:120}}/></td></tr>
         <tr><th>학교 계정 도메인</th><td><input placeholder="예: school.es.kr (비우면 모든 구글 계정 허용)" value={y.domain||''} onChange={e=>setY({...y, domain:e.target.value.trim()})}/></td></tr>
@@ -1220,8 +1226,8 @@ function Settings({ year, teachers, roles, isAdmin, classList, toast, log, onBla
         </td></tr>
       </tbody></table>
       <div className="row" style={{display:'flex',justifyContent:'flex-end',marginTop:12}}><button className="btn primary" onClick={saveYear}>학년도 설정 저장</button></div>
-    </div>
-    <div className="card"><h3>시정표 (학년군별)</h3>
+    </div>}
+    {st==='bell' && <div className="card"><h3>시정표 (학년군별)</h3>
       <p className="hint" style={{marginTop:0}}>같은 교시라도 학년군에 따라 시간이 다르면 여기서 맞춰 주세요. 특별실 겹침은 이 시간으로 판정합니다.</p>
       {bellG.map((g,gi)=><div key={gi} style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:8}}>
         <input value={g.name} onChange={e=>setBell(bellG.map((x,j)=>j===gi?{...x,name:e.target.value}:x))} style={{width:120,padding:5,border:'1px solid var(--line)',borderRadius:4}}/>
@@ -1232,16 +1238,16 @@ function Settings({ year, teachers, roles, isAdmin, classList, toast, log, onBla
       </div>)}
       <div className="hint" style={{margin:'4px 0 8px'}}>점심시간은 보결 탭에서 급식 지도 보결과 보결 교사의 점심 확보 판정에 씁니다. 보결 교사 점심 확보 최소 <input type="number" min="0" max="60" value={y.lunchMin ?? 30} onChange={e=>setY({...y, lunchMin:Number(e.target.value)})} style={{width:56,padding:3,border:'1px solid var(--line)',borderRadius:4}}/> 분 (0이면 확인 안 함)</div>
       <div style={{display:'flex',justifyContent:'space-between'}}><button className="btn" onClick={()=>setBell([...bellG,{name:'새 학년군',grades:[],periods:{...DEFAULT_BELL.groups[0].periods},lunch:[...DEFAULT_BELL.groups[0].lunch]}])}>+ 학년군 추가</button><button className="btn primary" onClick={saveYear}>학년도 설정 저장</button></div>
-    </div>
-    <div className="card"><h3>전담 교사</h3>
+    </div>}
+    {st==='teachers' && <div className="card"><h3>전담 교사</h3>
       <p className="hint" style={{marginTop:0}}>학급 수를 먼저 저장해야 학급 버튼이 나타납니다. 한 사람이 여러 과목을 맡으면 담당 항목을 줄로 추가합니다(예: 체육 전담이 1학년 통합 놀이체육도 맡는 경우). 창체는 "창"을 고르면 파일의 창·자·동·봉·진 칸을 모두 창체로 인식합니다. "일부 전담"은 담임과 나누는 과목으로 파일의 색칠 칸만 잡습니다. 시수(학급당)를 넣으면 시간표에서 개수를 대조합니다. 창체처럼 1년 합계로만 맞추는 과목은 시수 기준을 "연간"으로 두세요. 과목마다 특별실이 다르면(과학은 과학실, 창체는 컴퓨터실) 줄마다 특별실을 고르세요.</p>
       {ts.map((t0,i)=><TeacherEditor key={i} t={t0} classList={classList} rooms={year.rooms||[]} onChange={nt=>setTs(a=>a.map((x,j)=>j===i?nt:x))} onDelete={()=>setTs(a=>a.filter((_,j)=>j!==i))} />)}
       <div style={{display:'flex',justifyContent:'space-between',marginTop:12}}>
         <button className="btn" onClick={()=>setTs(a=>[...a,{ name:'', subjects:[{subject:'',coverage:'full',classes:[],semHours1:'',semHours2:''}], color:['#fff3b0','#bfe6ff','#d5f5d0','#ffd6e0','#e8dcff','#ffe0b8'][a.length%6], type:'normal' }])}>+ 전담 추가</button>
         <button className="btn primary" onClick={saveTeachers}>전담 교사 저장</button>
       </div>
-    </div>
-    <div className="card"><h3>백업 · 학년도 마감</h3>
+    </div>}
+    {st==='backup' && <div className="card"><h3>백업 · 학년도 마감</h3>
       <div style={{display:'flex',gap:10,flexWrap:'wrap',alignItems:'center'}}>
         <button className="btn primary" onClick={onBackup}>전체 백업 내려받기 (JSON)</button>
         <span className="hint">설정, 시간표, 외부강의, 예약, 메모, 수정 기록을 파일 하나로 저장합니다. 학년도 마감 전과 큰 변경 전에 받아 두세요.</span>
@@ -1251,8 +1257,8 @@ function Settings({ year, teachers, roles, isAdmin, classList, toast, log, onBla
         <button className="btn danger" onClick={()=>onReset(false)}>새 학년도로 초기화</button>
         <span className="hint">둘 다 설정(학급 수, 전담, 특별실, 시정표)은 남깁니다. 새 학년도 초기화는 역할도 비우고 학년도를 1년 올립니다.</span>
       </div>
-    </div>
-    <div className="card"><h3>역할 (로그인한 교사)</h3>
+    </div>}
+    {st==='roles' && <div className="card"><h3>역할 (로그인한 교사)</h3>
       <p className="hint" style={{marginTop:0}}>관리자 권한은 여기서만 줄 수 있습니다. 관리자로 지정된 계정은 로그인만 하면 모든 학급·전담 시간표 편집과 설정이 가능합니다(암호 불필요).</p>
       {Object.keys(roles).length===0 ? <p className="hint">아직 로그인한 교사가 없습니다. 각자 학교 계정으로 로그인하면 역할을 고르게 되고 여기에 나타납니다.</p>
       : <table className="form"><thead><tr><th>이메일</th><th>이름</th><th>역할</th><th>대상</th><th></th></tr></thead><tbody>
@@ -1261,7 +1267,7 @@ function Settings({ year, teachers, roles, isAdmin, classList, toast, log, onBla
            : <button className="btn" style={{padding:'2px 8px',marginRight:6}} onClick={async()=>{ const b={...roles}; b[em]=r.prev||{...r,type:'담임'}; await setDoc(sref('roles'),{byEmail:b}); }}>관리자 해제</button>}
           <button className="btn danger" style={{padding:'2px 8px'}} onClick={async()=>{ const b={...roles}; delete b[em]; await setDoc(sref('roles'),{byEmail:b}); }}>삭제</button></td></tr>)}
       </tbody></table>}
-    </div>
+    </div>}
   </div>;
 }
 
