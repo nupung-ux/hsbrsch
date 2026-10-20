@@ -201,7 +201,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = 'hwaseong-barun-timetable-test';
-const VERSION = 'v6.0';
+const VERSION = 'v6.1';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -754,7 +754,7 @@ function App() {
     </div>
 
     {tab==='class' && <ClassView key={'c'+homeKey} defaultCid={myRole?.classId} {...{ year, classList, teachers, ctt, lessons, lectures, canEditClass, requestMove, onUpload, toast, addLesson, askRepeat, addLessonKeys, deleteLesson, setModal, askText, saveClassWeekNote, markEvent, unmarkEvent, requestMoveEvent, createBlank }} />}
-    {tab==='teacher' && <TeacherView key={'t'+homeKey} defaultTid={myRole?.teacherId} onSelfEdit={tid=>setModal({type:'teacherSelf', teacherId:tid})} setModal={setModal} {...{ year, teachers, ctt, lessons, lectures, canEditTeacher, requestMove, addLesson, askRepeat, addLessonKeys, deleteLesson, toast, teacherNotes, saveTeacherCell, saveTeacherWeekNote, askText }} />}
+    {tab==='teacher' && <TeacherView key={'t'+homeKey} defaultTid={myRole?.teacherId} myClassId={myRole?.type==='담임' ? myRole.classId : null} onSelfEdit={tid=>setModal({type:'teacherSelf', teacherId:tid})} setModal={setModal} {...{ year, teachers, ctt, lessons, lectures, canEditTeacher, requestMove, addLesson, askRepeat, addLessonKeys, deleteLesson, toast, teacherNotes, saveTeacherCell, saveTeacherWeekNote, askText }} />}
     {tab==='lecture' && <LectureView key={'l'+homeKey} defaultGrade={myRole?.grade || gradeOf(myRole?.classId)} {...{ year, bell, classList, teachers, ctt, lessons, lectures, bookings, canEditLecture, saveLecture, deleteLecture, toast, setModal }} />}
     {tab==='room' && <RoomView {...{ year, bell, classList, teachers, ctt, lessons, bookings, lectures, canBook, addBooking, deleteBooking, myRole, toast, setModal, goLecture: ()=>setTab('lecture') }} />}
     {tab==='calendar' && <CalendarView {...{ calEvents, calAppId, lectures }} />}
@@ -906,10 +906,13 @@ function ClassView({ year, classList, teachers, ctt, lessons, lectures, canEditC
 }
 
 // ---------- 전담시간표 ----------
-function TeacherView({ year, teachers, ctt, lessons, lectures, canEditTeacher, requestMove, defaultTid, onSelfEdit, setModal, addLesson, askRepeat, addLessonKeys, deleteLesson, toast, teacherNotes, saveTeacherCell, saveTeacherWeekNote, askText }) {
+function TeacherView({ year, teachers, ctt, lessons, lectures, canEditTeacher, requestMove, defaultTid, myClassId, onSelfEdit, setModal, addLesson, askRepeat, addLessonKeys, deleteLesson, toast, teacherNotes, saveTeacherCell, saveTeacherWeekNote, askText }) {
   const [dimPast, setDimPast] = useState(readPref('dimPast', true));
   const [headRef, fixedStyle] = useFixedHead();
-  const [tid, setTid] = useState(location.hash.match(/#\/teacher\/([^/]+)/)?.[1] || defaultTid || teachers[0]?.id || '');
+  // 담임이면 우리 반을 맡는 전담을 앞에, 나머지는 흐리게
+  const isMine = t => !!myClassId && normTeacher(t).subjects.some(sub => (sub.classes||[]).includes(myClassId));
+  const mineT = teachers.filter(isMine), otherT = teachers.filter(t=>!isMine(t));
+  const [tid, setTid] = useState(location.hash.match(/#\/teacher\/([^/]+)/)?.[1] || defaultTid || mineT[0]?.id || teachers[0]?.id || '');
   const [sem, setSem] = useState(() => semOfToday(year));
   const dragRef = useRef(null);
   useEffect(()=>{ if (!tid && teachers.length) setTid(teachers[0].id); }, [teachers]);
@@ -943,7 +946,13 @@ function TeacherView({ year, teachers, ctt, lessons, lectures, canEditTeacher, r
   const canDrop = key => edit && !holiday(key);
   return <div style={fixedStyle}>
     <div className="fixedhead" ref={headRef}><div className="bar">
-      <label>전담 <select value={tid} onChange={e=>setTid(e.target.value)}>{teachers.map(x=><option key={x.id} value={x.id}>{x.name} ({teacherSubjects(x)})</option>)}</select></label>
+      <label>전담 <select value={tid} onChange={e=>setTid(e.target.value)} style={!myClassId ? undefined : { color: isMine(teachers.find(x=>x.id===tid)||{}) ? 'inherit' : '#9aa3ad' }}>
+        {!myClassId ? teachers.map(x=><option key={x.id} value={x.id}>{x.name} ({teacherSubjects(x)})</option>)
+        : <>
+          <optgroup label={`${classLabel(myClassId)} 전담`}>{mineT.map(x=><option key={x.id} value={x.id} style={{color:'#1f2a37',fontWeight:700}}>{x.name} ({teacherSubjects(x)})</option>)}{!mineT.length && <option disabled>없음</option>}</optgroup>
+          <optgroup label="그 외 전담">{otherT.map(x=><option key={x.id} value={x.id} style={{color:'#9aa3ad'}}>{x.name} ({teacherSubjects(x)})</option>)}</optgroup>
+        </>}
+      </select></label>
       <div className="seg"><button className={sem===1?'on':''} onClick={()=>setSem(1)}>1학기</button><button className={sem===2?'on':''} onClick={()=>setSem(2)}>2학기</button></div>
       {edit && t && <button className="btn" onClick={()=>onSelfEdit(tid)}>내 담당 설정</button>}
       <PastToggle value={dimPast} onChange={setDimPast} />
