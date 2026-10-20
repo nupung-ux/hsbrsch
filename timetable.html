@@ -110,6 +110,9 @@
   table.tt td.slot.e{color:var(--event);text-decoration:underline;text-underline-offset:3px}
   table.tt td.slot.faint{color:#c4c9d0}
   table.tt td.slot.lesson{font-weight:700;cursor:grab}
+  table.tt th.lunchh{background:#eef6ff;color:#2b5aa8}
+  table.tt td.slot.lunch{background:#eef6ff}
+  table.tt td.slot.lunch.subable:hover{background:#d9ebff}
   table.tt td.slot.sub{background:#ffd9a8 !important;color:#7a3e00;font-weight:700;font-size:12px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:var(--cell)}
   table.tt td.slot.subable{cursor:pointer}
   table.tt td.slot.subable:hover{outline:2px solid #c96a00;outline-offset:-2px}
@@ -198,7 +201,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = 'hwaseong-barun-timetable-test';
-const VERSION = 'v5.8';
+const VERSION = 'v5.9';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -213,7 +216,7 @@ const addDays = (iso, n) => { const d = new Date(iso+'T00:00:00'); d.setDate(d.g
 const fmtDate = iso => { const d = new Date(iso+'T00:00:00'); return `${d.getMonth()+1}월 ${d.getDate()}일(${['일','월','화','수','목','금','토'][d.getDay()]})`; };
 const shortDate = iso => { const d = new Date(iso+'T00:00:00'); return `${d.getMonth()+1}.${d.getDate()}(${['일','월','화','수','목','금','토'][d.getDay()]})`; };
 const slotKey = (date, p) => `${date}_${p}`;
-const parseKey = k => { const [date, p] = k.split('_'); return { date, p: Number(p) }; };
+const parseKey = k => { const [date, p] = k.split('_'); return { date, p: p===LUNCH ? LUNCH : Number(p) }; };
 const classCode = id => id.replace('-','');        // "6-1" -> "61"
 const classLabel = id => id.startsWith('유') ? id : `${id.split('-')[0]}학년 ${id.split('-')[1]}반`;
 const sha256 = async s => { const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)); return Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,'0')).join(''); };
@@ -227,13 +230,22 @@ const canonSubject = t => Object.entries(SUBJECT_ALIAS).find(([k,v]) => v.includ
 const matchSubject = (subject, t) => (SUBJECT_ALIAS[subject] || [subject]).includes(t);
 const subjectName = l => SUBJECTS.find(x=>x[0]===l)?.[1] || l;
 const DEFAULT_BELL = { groups: [
-  { name:'3·4·6학년', grades:['3','4','6'], periods:{1:['09:00','09:40'],2:['09:50','10:30'],3:['10:40','11:20'],4:['11:30','12:10'],5:['12:20','13:00'],6:['13:50','14:30']} },
-  { name:'유·1·2·5학년', grades:['유','1','2','5'], periods:{1:['09:00','09:40'],2:['09:50','10:30'],3:['10:40','11:20'],4:['11:30','12:10'],5:['13:00','13:40'],6:['13:50','14:30']} },
+  { name:'3·4·6학년', grades:['3','4','6'], periods:{1:['09:00','09:40'],2:['09:50','10:30'],3:['10:40','11:20'],4:['11:30','12:10'],5:['12:20','13:00'],6:['13:50','14:30']}, lunch:['13:00','13:50'] },
+  { name:'유·1·2·5학년', grades:['유','1','2','5'], periods:{1:['09:00','09:40'],2:['09:50','10:30'],3:['10:40','11:20'],4:['11:30','12:10'],5:['13:00','13:40'],6:['13:50','14:30']}, lunch:['12:10','13:00'] },
 ]};
 const gradeOf = classId => classId ? classId.split('-')[0] : null;
 const bellGroup = (bell, grade) => (bell?.groups||[]).find(g => (g.grades||[]).includes(String(grade))) || (bell?.groups||[])[0];
 const periodTime = (bell, grade, p) => { const g = bellGroup(bell, grade); const t = g?.periods?.[p]; return t ? { s: t[0], e: t[1] } : null; };
 const overlaps = (a, b) => !!(a && b) && a.s < b.e && b.s < a.e;
+const LUNCH = 'L'; // 보결용 점심시간 칸
+const lunchTime = (bell, grade) => { const g = bellGroup(bell, grade); const l = g?.lunch; return l && l[0] && l[1] ? { s: l[0], e: l[1] } : null; };
+const slotTime = (bell, grade, p) => p===LUNCH ? lunchTime(bell, grade) : periodTime(bell, grade, p);
+const pLabel = p => p===LUNCH ? '점심' : `${p}교시`;
+const pOrd = p => p===LUNCH ? 6.5 : Number(p);
+const toMin = t => { const [h,m] = String(t).split(':').map(Number); return h*60+(m||0); };
+// 점심 확보 판정: busy 구간(들) 사이에 window 안에서 min분 이상 비는 틈이 있는가
+const hasLunchGap = (busy, window, min) => { const ws = toMin(window.s), we = toMin(window.e); const iv = busy.filter(Boolean).map(b=>[Math.max(ws,toMin(b.s)), Math.min(we,toMin(b.e))]).filter(([a,b])=>a<b).sort((x,y)=>x[0]-y[0]);
+  let cur = ws, gap = 0; for (const [a,b] of iv) { gap = Math.max(gap, a-cur); cur = Math.max(cur, b); } gap = Math.max(gap, we-cur); return gap >= min; };
 const periodsText = ps => { const u = Array.from(new Set(ps)).sort((a,b)=>a-b); if (!u.length) return ''; if (u.length===1) return `${u[0]}교시`; const contiguous = u.every((v,i)=>i===0||v===u[i-1]+1); return contiguous ? `${u[0]}~${u.at(-1)}교시` : u.join(', ')+'교시'; };
 const TODAY = new Date(Date.now()+9*3600*1000).toISOString().slice(0,10); // KST
 const isPast = date => date < TODAY;
@@ -768,7 +780,7 @@ function App() {
 }
 
 // ---------- 연간표 격자 (담임·전담 공용) ----------
-function Grid({ weeks, renderCell, notes, onDragStart, onDrop, canDrop, dimPast, onCellClick, onNoteClick, onFill }) {
+function Grid({ weeks, renderCell, notes, onDragStart, onDrop, canDrop, dimPast, onCellClick, onNoteClick, onFill, periods = PERIODS }) {
   const [over, setOver] = useState(null);
   const [fill, setFill] = useState(null); // { fromKey, col, wi, toWi, toCol }  (col = 요일*6 + 교시-1)
   const fillKeys = useMemo(() => { if (!fill || fill.toWi==null) return new Set(); const a = Math.min(fill.wi, fill.toWi), b = Math.max(fill.wi, fill.toWi); const c1 = Math.min(fill.col, fill.toCol), c2 = Math.max(fill.col, fill.toCol); const ks = new Set();
@@ -777,17 +789,17 @@ function Grid({ weeks, renderCell, notes, onDragStart, onDrop, canDrop, dimPast,
   useEffect(() => { if (!fill) return; document.body.classList.add('filling'); const up = () => { const ks = Array.from(fillKeys); setFill(null); if (ks.length && onFill) onFill(fill.fromKey, ks); }; addEventListener('mouseup', up); return () => { removeEventListener('mouseup', up); document.body.classList.remove('filling'); }; }, [fill, fillKeys]);
   return <table className="tt">
     <thead>
-      <tr><th rowSpan={2} style={{width:34}}>주</th><th rowSpan={2} style={{width:100}}>기간</th>{DAYS.map(d=><th key={d} colSpan={6} className="day">{d}</th>)}<th rowSpan={2} style={{width:220}}>비고</th></tr>
-      <tr>{DAYS.map(d=>PERIODS.map(p=><th key={d+p} className={'pn'+(p===1?' day':'')} style={{width:'var(--cell)'}}>{p}</th>))}</tr>
+      <tr><th rowSpan={2} style={{width:34}}>주</th><th rowSpan={2} style={{width:100}}>기간</th>{DAYS.map(d=><th key={d} colSpan={periods.length} className="day">{d}</th>)}<th rowSpan={2} style={{width:220}}>비고</th></tr>
+      <tr>{DAYS.map(d=>periods.map(p=><th key={d+p} className={'pn'+(p===1?' day':'')+(p===LUNCH?' lunchh':'')} style={{width:'var(--cell)'}} title={p===LUNCH?'점심시간 (보결용)':''}>{p===LUNCH?'점':p}</th>))}</tr>
     </thead>
     <tbody>
       {weeks.map((w,wi) => <tr key={w.no} className={weekHas(w,TODAY)?'thisweek':''}>
         <td className="wk">{w.no}</td><td className="period">{w.label}</td>
-        {DAYS.map((d,di)=>PERIODS.map(p=>{
+        {DAYS.map((d,di)=>periods.map(p=>{
           const date = addDays(w.start, di); const key = slotKey(date,p);
           const c = renderCell(key, date, p) || {};
           const droppable = onDrop && canDrop?.(key);
-          return <td key={key} title={`${fmtDate(date)} ${p}교시${c.title?' · '+c.title:''}`}
+          return <td key={key} title={`${fmtDate(date)} ${pLabel(p)}${c.title?' · '+c.title:''}`}
             onMouseEnter={fill ? ()=>setFill(f=>({ ...f, toWi: wi, toCol: di*6+p-1 })) : undefined}
             className={['slot', p===1?'first':'', c.cls||'', over===key?(c.bad?'bad':'over'):'', dimPast&&isPast(date)?'past':'', date===TODAY?'today':'', fillKeys.has(key)?'fillsel':''].join(' ')}
             draggable={!!c.draggable}
@@ -970,20 +982,31 @@ function SubView({ year, bell, classList, teachers, ctt, lessons, lectures, subs
   const id = `${cid}_${sem}`; const T = ctt[id]; const L = lessons[id]?.slots || {};
   const tById = Object.fromEntries(teachers.map(t=>[t.id,t]));
   const extra = (year.extraSubs ?? '교감, 교장').split(/[,，]+/).map(x=>x.trim()).filter(Boolean);
+  const lunchMin = Number(year.lunchMin ?? 30);
+  const lunchWindow = useMemo(() => { const ls = (bell?.groups||[]).map(g=>g.lunch).filter(l=>l&&l[0]&&l[1]); if (!ls.length) return { s:'11:30', e:'14:00' }; return { s: ls.map(l=>l[0]).sort()[0], e: ls.map(l=>l[1]).sort().at(-1) }; }, [bell]);
   const subsOf = useMemo(() => { const m = {}; for (const [k,v] of Object.entries(subs)) if (v.classId===cid) m[slotKey(v.date, v.p)] = { id:k, ...v }; return m; }, [subs, cid]);
+  // 그 날 어떤 사람(이름표 기준)의 바쁜 시간: 전담 수업 + 이미 배정된 보결
+  const busyOf = (date, label, teacherId) => { const out = [];
+    if (teacherId) for (const [lid,Ld] of Object.entries(lessons)) { if (!lid.endsWith('_'+sem)) continue; for (const [k,v] of Object.entries(Ld.slots||{})) if (v.teacherId===teacherId && parseKey(k).date===date) { const t = periodTime(bell, gradeOf(Ld.classId), parseKey(k).p); if (t) out.push(t); } }
+    for (const v of Object.values(subs)) if (v.date===date && v.label===label) { const t = slotTime(bell, gradeOf(v.classId), v.p); if (t) out.push(t); }
+    return out; };
   const lecAt = useMemo(() => { const m = {}; for (const lec of Object.values(lectures)) for (const sl of (lec.slots||[])) if (sl.classId===cid) m[slotKey(sl.date, sl.p)] = lec; return m; }, [lectures, cid]);
   const shortWho = v => v.whoType==='class' ? classCode(v.who) : v.label.slice(0,3);
   // 학기 보결 횟수 (공평 분배 참고)
   const counts = useMemo(() => { const c = {}; const w = year.semesters?.[sem]?.weeks||[]; if (!w.length) return c; const a = w[0].start, b = addDays(w.at(-1).start, 7); for (const v of Object.values(subs)) if (v.date>=a && v.date<b) c[v.label]=(c[v.label]||0)+1; return c; }, [subs, year, sem]);
   // 후보 계산: 날짜·교시에 비어 있는 사람
   const candidates = (date, p) => {
-    const me = periodTime(bell, gradeOf(cid), p); const out = [];
-    const busyBySub = (label) => Object.values(subs).some(v => v.date===date && v.label===label && !(v.classId===cid && v.p===p) && overlaps(me, periodTime(bell, gradeOf(v.classId), v.p)));
+    const me = slotTime(bell, gradeOf(cid), p); const out = [];
+    const isLunch = p===LUNCH;
+    const busyBySub = (label) => Object.values(subs).some(v => v.date===date && v.label===label && !(v.classId===cid && v.p===p) && overlaps(me, slotTime(bell, gradeOf(v.classId), v.p)));
+    // 점심 확보: 이 보결을 맡아도 점심시간대 안에 lunchMin분 이상 비는 틈이 남는가 (전담·추가 인원만, 담임은 자기 반 점심을 함께 먹음)
+    const lunchLost = (label, teacherId) => lunchMin>0 && me && !hasLunchGap([...busyOf(date, label, teacherId).filter(b => !(b.s===me.s && b.e===me.e && Object.values(subs).some(v=>v.date===date&&v.label===label&&v.classId===cid&&v.p===p))), me], lunchWindow, lunchMin);
     const clicked = L[slotKey(date,p)];
     // 이 반 담임 (전담 시간을 클릭한 경우)
-    if (clicked) out.push({ whoType:'class', who:cid, label:`${classCode(cid)} 담임`, why:'자기 반 전담 시간', busy: busyBySub(`${classCode(cid)} 담임`) });
-    // 다른 반 담임: 그 반이 전담 수업 중이면 비어 있음 (외부강의 시간은 담임이 있어야 하므로 제외)
-    for (const c of classList) { if (c===cid || c.startsWith('유')) continue; const Tc = ctt[`${c}_${sem}`]; if (!Tc) continue; const Lc = lessons[`${c}_${sem}`]?.slots || {};
+    if (clicked && !isLunch) out.push({ whoType:'class', who:cid, label:`${classCode(cid)} 담임`, why:'자기 반 전담 시간', busy: busyBySub(`${classCode(cid)} 담임`) });
+    // 다른 반 담임: 그 반이 전담 수업 중이면 비어 있음 (외부강의 시간은 담임이 있어야 하므로 제외) — 점심시간은 담임이 자기 반 지도 중이므로 제외
+    for (const c of classList) { if (isLunch) break; if (c===cid || c.startsWith('유')) continue;
+      const lc = lunchTime(bell, gradeOf(c)); if (overlaps(me, lc)) continue; // 그 반 점심과 겹치면 담임은 불가 const Tc = ctt[`${c}_${sem}`]; if (!Tc) continue; const Lc = lessons[`${c}_${sem}`]?.slots || {};
       const qs = PERIODS.filter(q => overlaps(me, periodTime(bell, gradeOf(c), q)));
       if (!qs.length) continue;
       const lec = Object.values(lectures).some(l => (l.slots||[]).some(sl => sl.classId===c && sl.date===date && qs.includes(sl.p)));
@@ -999,28 +1022,32 @@ function SubView({ year, bell, classList, teachers, ctt, lessons, lectures, subs
     for (const t of teachers) { if (t.type==='coop') continue; let busy = null;
       for (const [lid,Ld] of Object.entries(lessons)) { if (!lid.endsWith('_'+sem)) continue; for (const [k,v] of Object.entries(Ld.slots||{})) if (v.teacherId===t.id && parseKey(k).date===date && overlaps(me, periodTime(bell, gradeOf(Ld.classId), parseKey(k).p))) busy = `${classCode(Ld.classId)} ${v.t} 수업`; }
       if (clicked && clicked.teacherId===t.id) continue; // 빠지는 전담 본인
-      out.push({ whoType:'teacher', who:t.id, label:t.name, why: busy || '수업 없음', busy: !!busy || busyBySub(t.name) }); }
-    for (const x of extra) out.push({ whoType:'extra', who:x, label:x, why:'', busy: busyBySub(x) });
+      const nl = !busy && !busyBySub(t.name) && lunchLost(t.name, t.id);
+      out.push({ whoType:'teacher', who:t.id, label:t.name, why: busy || (nl ? `점심시간 확보 안 됨 (${lunchMin}분 미만)` : '수업 없음'), busy: !!busy || busyBySub(t.name) || nl, noLunch: nl }); }
+    for (const x of extra) { const nl = !busyBySub(x) && lunchLost(x, null); out.push({ whoType:'extra', who:x, label:x, why: nl ? `점심시간 확보 안 됨 (${lunchMin}분 미만)` : '', busy: busyBySub(x) || nl, noLunch: nl }); }
     return out;
   };
   const onCellClick = (key, date, p) => {
-    const cell = T?.cells?.[key]; if (!cell || cell.k==='h') return;
+    const cell = p===LUNCH ? T?.cells?.[slotKey(date,1)] : T?.cells?.[key]; if (!cell || cell.k==='h') return;
+    if (p===LUNCH && !lunchTime(bell, gradeOf(cid))) { toast('학년도 설정의 시정표에 이 학년군 점심시간을 먼저 넣어 주세요.', true); return; }
     const cur = subsOf[key];
     if (!canEdit) { if (cur) toast(`보결: ${cur.label}`); return; }
     const cands = candidates(date, p); const les = L[key]; const lec = lecAt[key];
-    const title = `${classLabel(cid)} ${fmtDate(date)} ${p}교시 보결` + (les ? ` (${les.t} ${tById[les.teacherId]?.name||''} 전담 시간)` : lec ? ` (${lecName(lec)})` : '');
+    const lt = p===LUNCH ? lunchTime(bell, gradeOf(cid)) : null;
+    const title = `${classLabel(cid)} ${fmtDate(date)} ${pLabel(p)} 보결` + (lt ? ` (${lt.s}~${lt.e} 급식 지도)` : les ? ` (${les.t} ${tById[les.teacherId]?.name||''} 전담 시간)` : lec ? ` (${lecName(lec)})` : '');
     setModal({ type:'confirm', title, body:<div style={{maxHeight:'60vh',overflow:'auto'}}>
       {cur && <p style={{margin:'0 0 8px'}}>현재 보결: <b>{cur.label}</b> <span className="hint">({cur.createdBy})</span></p>}
-      <div className="hint" style={{marginBottom:6}}>비어 있는 분부터 보입니다. 숫자는 이번 학기 보결 횟수.</div>
+      <div className="hint" style={{marginBottom:6}}>{p===LUNCH ? '점심시간 보결은 담임을 빼고 전담과 추가 인원만 나옵니다. ' : ''}비어 있는 분부터 보입니다. 숫자는 이번 학기 보결 횟수.{lunchMin>0 && ` 보결을 맡으면 본인 점심 ${lunchMin}분이 남지 않는 분은 회색으로 표시됩니다.`}</div>
       <div style={{display:'flex',flexDirection:'column',gap:4}}>
-        {cands.sort((a,b)=>(a.busy?1:0)-(b.busy?1:0)).map((c,i)=><button key={i} className="btn" disabled={c.busy} style={{textAlign:'left',display:'flex',gap:10,alignItems:'center',background:c.busy?'#f3f3f1':'#fff'}} onClick={async()=>{ await saveSub(`${cid}_${date}_${p}`, { classId:cid, date, p, sem, whoType:c.whoType, who:c.who, label:c.label, origin: les ? `${les.t} ${tById[les.teacherId]?.name||''}` : lec ? lecName(lec) : '담임' }); setModal(null); toast(`${c.label} 보결로 배정했습니다.`); }}>
+        {cands.sort((a,b)=>(a.busy?1:0)-(b.busy?1:0)).map((c,i)=><button key={i} className="btn" disabled={c.busy} style={{textAlign:'left',display:'flex',gap:10,alignItems:'center',background:c.busy?'#f3f3f1':'#fff'}} onClick={async()=>{ await saveSub(`${cid}_${date}_${p}`, { classId:cid, date, p, sem, whoType:c.whoType, who:c.who, label:c.label, origin: p===LUNCH ? '점심 지도' : les ? `${les.t} ${tById[les.teacherId]?.name||''}` : lec ? lecName(lec) : '담임' }); setModal(null); toast(`${c.label} 보결로 배정했습니다.`); }}>
           <b style={{minWidth:90}}>{c.label}</b><span className="hint" style={{flex:1}}>{c.busy && c.whoType==='teacher' ? c.why : c.busy ? '다른 반 보결 중' : c.why}</span><span className="tag">{counts[c.label]||0}</span></button>)}
       </div></div>,
       actions:[{label:'취소',on:()=>setModal(null)}, ...(cur ? [{label:'보결 삭제',on:async()=>{ await deleteSub(cur.id); setModal(null); toast('지웠습니다.'); }}] : [])] });
   };
-  const renderCell = (key) => {
+  const renderCell = (key, date, p) => {
     const cell = T?.cells?.[key]; const les = L[key]; const lec = lecAt[key]; const sb = subsOf[key];
     if (sb) return { text: shortWho(sb), cls:'sub', title:`보결 ${sb.label} (원래 ${sb.origin})` };
+    if (p===LUNCH) { const c1 = T?.cells?.[slotKey(date,1)]; if (!c1 || c1.k==='h') return { text:'', style:{background:'#f5f5f3'} }; const lt = lunchTime(bell, gradeOf(cid)); return { text:'', cls:'lunch subable', title: lt ? `점심 ${lt.s}~${lt.e} · 누르면 점심 보결 배정` : '점심시간 미설정' }; }
     if (lec) return { text: <LecText lec={lec}/>, cls:'lec subable', title: `${lecName(lec)} · 누르면 보결 배정` };
     if (les) { const t = tById[les.teacherId]; return { text: les.t, cls:'lesson subable', style:{ background: t?.color||'#fff3b0' }, title: `${t?.name||'전담'} · 누르면 보결 배정` }; }
     if (!cell) return { text:'', style:{background:'#f5f5f3'} };
@@ -1028,7 +1055,7 @@ function SubView({ year, bell, classList, teachers, ctt, lessons, lectures, subs
     if (cell.k==='e') return { text: cell.t, cls:'e subable', title:'행사 · 누르면 보결 배정' };
     return { text: cell.t, cls:'faint subable', title:'담임 수업 · 누르면 보결 배정' };
   };
-  const mine = Object.values(subsOf).sort((a,b)=>a.date.localeCompare(b.date)||a.p-b.p);
+  const mine = Object.values(subsOf).sort((a,b)=>a.date.localeCompare(b.date)||pOrd(a.p)-pOrd(b.p));
   const byWho = useMemo(() => { const m = {}; for (const v of Object.values(subs)) { const w = year.semesters?.[sem]?.weeks||[]; if (!w.length) continue; if (v.date>=w[0].start && v.date<addDays(w.at(-1).start,7)) (m[v.label]=m[v.label]||[]).push(v); } return Object.entries(m).sort((a,b)=>b[1].length-a[1].length); }, [subs, year, sem]);
   return <div style={fixedStyle}>
     <div className="fixedhead" ref={headRef}><div className="bar">
@@ -1037,15 +1064,15 @@ function SubView({ year, bell, classList, teachers, ctt, lessons, lectures, subs
       <PastToggle value={dimPast} onChange={setDimPast} />
       <span className="hint">{canEdit ? '보결이 필요한 칸을 누르면 그 시간에 비어 있는 분이 나옵니다. 담임 과목 칸은 담임 부재, 전담 칸은 전담 부재로 봅니다.' : '보결 배정은 교무실무사 또는 관리자만 할 수 있습니다. 보기만 가능합니다.'}</span>
       <div className="spacer"/>
-      <div className="legend"><span><i style={{background:'#ffd9a8'}}/>보결 배정됨</span></div>
+      <div className="legend"><span><i style={{background:'#ffd9a8'}}/>보결 배정됨</span><span><i style={{background:'#eef6ff'}}/>점(점심시간)</span></div>
     </div></div>
     {!T ? <div className="empty">{classLabel(cid)} {sem}학기 시간표가 없습니다. 담임시간표에서 먼저 올려 주세요.</div>
     : <div className="wrap">
-      <Grid weeks={T.weeks} renderCell={renderCell} dimPast={dimPast} onCellClick={onCellClick} />
+      <Grid weeks={T.weeks} renderCell={renderCell} dimPast={dimPast} onCellClick={onCellClick} periods={[...PERIODS, LUNCH]} />
       <div style={{display:'flex',gap:14,alignItems:'flex-start',marginTop:14,flexWrap:'wrap'}}>
         <div className="card" style={{margin:0,flex:'1 1 420px'}}><h3>{classLabel(cid)} 보결 기록 ({mine.length})</h3>
           {!mine.length && <p className="hint">아직 없습니다.</p>}
-          {mine.map(v=><div key={v.id} className="ev" style={{padding:'4px 0'}}><span style={{width:110}}>{fmtDate(v.date)}</span><span style={{width:50}}>{v.p}교시</span><span style={{width:110,color:'var(--muted)'}}>{v.origin}</span><b>{v.label}</b>{canEdit && <button className="btn danger" style={{padding:'0 8px',marginLeft:'auto'}} onClick={()=>deleteSub(v.id)}>삭제</button>}</div>)}
+          {mine.map(v=><div key={v.id} className="ev" style={{padding:'4px 0'}}><span style={{width:110}}>{fmtDate(v.date)}</span><span style={{width:50}}>{pLabel(v.p)}</span><span style={{width:110,color:'var(--muted)'}}>{v.origin}</span><b>{v.label}</b>{canEdit && <button className="btn danger" style={{padding:'0 8px',marginLeft:'auto'}} onClick={()=>deleteSub(v.id)}>삭제</button>}</div>)}
         </div>
         <div className="card" style={{margin:0,flex:'1 1 320px'}}><h3>{sem}학기 보결 횟수 (전체)</h3>
           {!byWho.length && <p className="hint">아직 없습니다.</p>}
@@ -1178,7 +1205,7 @@ function Settings({ year, teachers, roles, isAdmin, classList, toast, log, onBla
         <tr><th>학교 계정 도메인</th><td><input placeholder="예: school.es.kr (비우면 모든 구글 계정 허용)" value={y.domain||''} onChange={e=>setY({...y, domain:e.target.value.trim()})}/></td></tr>
         <tr><th>학년별 학급 수</th><td style={{display:'flex',gap:10,flexWrap:'wrap'}}>{[1,2,3,4,5,6].map(g=><label key={g} className="chk">{g}학년 <input type="number" min="0" style={{width:60}} value={y.grades?.[g]||0} onChange={e=>setY({...y, grades:{...(y.grades||{}), [g]:Number(e.target.value)}})}/></label>)}<label className="chk">유치원 <input type="number" min="0" style={{width:60}} value={y.kinder||0} onChange={e=>setY({...y, kinder:Number(e.target.value)})}/></label></td></tr>
         <tr><th>특별실</th><td><input value={y.roomsText ?? (y.rooms||[]).map(r=>r.name).join(', ')} placeholder="예: 음악실, 과학1실, 과학2실, 영어1실, 영어2실, 체육관, 다목적실 (쉼표로)" onChange={e=>setY({...y, roomsText:e.target.value})}/><div className="hint">전담 교사 설정의 "주 사용 특별실"과 이름이 같으면 그 전담 수업이 특별실 시간표에 자동으로 표시됩니다.</div></td></tr>
-        <tr><th>보결 가능 추가 인원</th><td><input value={y.extraSubs ?? '교감, 교장'} placeholder="예: 교감, 교장, 교무부장 (쉼표로)" onChange={e=>setY({...y, extraSubs:e.target.value})}/><div className="hint">담임, 전담 외에 보결에 들어갈 수 있는 분들. 보결 탭의 선택 목록에 항상 나옵니다.</div></td></tr>
+        <tr><th>보결 가능 추가 인원</th><td><input value={y.extraSubs ?? '교감, 교장'} placeholder="예: 교감, 교장, 교무부장 (쉼표로)" onChange={e=>setY({...y, extraSubs:e.target.value})}/><div className="hint">담임, 전담 외에 보결에 들어갈 수 있는 분들. 보결 탭의 선택 목록에 항상 나오며, 점심시간 보결에도 나옵니다.</div></td></tr>
         <tr><th>일정표 연동</th><td><select value={y.calendarTarget||'test'} onChange={e=>setY({...y, calendarTarget:e.target.value})} style={{padding:6}}><option value="test">시험용 (실제 월간운영계획에 쓰지 않음)</option><option value="live">실제 월간운영계획에 자동 입력</option></select></td></tr>
         <tr><th>학기 기간</th><td>
           {[1,2].map(sm => { const cur = y.semesters?.[sm]; const st = y.semStart?.[sm] || cur?.weeks?.[0]?.start || ''; const cnt = y.semCount?.[sm] || cur?.weeks?.length || (sm===1?22:20);
@@ -1200,9 +1227,11 @@ function Settings({ year, teachers, roles, isAdmin, classList, toast, log, onBla
         <input value={g.name} onChange={e=>setBell(bellG.map((x,j)=>j===gi?{...x,name:e.target.value}:x))} style={{width:120,padding:5,border:'1px solid var(--line)',borderRadius:4}}/>
         <span className="hint">학년</span><input value={(g.grades||[]).join(',')} onChange={e=>setBell(bellG.map((x,j)=>j===gi?{...x,grades:e.target.value.split(/[,\s]+/).filter(Boolean)}:x))} style={{width:110,padding:5,border:'1px solid var(--line)',borderRadius:4}} placeholder="3,4,6"/>
         {PERIODS.map(p=><span key={p} style={{display:'inline-flex',alignItems:'center',gap:2,fontSize:13}}>{p}교시 <input type="time" value={g.periods?.[p]?.[0]||''} onChange={e=>setBell(bellG.map((x,j)=>j===gi?{...x,periods:{...x.periods,[p]:[e.target.value,x.periods?.[p]?.[1]||'']}}:x))} style={{padding:2}}/>~<input type="time" value={g.periods?.[p]?.[1]||''} onChange={e=>setBell(bellG.map((x,j)=>j===gi?{...x,periods:{...x.periods,[p]:[x.periods?.[p]?.[0]||'',e.target.value]}}:x))} style={{padding:2}}/></span>)}
+        <span style={{display:'inline-flex',alignItems:'center',gap:2,fontSize:13,background:'#eef6ff',padding:'2px 6px',borderRadius:4}}>점심 <input type="time" value={g.lunch?.[0]||''} onChange={e=>setBell(bellG.map((x,j)=>j===gi?{...x,lunch:[e.target.value,x.lunch?.[1]||'']}:x))} style={{padding:2}}/>~<input type="time" value={g.lunch?.[1]||''} onChange={e=>setBell(bellG.map((x,j)=>j===gi?{...x,lunch:[x.lunch?.[0]||'',e.target.value]}:x))} style={{padding:2}}/></span>
         <button className="btn danger" style={{padding:'2px 8px'}} onClick={()=>setBell(bellG.filter((_,j)=>j!==gi))}>×</button>
       </div>)}
-      <div style={{display:'flex',justifyContent:'space-between'}}><button className="btn" onClick={()=>setBell([...bellG,{name:'새 학년군',grades:[],periods:{...DEFAULT_BELL.groups[0].periods}}])}>+ 학년군 추가</button><button className="btn primary" onClick={saveYear}>학년도 설정 저장</button></div>
+      <div className="hint" style={{margin:'4px 0 8px'}}>점심시간은 보결 탭에서 급식 지도 보결과 보결 교사의 점심 확보 판정에 씁니다. 보결 교사 점심 확보 최소 <input type="number" min="0" max="60" value={y.lunchMin ?? 30} onChange={e=>setY({...y, lunchMin:Number(e.target.value)})} style={{width:56,padding:3,border:'1px solid var(--line)',borderRadius:4}}/> 분 (0이면 확인 안 함)</div>
+      <div style={{display:'flex',justifyContent:'space-between'}}><button className="btn" onClick={()=>setBell([...bellG,{name:'새 학년군',grades:[],periods:{...DEFAULT_BELL.groups[0].periods},lunch:[...DEFAULT_BELL.groups[0].lunch]}])}>+ 학년군 추가</button><button className="btn primary" onClick={saveYear}>학년도 설정 저장</button></div>
     </div>
     <div className="card"><h3>전담 교사</h3>
       <p className="hint" style={{marginTop:0}}>학급 수를 먼저 저장해야 학급 버튼이 나타납니다. 한 사람이 여러 과목을 맡으면 담당 항목을 줄로 추가합니다(예: 체육 전담이 1학년 통합 놀이체육도 맡는 경우). 창체는 "창"을 고르면 파일의 창·자·동·봉·진 칸을 모두 창체로 인식합니다. "일부 전담"은 담임과 나누는 과목으로 파일의 색칠 칸만 잡습니다. 시수(학급당)를 넣으면 시간표에서 개수를 대조합니다. 창체처럼 1년 합계로만 맞추는 과목은 시수 기준을 "연간"으로 두세요. 과목마다 특별실이 다르면(과학은 과학실, 창체는 컴퓨터실) 줄마다 특별실을 고르세요.</p>
