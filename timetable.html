@@ -216,7 +216,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = 'hwaseong-barun-timetable-test';
-const VERSION = 'v7.0';
+const VERSION = 'v7.1';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -829,7 +829,7 @@ function App() {
       {email ? <button className="btn" onClick={()=>signOut(auth)} title="로그아웃해도 이 컴퓨터에 저장한 역할은 남습니다">로그아웃</button> : <button className="btn" onClick={googleLogin} title="선택 사항 — 어느 컴퓨터에서든 내 역할로 쓰려면 학교 계정을 연결하세요">학교 계정 로그인</button>}
       {email && !accountRole && <button className="btn" onClick={()=>setModal({type:'role', email, name:user.displayName})}>이 계정에 역할 연결</button>}
       {!isAdmin && <button className="btn" onClick={()=>setModal({type:'admin'})}>관리자</button>}
-      <span className="hint" style={{fontSize:12}}>{VERSION}</span>
+      <span className="hint" style={{fontSize:12,whiteSpace:'nowrap'}}>made by 너펑이 · {VERSION}</span>
     </div>
 
     {tab==='class' && <ClassView key={'c'+homeKey} defaultCid={myRole?.classId} memos={memos} saveMemo={saveMemo} requestMoveLecture={requestMoveLecture} {...{ year, classList, teachers, ctt, lessons, lectures, canEditClass, requestMove, onUpload, toast, addLesson, askRepeat, addLessonKeys, deleteLesson, setModal, askText, saveClassWeekNote, markEvent, unmarkEvent, requestMoveEvent, createBlank }} />}
