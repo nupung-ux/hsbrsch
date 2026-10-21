@@ -49,6 +49,13 @@
   .seg button{padding:6px 14px;border:none;background:#fff}
   .seg button.on{background:var(--ink);color:#fff}
   .wrap{padding:0 18px 40px}
+  .withmemo{display:flex;gap:16px;align-items:flex-start}
+  .withmemo .main{flex:0 0 auto;min-width:0}
+  .memopad{flex:1 1 280px;min-width:260px;max-width:520px;position:sticky;top:calc(var(--fixed, 60px) + 10px);background:#fffbe6;border:1px solid #e8d98a;border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,.06);display:flex;flex-direction:column;height:calc(100vh - var(--fixed, 60px) - 60px);min-height:320px}
+  .memopad .mh{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid #eadf9f;font-size:14px}
+  .memopad textarea{flex:1;border:0;background:transparent;resize:none;padding:12px 14px;font:inherit;font-size:15px;line-height:1.6;outline:none;font-family:inherit}
+  .memopad textarea[readonly]{color:#555}
+  @media (max-width:1500px){.withmemo{flex-direction:column}.memopad{position:static;height:220px;max-width:none;width:100%}}
   table.tt thead th{position:sticky;z-index:6;background-clip:padding-box;box-shadow:inset 0 -1px 0 var(--line),inset -1px 0 0 var(--line)}
   table.tt thead tr:first-child th{top:var(--fixed,var(--topbar,53px))}
   table.tt thead tr:nth-child(2) th{top:calc(var(--fixed,var(--topbar,53px)) + 35px)}
@@ -207,7 +214,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = 'hwaseong-barun-timetable-test';
-const VERSION = 'v6.6';
+const VERSION = 'v6.7';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -433,6 +440,7 @@ function App() {
   const [teacherNotes, setTeacherNotes] = useState({}); // `${tid}_${sem}` -> {cells:{key:text}, weekNotes:{no:text}}
   const [logs, setLogs] = useState([]);
   const [subs, setSubs] = useState({}); // 보결: `${classId}_${date}_${p}` -> {...}
+  const [memos, setMemos] = useState({}); // 자유 메모장: class_4-1, teacher_t123 -> {text, updatedAt, updatedBy}
   const [bookings, setBookings] = useState({});
   const [calEvents, setCalEvents] = useState([]);
   const [toast, toastEl] = useToast();
@@ -453,6 +461,7 @@ function App() {
       onSnapshot(query(cref('lectures')), s => { const m={}; s.forEach(d=>m[d.id]=d.data()); setLectures(m); }),
       onSnapshot(query(cref('teacher_notes')), s => { const m={}; s.forEach(d=>m[d.id]=d.data()); setTeacherNotes(m); }),
       onSnapshot(query(cref('subs')), s => { const m={}; s.forEach(d=>m[d.id]=d.data()); setSubs(m); }),
+      onSnapshot(query(cref('memos')), s => { const m={}; s.forEach(d=>m[d.id]=d.data()); setMemos(m); }),
       onSnapshot(query(cref('logs')), s => { const a=[]; s.forEach(d=>a.push({ id:d.id, ...d.data() })); a.sort((x,y)=>(y.at||'').localeCompare(x.at||'')); setLogs(a.slice(0,500)); }),
       onSnapshot(query(cref('room_bookings')), s => { const m={}; s.forEach(d=>m[d.id]=d.data()); setBookings(m); }),
     ];
@@ -541,6 +550,7 @@ function App() {
 
   // 전담 메모(칸·비고) / 담임 비고
   const saveTeacherCell = async (tid, sem, key, text) => { const id = `${tid}_${sem}`; const cur = teacherNotes[id] || {}; const cells = { ...(cur.cells||{}) }; if (text) cells[key] = text; else delete cells[key]; await setDoc(dref('teacher_notes', id), { ...cur, cells, updatedAt: nowIso(), updatedBy: editorName() }); log('memo', `전담 메모 ${key} "${text||'(삭제)'}"`); };
+  const saveMemo = async (id, text) => { await setDoc(dref('memos', id), { text, updatedAt: nowIso(), updatedBy: editorName() }); };
   const saveTeacherWeekNote = async (tid, sem, no, text) => { const id = `${tid}_${sem}`; const cur = teacherNotes[id] || {}; const weekNotes = { ...(cur.weekNotes||{}) }; if (text) weekNotes[no] = text; else delete weekNotes[no]; await setDoc(dref('teacher_notes', id), { ...cur, weekNotes, updatedAt: nowIso(), updatedBy: editorName() }); };
   const saveClassWeekNote = async (classId, sem, no, text) => { const id = `${classId}_${sem}`; const T = ctt[id]; if (!T) return; const weeks = T.weeks.map(w => w.no===no ? { ...w, note: text, noteApp: true } : w); await setDoc(dref('class_timetables', id), { ...T, weeks }); log('memo', `${classLabel(classId)} ${no}주 비고 수정`); };
   const askText = (title, value, onSave, hint) => setModal({ type:'text', title, value: value||'', hint, onSave });
@@ -787,8 +797,8 @@ function App() {
       <span className="hint" style={{fontSize:12}}>{VERSION}</span>
     </div>
 
-    {tab==='class' && <ClassView key={'c'+homeKey} defaultCid={myRole?.classId} {...{ year, classList, teachers, ctt, lessons, lectures, canEditClass, requestMove, onUpload, toast, addLesson, askRepeat, addLessonKeys, deleteLesson, setModal, askText, saveClassWeekNote, markEvent, unmarkEvent, requestMoveEvent, createBlank }} />}
-    {tab==='teacher' && <TeacherView key={'t'+homeKey} defaultTid={myRole?.teacherId} myClassId={myRole?.type==='담임' ? myRole.classId : null} onSelfEdit={tid=>setModal({type:'teacherSelf', teacherId:tid})} setModal={setModal} {...{ year, teachers, ctt, lessons, lectures, canEditTeacher, requestMove, addLesson, askRepeat, addLessonKeys, deleteLesson, toast, teacherNotes, saveTeacherCell, saveTeacherWeekNote, askText }} />}
+    {tab==='class' && <ClassView key={'c'+homeKey} defaultCid={myRole?.classId} memos={memos} saveMemo={saveMemo} {...{ year, classList, teachers, ctt, lessons, lectures, canEditClass, requestMove, onUpload, toast, addLesson, askRepeat, addLessonKeys, deleteLesson, setModal, askText, saveClassWeekNote, markEvent, unmarkEvent, requestMoveEvent, createBlank }} />}
+    {tab==='teacher' && <TeacherView key={'t'+homeKey} defaultTid={myRole?.teacherId} memos={memos} saveMemo={saveMemo} myClassId={myRole?.type==='담임' ? myRole.classId : null} onSelfEdit={tid=>setModal({type:'teacherSelf', teacherId:tid})} setModal={setModal} {...{ year, teachers, ctt, lessons, lectures, canEditTeacher, requestMove, addLesson, askRepeat, addLessonKeys, deleteLesson, toast, teacherNotes, saveTeacherCell, saveTeacherWeekNote, askText }} />}
     {tab==='lecture' && <LectureView key={'l'+homeKey} defaultGrade={myRole?.grade || gradeOf(myRole?.classId)} {...{ year, bell, classList, teachers, ctt, lessons, lectures, bookings, canEditLecture, saveLecture, deleteLecture, toast, setModal }} />}
     {tab==='room' && <RoomView {...{ year, bell, classList, teachers, ctt, lessons, bookings, lectures, canBook, addBooking, deleteBooking, myRole, toast, setModal, goLecture: ()=>setTab('lecture') }} />}
     {tab==='calendar' && <CalendarView {...{ calEvents, calAppId, lectures }} />}
@@ -860,7 +870,22 @@ function useFixedHead() {
 }
 function TodayBtn({ sem, year, setSem }) { return <button className="btn" style={{padding:'3px 10px'}} title={`오늘 ${fmtDate(TODAY)} 주로 이동`} onClick={()=>{ const s = semOfToday(year); if (s!==sem) { setSem(s); setTimeout(scrollToToday, 150); } else scrollToToday(); }}>오늘</button>; }
 function PastToggle({ value, onChange }) { return <label><input type="checkbox" checked={value} onChange={e=>{ onChange(e.target.checked); writePref('dimPast', e.target.checked); }} /> 지난 날짜 흐리게</label>; }
-function ClassView({ year, classList, teachers, ctt, lessons, lectures, canEditClass, requestMove, onUpload, toast, defaultCid, addLesson, askRepeat, addLessonKeys, deleteLesson, setModal, askText, saveClassWeekNote, markEvent, unmarkEvent, requestMoveEvent, createBlank }) {
+// 화면 오른쪽 자유 메모장: 바로 쓰고 지우면 자동 저장 (학급별 / 전담별 하나씩, 학기 공통)
+function MemoPad({ id, memo, canEdit, saveMemo, title }) {
+  const [text, setText] = useState(memo?.text || '');
+  const [state, setState] = useState('idle'); // idle | dirty | saving | saved
+  const dirty = useRef(false); const timer = useRef(null);
+  useEffect(() => { if (!dirty.current) setText(memo?.text || ''); }, [memo?.text, id]);
+  useEffect(() => () => { if (timer.current) { clearTimeout(timer.current); } }, []);
+  const onChange = v => { setText(v); dirty.current = true; setState('dirty'); if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(async () => { setState('saving'); try { await saveMemo(id, v); dirty.current = false; setState('saved'); setTimeout(()=>setState(s=>s==='saved'?'idle':s), 1500); } catch { setState('dirty'); } }, 700); };
+  const flush = () => { if (!dirty.current) return; if (timer.current) clearTimeout(timer.current); setState('saving'); saveMemo(id, text).then(()=>{ dirty.current=false; setState('saved'); setTimeout(()=>setState(s=>s==='saved'?'idle':s), 1500); }).catch(()=>setState('dirty')); };
+  return <div className="memopad">
+    <div className="mh"><b>{title}</b><span className="hint">{state==='dirty'?'입력 중…':state==='saving'?'저장 중…':state==='saved'?'저장됨':memo?.updatedAt?`${memo.updatedAt.slice(5,16).replace('T',' ')} ${memo.updatedBy||''}`:(canEdit?'바로 쓰면 자동 저장':'')}</span></div>
+    <textarea value={text} readOnly={!canEdit} onChange={e=>onChange(e.target.value)} onBlur={flush} placeholder={canEdit ? '자유롭게 적는 메모장입니다. 전담 선생님께 부탁할 것, 바뀐 일정, 확인할 것 등.\n쓰는 대로 저장되고 같은 화면을 보는 모두에게 보입니다.' : '메모가 없습니다.'} spellCheck={false}/>
+  </div>;
+}
+function ClassView({ year, classList, teachers, ctt, lessons, lectures, canEditClass, requestMove, onUpload, toast, defaultCid, memos, saveMemo, addLesson, askRepeat, addLessonKeys, deleteLesson, setModal, askText, saveClassWeekNote, markEvent, unmarkEvent, requestMoveEvent, createBlank }) {
   const [dimPast, setDimPast] = useState(readPref('dimPast', true));
   const [headRef, fixedStyle] = useFixedHead();
   const [cid, setCid] = useState(location.hash.match(/#\/class\/([^/]+)/)?.[1] || defaultCid || classList[0] || '');
@@ -930,7 +955,7 @@ function ClassView({ year, classList, teachers, ctt, lessons, lectures, canEditC
     </div></div>
     {!classList.length ? <div className="empty">학년도 설정에서 학급 수를 먼저 입력해 주세요.</div>
     : !T ? <div className="empty"><p>{classLabel(cid)} {sem}학기 시간표가 아직 없습니다.</p>{edit ? <div style={{display:'flex',gap:10,justifyContent:'center'}}><button className="btn primary" onClick={()=>fileRef.current.click()}>스쿨마스터 연간시간표(hwpx) 올리기</button>{year.semesters?.[sem]?.weeks?.length ? <button className="btn" onClick={()=>createBlank(cid, sem)}>빈 시간표로 시작</button> : <span className="hint" style={{alignSelf:'center'}}>빈 시간표로 시작하려면 학년도 설정에서 {sem}학기 기간을 정해 주세요.</span>}</div> : <p className="hint">담임 선생님이 올리면 여기에 나타납니다.</p>}<p className="hint" style={{marginTop:12}}>빈 시간표로 시작하면 전담·외부강의·행사를 바로 넣을 수 있고, 나중에 한글 파일을 올리면 입력한 내용은 유지한 채 나머지가 채워집니다.</p></div>
-    : <div className="wrap">
+    : <div className="wrap"><div className="withmemo"><div className="main">
         <Grid weeks={T.weeks} renderCell={renderCell} canDrop={canDrop} dimPast={dimPast} onCellClick={onCellClick} onNoteClick={edit ? (no, cur)=>askText(`${no}주 비고`, cur, v=>saveClassWeekNote(cid, sem, no, v)) : undefined}
           onFill={edit ? (from, keys)=>{ const l = L[from]; if (l) addLessonKeys(cid, sem, keys, l.teacherId, l.t); } : undefined}
           onDragStart={k=>{ dragRef.current=k; }} onDrop={k=>{ const from=dragRef.current; dragRef.current=null; if(!from) return; if (L[from]) requestMove(cid, sem, from, k); else if (T?.cells?.[from]?.k==='e') requestMoveEvent(cid, sem, from, k); }} />
@@ -938,12 +963,14 @@ function ClassView({ year, classList, teachers, ctt, lessons, lectures, canEditC
         {myLectures.length>0 && <div className="card" style={{margin:'8px 0 0'}}><h3>{classLabel(cid)} 외부강의·비교과</h3>
           {myLectures.map(l => <div key={l.id} style={{marginBottom:6}}><span className={'tag'+(isNoncurr(l)?' b':'')}>{l.kind}{l.subject&&!isNoncurr(l)?` · ${subjectName(l.subject)}`:''}</span> <b>{lecName(l)}</b> {l.instructor && `· ${l.instructor}`} {l.room && `· ${l.room}`} — {l.mine.map(sl=>`${shortDate(sl.date)} ${sl.p}교시`).join(', ')}</div>)}
         </div>}
-      </div>}
+        </div>
+        <MemoPad id={`class_${cid}`} memo={memos?.[`class_${cid}`]} canEdit={edit} saveMemo={saveMemo} title={`${classLabel(cid)} 메모`} />
+      </div></div>}
   </div>;
 }
 
 // ---------- 전담시간표 ----------
-function TeacherView({ year, teachers, ctt, lessons, lectures, canEditTeacher, requestMove, defaultTid, myClassId, onSelfEdit, setModal, addLesson, askRepeat, addLessonKeys, deleteLesson, toast, teacherNotes, saveTeacherCell, saveTeacherWeekNote, askText }) {
+function TeacherView({ year, teachers, ctt, lessons, lectures, canEditTeacher, requestMove, defaultTid, myClassId, memos, saveMemo, onSelfEdit, setModal, addLesson, askRepeat, addLessonKeys, deleteLesson, toast, teacherNotes, saveTeacherCell, saveTeacherWeekNote, askText }) {
   const [dimPast, setDimPast] = useState(readPref('dimPast', true));
   const [headRef, fixedStyle] = useFixedHead();
   // 담임이면 우리 반을 맡는 전담을 앞에, 나머지는 흐리게
@@ -1008,7 +1035,7 @@ function TeacherView({ year, teachers, ctt, lessons, lectures, canEditTeacher, r
     {!t ? <div className="empty">학년도 설정에서 전담 교사를 먼저 등록해 주세요.</div>
     : !normTeacher(t).subjects.length ? <div className="empty">{t.name} 선생님의 담당 과목·학급이 아직 없습니다. {edit ? '[내 담당 설정]을 눌러 넣어 주세요.' : '전담 선생님이 설정하면 여기에 나타납니다.'}</div>
     : !weeks.length ? <div className="empty">{sem}학기 연간시간표가 아직 하나도 올라오지 않았습니다. 담임시간표 탭에서 학급 파일을 올리면 주차가 만들어집니다.</div>
-    : <div className="wrap">
+    : <div className="wrap"><div className="withmemo"><div className="main">
         <Grid weeks={weeks} renderCell={renderCell} canDrop={canDrop} dimPast={dimPast} onCellClick={onCellClick} notes={memo.weekNotes||{}}
           onFill={edit ? (from, keys)=>{ const l = mine[from]?.[0]; if (l) addLessonKeys(l.classId, sem, keys, l.teacherId, l.t); } : undefined} onNoteClick={edit ? (no, cur)=>askText(`${no}주 비고`, cur, v=>saveTeacherWeekNote(tid, sem, no, v)) : undefined}
           onDragStart={k=>{ dragRef.current=k; }} onDrop={k=>{ const from=dragRef.current; dragRef.current=null; if(!from) return; const arr = mine[from]||[]; if (!arr.length) return;
@@ -1016,7 +1043,9 @@ function TeacherView({ year, teachers, ctt, lessons, lectures, canEditTeacher, r
             setModal({ type:'confirm', title:'어느 반을 옮길까요?', body:<p>{fmtDate(parseKey(from).date)} {parseKey(from).p}교시에 {arr.map(l=>classLabel(l.classId)).join(', ')} 수업이 겹쳐 있습니다. → {fmtDate(parseKey(k).date)} {parseKey(k).p}교시</p>,
               actions:[{label:'취소',on:()=>setModal(null)}, ...arr.map(l=>({ label: classLabel(l.classId)+' 옮기기', primary:true, on:()=>requestMove(l.classId, sem, from, k) }))] }); }} />
         <p className="hint">빨간 테두리 = 같은 시간에 두 반. {edit && '빈 칸 누르면 추가, 수업 칸 누르면 삭제, 끌어서 놓으면 이동, 수업 칸 오른쪽 아래 점을 끌면(아래·옆) 같은 수업 채우기 — 모두 그 반 담임시간표에도 함께 반영됩니다.'}</p>
-      </div>}
+        </div>
+        <MemoPad id={`teacher_${tid}`} memo={memos?.[`teacher_${tid}`]} canEdit={edit} saveMemo={saveMemo} title={`${t?.name||''} 메모`} />
+      </div></div>}
   </div>;
 }
 
