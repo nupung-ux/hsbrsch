@@ -49,6 +49,8 @@
   .seg button{padding:6px 14px;border:none;background:#fff}
   .seg button.on{background:var(--ink);color:#fff}
   .wrap{padding:0 18px 40px}
+  .planwrap{display:flex;flex-direction:column;height:calc(100vh - var(--topbar,53px))}
+  .planwrap iframe{flex:1;border:0;width:100%;background:#fff}
   .withmemo{display:flex;gap:16px;align-items:flex-start}
   .withmemo .main{flex:0 0 auto;min-width:0}
   .memopad{flex:1 1 280px;min-width:260px;max-width:520px;position:sticky;top:calc(var(--fixed, 60px) + 10px);background:#fffbe6;border:1px solid #e8d98a;border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,.06);display:flex;flex-direction:column;height:calc(100vh - var(--fixed, 60px) - 60px);min-height:320px}
@@ -214,7 +216,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = 'hwaseong-barun-timetable-test';
-const VERSION = 'v6.7';
+const VERSION = 'v6.8';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -776,6 +778,7 @@ function App() {
         <button className={tab==='room'?'on':''} onClick={()=>setTab('room')}>특별실</button>
         <button className={tab==='sub'?'on':''} onClick={()=>setTab('sub')}>보결</button>
         <button className={tab==='status'?'on':''} onClick={()=>setTab('status')}>현황</button>
+        <button className={tab==='plan'?'on':''} onClick={()=>setTab('plan')} title="월간운영계획을 이 안에서 그대로 봅니다 (새 창으로 열려면 오른쪽 위 버튼)">월간운영계획</button>
         <button className={tab==='settings'?'on':''} onClick={()=>setTab('settings')}>학년도 설정</button>
       </div>
       <div className="spacer"/>
@@ -802,6 +805,7 @@ function App() {
     {tab==='lecture' && <LectureView key={'l'+homeKey} defaultGrade={myRole?.grade || gradeOf(myRole?.classId)} {...{ year, bell, classList, teachers, ctt, lessons, lectures, bookings, canEditLecture, saveLecture, deleteLecture, toast, setModal }} />}
     {tab==='room' && <RoomView {...{ year, bell, classList, teachers, ctt, lessons, bookings, lectures, canBook, addBooking, deleteBooking, myRole, toast, setModal, goLecture: ()=>setTab('lecture') }} />}
     {tab==='calendar' && <CalendarView {...{ calEvents, calAppId, lectures }} />}
+    {tab==='plan' && <PlanFrame />}
     {tab==='sub' && <SubView {...{ year, bell, classList, teachers, ctt, lessons, lectures, subs, canEdit: canSub, setModal, toast, defaultCid: myRole?.classId, saveSub: async (id, data) => { await setDoc(dref('subs', id), { ...data, createdBy: editorName(), createdAt: nowIso() }); log('sub', `${classLabel(data.classId)} ${shortDate(data.date)} ${data.p}교시 보결 → ${data.label}`); }, deleteSub: async (id) => { const d = subs[id]; await deleteDoc(dref('subs', id)); if (d) log('sub', `${classLabel(d.classId)} ${shortDate(d.date)} ${d.p}교시 보결 삭제`); } }} />}
     {tab==='status' && <StatusView {...{ year, teachers, classList, ctt, lessons, lectures, logs, isAdmin }} />}
     {tab==='settings' && (isAdmin ? <Settings {...{ year, teachers, roles, isAdmin, classList, toast, log }} onRestore={onRestoreFile} onBlankAll={createBlankAll} onBackup={backupAll} onReset={(keep)=>setModal({ type:'confirm', title: keep ? '시간표 데이터를 모두 지울까요?' : '학년도를 초기화할까요?', body:<div><p className="warn">되돌릴 수 없습니다. 먼저 [전체 백업 내려받기]를 해 두세요.</p><p>{keep ? '담임·전담 시간표, 외부강의, 특별실 예약, 메모가 모두 지워지고 학급·전담·특별실·시정표 설정은 남습니다.' : '모든 시간표 데이터와 역할이 지워지고 학년도가 1년 올라갑니다. 학급 수·전담·특별실·시정표 설정은 남으니 바뀐 것만 고치면 됩니다.'}</p><p className="hint">연동된 일정표에서 외부강의로 들어간 줄도 함께 지웁니다.</p></div>, actions:[{label:'취소',on:()=>setModal(null)},{label: keep ? '데이터 지우기' : '학년도 초기화', primary:true, on:async()=>{ setModal(null); await resetYear(keep); toast('초기화했습니다.'); }}] })} /> : tryRole ? <div className="empty"><p>역할 체험 중에는 학년도 설정을 볼 수 없습니다.</p><button className="btn primary" onClick={()=>setTryRole(null)}>관리자(전체)로 돌아가기</button></div> : <div className="empty"><p>학년도 설정은 관리자만 할 수 있습니다.</p><button className="btn primary" onClick={()=>setModal({type:'admin'})}>관리자 암호 입력</button></div>)}
@@ -1664,6 +1668,19 @@ function BookModal({ room, date, col, weeks: semWeeks, classList, myRole, onSave
     </div>
     <div className="row"><button className="btn" onClick={onClose}>취소</button><button className="btn primary" onClick={ok}>예약</button></div>
   </Modal>;
+}
+
+// ---------- 월간운영계획 (같은 사이트의 index.html을 그대로 끼워 넣음) ----------
+function PlanFrame() {
+  const src = location.pathname.replace(/[^/]*$/, '') + 'index.html';
+  const ref = useRef();
+  useEffect(()=>{ history.replaceState(null,'','#/plan'); }, []);
+  return <div className="planwrap">
+    <div className="bar" style={{padding:'6px 18px'}}><span className="hint">월간운영계획 화면 그대로입니다. 여기서 입력한 내용은 월간운영계획에 바로 저장됩니다.</span><div className="spacer"/>
+      <button className="btn" onClick={()=>{ try { ref.current.contentWindow.location.reload(); } catch { ref.current.src = src; } }}>새로고침</button>
+      <a className="btn" href={src} target="_blank" rel="noopener" style={{textDecoration:'none'}}>새 창으로 열기 ↗</a></div>
+    <iframe ref={ref} src={src} title="월간운영계획" />
+  </div>;
 }
 
 // ---------- 일정표 (연동 확인용) ----------
