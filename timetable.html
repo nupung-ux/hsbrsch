@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>통합 시간표 (시험판 2단계)</title>
+<title>화성바른초 통합 시간표</title>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
 <script type="importmap">
 {
@@ -216,7 +216,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = 'hwaseong-barun-timetable-test';
-const VERSION = 'v6.9';
+const VERSION = 'v7.0';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -801,7 +801,7 @@ function App() {
 
   return <>
     <div className="top">
-      <h1>통합 시간표 <span className="hint" style={{fontWeight:400}}>시험판 · {year.year}학년도</span></h1>
+      <h1>통합 시간표 <span className="hint" style={{fontWeight:400}}>{year.year}학년도</span></h1>
       <div className="tabs">
         <button className="btn" style={{marginRight:8,borderRadius:6}} onClick={goHome} title="내 첫 화면으로">⌂ 홈</button>
         <button className={tab==='class'?'on':''} onClick={()=>setTab('class')}>담임시간표</button>
@@ -1337,7 +1337,7 @@ function Settings({ year, teachers, roles, isAdmin, classList, toast, log, onBla
         <tr><th>학년별 학급 수</th><td style={{display:'flex',gap:10,flexWrap:'wrap'}}>{[1,2,3,4,5,6].map(g=><label key={g} className="chk">{g}학년 <input type="number" min="0" style={{width:60}} value={y.grades?.[g]||0} onChange={e=>setY({...y, grades:{...(y.grades||{}), [g]:Number(e.target.value)}})}/></label>)}<label className="chk">유치원 <input type="number" min="0" style={{width:60}} value={y.kinder||0} onChange={e=>setY({...y, kinder:Number(e.target.value)})}/></label></td></tr>
         <tr><th>특별실</th><td><input value={y.roomsText ?? (y.rooms||[]).map(r=>r.name).join(', ')} placeholder="예: 음악실, 과학1실, 과학2실, 영어1실, 영어2실, 체육관, 다목적실 (쉼표로)" onChange={e=>setY({...y, roomsText:e.target.value})}/><div className="hint">전담 교사 설정에서 담당 과목마다 특별실을 고르면 그 수업이 특별실 시간표에 자동으로 표시됩니다.</div></td></tr>
         <tr><th>보결 가능 추가 인원</th><td><input value={y.extraSubs ?? '교감, 교장'} placeholder="예: 교감, 교장, 교무부장 (쉼표로)" onChange={e=>setY({...y, extraSubs:e.target.value})}/><div className="hint">담임, 전담 외에 보결에 들어갈 수 있는 분들. 보결 탭의 선택 목록에 항상 나오며, 점심시간 보결에도 나옵니다.</div></td></tr>
-        <tr><th>일정표 연동</th><td><select value={y.calendarTarget||'test'} onChange={e=>setY({...y, calendarTarget:e.target.value})} style={{padding:6}}><option value="test">시험용 (실제 월간운영계획에 쓰지 않음)</option><option value="live">실제 월간운영계획에 자동 입력</option></select></td></tr>
+        <tr><th>일정표 연동</th><td><select value={y.calendarTarget||'test'} onChange={e=>setY({...y, calendarTarget:e.target.value})} style={{padding:6}}><option value="test">연동 안 함 (외부강의 일정을 월간운영계획에 넣지 않음)</option><option value="live">월간운영계획에 자동 입력</option></select><div className="hint">"자동 입력"으로 바꾸기 전에 월간운영계획 파일(index.html)을 연동용으로 교체해야 합니다. 바꾼 뒤에는 외부강의를 한 번씩 다시 저장하면 들어갑니다.</div></td></tr>
         <tr><th>학기 기간</th><td>
           {[1,2].map(sm => { const cur = y.semesters?.[sm]; const st = y.semStart?.[sm] || cur?.weeks?.[0]?.start || ''; const cnt = y.semCount?.[sm] || cur?.weeks?.length || (sm===1?22:20);
             return <div key={sm} style={{display:'flex',gap:8,alignItems:'center',marginBottom:6,flexWrap:'wrap'}}><b style={{minWidth:44}}>{sm}학기</b>
@@ -1382,7 +1382,7 @@ function Settings({ year, teachers, roles, isAdmin, classList, toast, log, onBla
       <h3>초기화</h3>
       <table className="form"><thead><tr><th style={{width:230}}></th><th>지워지는 것</th><th>남는 것</th><th>언제 쓰나</th></tr></thead><tbody>
         <tr><td><button className="btn danger" style={{width:210}} onClick={()=>onReset(true)}>시간표 데이터만 지우기</button></td>
-          <td>학급 시간표, 전담 수업, 외부강의, 특별실 예약, 메모, 보결 기록, 학기 기간(주차)</td><td>학년도, 학급 수, 전담 교사, 특별실, 시정표, 역할</td><td className="hint">시험 삼아 넣은 자료를 비우고 실제로 시작할 때</td></tr>
+          <td>학급 시간표, 전담 수업, 외부강의, 특별실 예약, 메모, 보결 기록, 학기 기간(주차)</td><td>학년도, 학급 수, 전담 교사, 특별실, 시정표, 역할</td><td className="hint">연습으로 넣은 자료를 비우고 실제로 시작할 때</td></tr>
         <tr><td><button className="btn danger" style={{width:210}} onClick={()=>onReset(false)}>새 학년도로 초기화</button></td>
           <td>위 항목 전부 + 역할(담임, 전담, 관리자 지정)</td><td>학급 수, 전담 교사, 특별실, 시정표 (학년도는 1년 올라감)</td><td className="hint">2월 말 학년도를 마감하고 새 학년도를 준비할 때</td></tr>
       </tbody></table>
@@ -1727,7 +1727,7 @@ function CalendarView({ calEvents, calAppId, lectures }) {
   const dates = Object.keys(groups).sort();
   const firstTodayOrAfter = dates.find(d=>d>=today);
   return <>
-    <div className="bar"><span className="hint">연동 대상: <b>{calAppId==='hwaseong-barun-calendar' ? '실제 월간운영계획' : '시험용 일정표'}</b> (학년도 설정에서 바꿀 수 있습니다) · 보라색 표시는 외부강의에서 자동으로 들어온 줄입니다. 실제 화면은 월간운영계획에서 확인하세요.</span></div>
+    <div className="bar"><span className="hint">연동 대상: <b>{calAppId==='hwaseong-barun-calendar' ? '월간운영계획' : '별도 보관 (연동 안 함)'}</b> (학년도 설정에서 바꿀 수 있습니다) · 보라색 표시는 외부강의에서 자동으로 들어온 줄입니다. 실제 화면은 월간운영계획에서 확인하세요.</span></div>
     <div className="list" style={{maxWidth:1100}}>
       {!dates.length && <div className="it hint">일정이 없습니다. 외부강의를 저장하면 여기에 나타납니다.</div>}
       {dates.map(d=><div key={d} ref={d===firstTodayOrAfter?ref:null}>
