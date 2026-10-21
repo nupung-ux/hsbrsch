@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>화성바른초 통합 시간표</title>
+<title>통합 시간표</title>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
 <script type="importmap">
 {
@@ -19,6 +19,7 @@
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="config.js"></script>
 <style>
   :root{
     --ink:#1f2a37; --muted:#6b7280; --paper:#fafaf8; --line:#d6dae0; --line-strong:#9aa3ad;
@@ -203,20 +204,19 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
 import { getFirestore, collection, onSnapshot, doc, setDoc, getDoc, getDocs, addDoc, deleteDoc, query } from 'firebase/firestore';
 
-// ---------- Firebase (기존 월간운영계획과 같은 프로젝트, 저장 경로만 분리) ----------
-const firebaseConfig = {
-  apiKey: "AIzaSyDeV51pP4BQqxReIfBmXPEST9zeok5aAOs",
-  authDomain: "school-calendar-6789a.firebaseapp.com",
-  projectId: "school-calendar-6789a",
-  storageBucket: "school-calendar-6789a.firebasestorage.app",
-  messagingSenderId: "697249862283",
-  appId: "1:697249862283:web:4b75b2deb2693d771b7a8e"
-};
+// ---------- 학교별 설정은 같은 폴더의 config.js 에서 읽습니다 ----------
+const CFG = window.SCHOOL_CONFIG || {};
+const CONFIG_OK = !!(CFG.firebase && CFG.firebase.apiKey && !/여기에|YOUR_/.test(CFG.firebase.apiKey) && CFG.firebase.projectId);
+const SCHOOL = CFG.schoolName || '우리 학교';
+const SHOW_PLAN_TAB = CFG.showCalendarTab !== false;
+const CAL_APP_ID = CFG.calendarAppId || 'school-calendar';
+document.title = `${SCHOOL} 통합 시간표`;
+const firebaseConfig = CONFIG_OK ? CFG.firebase : { apiKey:'x', authDomain:'x', projectId:'x', appId:'x' };
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-const APP_ID = 'hwaseong-barun-timetable-test';
-const VERSION = 'v7.1';
+const APP_ID = CFG.timetableAppId || 'school-timetable';
+const VERSION = 'v7.2';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -454,7 +454,7 @@ function App() {
   useEffect(() => { const f = () => { const el = document.querySelector('.top'); if (el) document.documentElement.style.setProperty('--topbar', el.offsetHeight+'px'); }; f(); addEventListener('resize', f); const t = setInterval(f, 1000); return () => { removeEventListener('resize', f); clearInterval(t); }; }, []);
   useEffect(() => { if (!user) return;
     const un = [
-      onSnapshot(sref('year'), s => setYear(s.exists() ? s.data() : { year: 2026, domain: '', grades: {1:0,2:0,3:0,4:0,5:0,6:0}, kinder: 0, semesters: {} })),
+      onSnapshot(sref('year'), s => setYear(s.exists() ? s.data() : { year: new Date().getFullYear(), domain: CFG.domain || '', grades: {1:0,2:0,3:0,4:0,5:0,6:0}, kinder: 0, semesters: {} })),
       onSnapshot(sref('teachers'), s => setTeachers(s.exists() ? (s.data().list||[]) : [])),
       onSnapshot(sref('roles'), s => setRoles(s.exists() ? (s.data().byEmail||{}) : {})),
       onSnapshot(sref('admin'), s => setAdminHash(s.exists() ? s.data().passwordHash : null)),
@@ -470,7 +470,7 @@ function App() {
     return () => un.forEach(f=>f());
   }, [user]);
 
-  const calAppId = year?.calendarTarget==='live' ? 'hwaseong-barun-calendar' : APP_ID;
+  const calAppId = year?.calendarTarget==='live' ? CAL_APP_ID : APP_ID;
   const calCol = () => collection(db, 'artifacts', calAppId, 'public', 'data', 'school_events');
   const calDoc = id => doc(db, 'artifacts', calAppId, 'public', 'data', 'school_events', id);
   useEffect(() => { if (!user || !year) return; return onSnapshot(query(calCol()), s => { const a=[]; s.forEach(d=>a.push({ id:d.id, ...d.data() })); a.sort((x,y)=>(x.date||'').localeCompare(y.date||'')); setCalEvents(a); }); }, [user, calAppId]);
@@ -801,7 +801,7 @@ function App() {
 
   return <>
     <div className="top">
-      <h1>통합 시간표 <span className="hint" style={{fontWeight:400}}>{year.year}학년도</span></h1>
+      <h1>통합 시간표 <span className="hint" style={{fontWeight:400}}>{SCHOOL} {year.year}학년도</span></h1>
       <div className="tabs">
         <button className="btn" style={{marginRight:8,borderRadius:6}} onClick={goHome} title="내 첫 화면으로">⌂ 홈</button>
         <button className={tab==='class'?'on':''} onClick={()=>setTab('class')}>담임시간표</button>
@@ -810,7 +810,7 @@ function App() {
         <button className={tab==='room'?'on':''} onClick={()=>setTab('room')}>특별실</button>
         <button className={tab==='sub'?'on':''} onClick={()=>setTab('sub')}>보결</button>
         <button className={tab==='status'?'on':''} onClick={()=>setTab('status')}>현황</button>
-        <button className={tab==='plan'?'on':''} onClick={()=>setTab('plan')} title="월간운영계획을 이 안에서 그대로 봅니다 (새 창으로 열려면 오른쪽 위 버튼)">월간운영계획</button>
+        {SHOW_PLAN_TAB && <button className={tab==='plan'?'on':''} onClick={()=>setTab('plan')} title="월간운영계획을 이 안에서 그대로 봅니다 (새 창으로 열려면 오른쪽 위 버튼)">월간운영계획</button>}
         <button className={tab==='settings'?'on':''} onClick={()=>setTab('settings')}>학년도 설정</button>
       </div>
       <div className="spacer"/>
@@ -1727,7 +1727,7 @@ function CalendarView({ calEvents, calAppId, lectures }) {
   const dates = Object.keys(groups).sort();
   const firstTodayOrAfter = dates.find(d=>d>=today);
   return <>
-    <div className="bar"><span className="hint">연동 대상: <b>{calAppId==='hwaseong-barun-calendar' ? '월간운영계획' : '별도 보관 (연동 안 함)'}</b> (학년도 설정에서 바꿀 수 있습니다) · 보라색 표시는 외부강의에서 자동으로 들어온 줄입니다. 실제 화면은 월간운영계획에서 확인하세요.</span></div>
+    <div className="bar"><span className="hint">연동 대상: <b>{calAppId===CAL_APP_ID ? '월간운영계획' : '별도 보관 (연동 안 함)'}</b> (학년도 설정에서 바꿀 수 있습니다) · 보라색 표시는 외부강의에서 자동으로 들어온 줄입니다. 실제 화면은 월간운영계획에서 확인하세요.</span></div>
     <div className="list" style={{maxWidth:1100}}>
       {!dates.length && <div className="it hint">일정이 없습니다. 외부강의를 저장하면 여기에 나타납니다.</div>}
       {dates.map(d=><div key={d} ref={d===firstTodayOrAfter?ref:null}>
@@ -1826,7 +1826,19 @@ function UploadModal({ parsed, failed, fileCount, teachers, existing, lessons, c
   </Modal>;
 }
 
-createRoot(document.getElementById('root')).render(<App/>);
+function SetupNotice() {
+  return <div style={{maxWidth:760,margin:'60px auto',padding:'0 20px',lineHeight:1.7}}>
+    <h1 style={{fontSize:26}}>통합 시간표 — 설정 파일이 아직 없습니다</h1>
+    <p>이 프로그램은 같은 폴더의 <code>config.js</code> 파일에서 학교 이름과 Firebase 연결 정보를 읽습니다. 지금은 그 파일이 없거나 아직 예시 값 그대로입니다.</p>
+    <ol>
+      <li><b>setup.html</b>을 열어 학교 이름과 Firebase 정보를 넣고 <code>config.js</code>를 내려받습니다.</li>
+      <li>내려받은 <code>config.js</code>를 <code>timetable.html</code>, <code>index.html</code>과 같은 폴더에 올립니다.</li>
+      <li>이 페이지를 새로고침합니다.</li>
+    </ol>
+    <p className="hint">자세한 순서는 함께 받은 <b>설치안내.html</b>에 있습니다.</p>
+  </div>;
+}
+createRoot(document.getElementById('root')).render(CONFIG_OK ? <App/> : <SetupNotice/>);
 </script>
 </body>
 </html>
