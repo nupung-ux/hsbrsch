@@ -31,12 +31,22 @@
   button{font:inherit;cursor:pointer}
   input,select{font:inherit}
   .top{display:flex;align-items:center;gap:18px;padding:10px 18px;background:#fff;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20}
-  .top h1{font-size:17px;font-weight:800;margin:0;line-height:1.15;letter-spacing:-.2px}
-  .brand{display:flex;align-items:center;gap:10px;margin-right:6px}
-  .brand img{height:38px;width:38px;object-fit:contain;border-radius:50%}
+  .top h1{font-size:17px;font-weight:800;margin:0;line-height:1.15;letter-spacing:-.2px;white-space:nowrap}
+  .brand{display:flex;align-items:center;gap:10px;margin-right:6px;flex:none}
+  .brand img{height:46px;width:46px;object-fit:contain;border-radius:50%}
   .brand .sub{font-size:12px;color:var(--muted);line-height:1.2;margin-top:2px}
-  .tabs{display:flex;gap:2px}
-  .tabs button{padding:8px 16px;border:1px solid var(--line);background:#fff;border-radius:6px 6px 0 0;border-bottom:none;color:var(--muted)}
+  .tabs{display:flex;gap:2px;align-items:stretch}
+  .tabs button{padding:8px 14px;border:1px solid var(--line);background:#fff;border-radius:6px 6px 0 0;border-bottom:none;color:var(--muted);white-space:nowrap;line-height:1.15}
+  .tabs button .w{display:inline}
+  .top .btn,.top .who{white-space:nowrap}
+  .top .who{max-width:260px;overflow:hidden;text-overflow:ellipsis}
+  @media (max-width:1700px){
+    .tabs button{padding:5px 10px;font-size:14px}
+    .tabs button .w{display:block;text-align:center}
+    .tabs button .w+.w{margin-top:1px}
+    .top .btn{padding:5px 9px;font-size:13px}
+    .top .who{max-width:170px;font-size:12px}
+  }
   .tabs button.on{color:var(--ink);font-weight:700;background:var(--paper);border-color:var(--line-strong)}
   .spacer{flex:1}
   .who{font-size:14px;color:var(--muted)}
@@ -221,7 +231,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = CFG.timetableAppId || 'school-timetable';
-const VERSION = 'v7.4';
+const VERSION = 'v7.5';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -808,18 +818,18 @@ function App() {
 
   return <>
     <div className="top">
-      <div className="brand">{(year.logo || CFG.logoUrl) && <img src={year.logo || CFG.logoUrl} alt="" />}<div><h1>학교 통합 시간 관리 프로그램</h1><div className="sub">{SCHOOL} {year.year}학년도</div></div></div>
+      <div className="brand">{(year.logo || CFG.logoUrl) && <img src={year.logo || CFG.logoUrl} alt="" />}<div><h1>학교 통합 시간 관리</h1><div className="sub">{SCHOOL} {year.year}학년도</div></div></div>
       <div className="tabs">
-        <button className="btn" style={{marginRight:8,borderRadius:6}} onClick={goHome} title="내 첫 화면으로">⌂ 홈</button>
-        <button className={tab==='class'?'on':''} onClick={()=>setTab('class')}>담임시간표</button>
-        <button className={tab==='teacher'?'on':''} onClick={()=>setTab('teacher')}>전담시간표</button>
-        <button className={tab==='lecture'?'on':''} onClick={()=>setTab('lecture')}>외부강의</button>
-        <button className={tab==='room'?'on':''} onClick={()=>setTab('room')}>특별실</button>
+        <button className="btn" style={{marginRight:8,borderRadius:6}} onClick={goHome} title="내 첫 화면으로">⌂</button>
+        <button className={tab==='class'?'on':''} onClick={()=>setTab('class')} title="담임시간표">담임</button>
+        <button className={tab==='teacher'?'on':''} onClick={()=>setTab('teacher')} title="전담시간표">전담</button>
+        <button className={tab==='lecture'?'on':''} onClick={()=>setTab('lecture')}><span className="w">외부</span><span className="w">강의</span></button>
+        <button className={tab==='room'?'on':''} onClick={()=>setTab('room')}><span className="w">특별</span><span className="w">실</span></button>
         <button className={tab==='sub'?'on':''} onClick={()=>setTab('sub')}>보결</button>
-        <button className={tab==='sep'?'on':''} onClick={()=>setTab('sep')} title="분리지도가 필요한 학생을 맡을 교원 배치 (보결과 서로 연동)">개별학생 교육지원</button>
+        <button className={tab==='sep'?'on':''} onClick={()=>setTab('sep')} title="개별학생 교육지원 (분리지도) — 보결과 서로 연동"><span className="w">개별</span><span className="w">지도</span></button>
         <button className={tab==='status'?'on':''} onClick={()=>setTab('status')}>현황</button>
-        {SHOW_PLAN_TAB && <button className={tab==='plan'?'on':''} onClick={()=>setTab('plan')} title="월간운영계획을 이 안에서 그대로 봅니다 (새 창으로 열려면 오른쪽 위 버튼)">월간운영계획</button>}
-        <button className={tab==='settings'?'on':''} onClick={()=>setTab('settings')}>학년도 설정</button>
+        {SHOW_PLAN_TAB && <button className={tab==='plan'?'on':''} onClick={()=>setTab('plan')} title="월간운영계획을 이 안에서 그대로 봅니다"><span className="w">월간</span><span className="w">계획</span></button>}
+        <button className={tab==='settings'?'on':''} onClick={()=>setTab('settings')} title="학년도 설정"><span className="w">학년도</span><span className="w">설정</span></button>
       </div>
       <div className="spacer"/>
       {undoN>0 && <button className="btn" onClick={undo}>되돌리기 ({undoN})</button>}
