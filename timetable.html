@@ -31,7 +31,10 @@
   button{font:inherit;cursor:pointer}
   input,select{font:inherit}
   .top{display:flex;align-items:center;gap:18px;padding:10px 18px;background:#fff;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20}
-  .top h1{font-size:18px;font-weight:700;margin:0 8px 0 0}
+  .top h1{font-size:17px;font-weight:800;margin:0;line-height:1.15;letter-spacing:-.2px}
+  .brand{display:flex;align-items:center;gap:10px;margin-right:6px}
+  .brand img{height:38px;width:38px;object-fit:contain;border-radius:50%}
+  .brand .sub{font-size:12px;color:var(--muted);line-height:1.2;margin-top:2px}
   .tabs{display:flex;gap:2px}
   .tabs button{padding:8px 16px;border:1px solid var(--line);background:#fff;border-radius:6px 6px 0 0;border-bottom:none;color:var(--muted)}
   .tabs button.on{color:var(--ink);font-weight:700;background:var(--paper);border-color:var(--line-strong)}
@@ -123,6 +126,8 @@
   table.tt th.lunchh{background:#eef6ff;color:#2b5aa8}
   table.tt td.slot.lunch{background:#eef6ff}
   table.tt td.slot.lunch.subable:hover{background:#d9ebff}
+  table.tt td.slot.sep{background:#e4d7f5 !important;color:#4b2a8a;font-weight:700;font-size:12px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:var(--cell)}
+  table.tt td.slot.hasother{box-shadow:inset 0 -3px 0 #c9a227}
   table.tt td.slot.sub{background:#ffd9a8 !important;color:#7a3e00;font-weight:700;font-size:12px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:var(--cell)}
   table.tt td.slot.subable{cursor:pointer}
   table.tt td.slot.subable:hover{outline:2px solid #c96a00;outline-offset:-2px}
@@ -216,7 +221,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = CFG.timetableAppId || 'school-timetable';
-const VERSION = 'v7.2';
+const VERSION = 'v7.4';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -442,6 +447,7 @@ function App() {
   const [teacherNotes, setTeacherNotes] = useState({}); // `${tid}_${sem}` -> {cells:{key:text}, weekNotes:{no:text}}
   const [logs, setLogs] = useState([]);
   const [subs, setSubs] = useState({}); // 보결: `${classId}_${date}_${p}` -> {...}
+  const [seps, setSeps] = useState({}); // 분리지도(개별학생 교육지원): `${classId}_${date}_${p}` -> {...}
   const [memos, setMemos] = useState({}); // 자유 메모장: class_4-1, teacher_t123 -> {text, updatedAt, updatedBy}
   const [bookings, setBookings] = useState({});
   const [calEvents, setCalEvents] = useState([]);
@@ -463,6 +469,7 @@ function App() {
       onSnapshot(query(cref('lectures')), s => { const m={}; s.forEach(d=>m[d.id]=d.data()); setLectures(m); }),
       onSnapshot(query(cref('teacher_notes')), s => { const m={}; s.forEach(d=>m[d.id]=d.data()); setTeacherNotes(m); }),
       onSnapshot(query(cref('subs')), s => { const m={}; s.forEach(d=>m[d.id]=d.data()); setSubs(m); }),
+      onSnapshot(query(cref('seps')), s => { const m={}; s.forEach(d=>m[d.id]=d.data()); setSeps(m); }),
       onSnapshot(query(cref('memos')), s => { const m={}; s.forEach(d=>m[d.id]=d.data()); setMemos(m); }),
       onSnapshot(query(cref('logs')), s => { const a=[]; s.forEach(d=>a.push({ id:d.id, ...d.data() })); a.sort((x,y)=>(y.at||'').localeCompare(x.at||'')); setLogs(a.slice(0,500)); }),
       onSnapshot(query(cref('room_bookings')), s => { const m={}; s.forEach(d=>m[d.id]=d.data()); setBookings(m); }),
@@ -713,13 +720,13 @@ function App() {
 
   // ----- 백업 / 초기화 -----
   const backupAll = () => {
-    const data = { exportedAt: nowIso(), appId: APP_ID, version: VERSION, year, teachers, roles, class_timetables: ctt, lessons, lectures, room_bookings: bookings, teacher_notes: teacherNotes, subs, logs };
+    const data = { exportedAt: nowIso(), appId: APP_ID, version: VERSION, year, teachers, roles, class_timetables: ctt, lessons, lectures, room_bookings: bookings, teacher_notes: teacherNotes, subs, seps, memos, logs };
     const blob = new Blob([JSON.stringify(data, null, 1)], { type:'application/json' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `통합시간표_백업_${year.year}학년도_${TODAY}.json`; a.click(); URL.revokeObjectURL(a.href);
     log('backup', '전체 백업 내려받기');
   };
   // 백업 파일(JSON)로 복원: 현재 데이터를 모두 지우고 백업 시점 상태로 되돌린다
   const restoreAll = async (data, onProgress) => {
-    const cols = { class_timetables:'class_timetables', lessons:'lessons', lectures:'lectures', room_bookings:'room_bookings', teacher_notes:'teacher_notes', subs:'subs' };
+    const cols = { class_timetables:'class_timetables', lessons:'lessons', lectures:'lectures', room_bookings:'room_bookings', teacher_notes:'teacher_notes', subs:'subs', seps:'seps', memos:'memos' };
     let n = 0; const total = Object.keys(cols).reduce((a,k)=>a+Object.keys(data[k]||{}).length, 0);
     for (const c of Object.values(cols)) { const snap = await getDocs(query(cref(c))); for (const d of snap.docs) await deleteDoc(d.ref); }
     for (const ev of calEvents) if (ev.lectureId) await deleteDoc(calDoc(ev.id));
@@ -744,7 +751,7 @@ function App() {
     </div>, actions:[{label:'취소',on:()=>setModal(null)},{label:'이 백업으로 복원',primary:true,on:async()=>{ setModal({ type:'confirm', title:'복원 중…', body:<p>잠시 기다려 주세요. 창을 닫지 마세요.</p>, actions:[] }); try { await restoreAll(data); setModal(null); toast('백업을 복원했습니다.'); } catch(e) { console.error(e); setModal(null); toast('복원 중 오류가 났습니다: '+(e.message||e), true); } }}] });
   };
   const resetYear = async (keepSettings) => {
-    const cols = ['class_timetables','lessons','lectures','room_bookings','teacher_notes','subs'];
+    const cols = ['class_timetables','lessons','lectures','room_bookings','teacher_notes','subs','seps','memos'];
     for (const c of cols) { const snap = await getDocs(query(cref(c))); for (const d of snap.docs) await deleteDoc(d.ref); }
     for (const ev of calEvents) if (ev.lectureId) await deleteDoc(calDoc(ev.id));
     if (!keepSettings) { await setDoc(sref('year'), { ...year, year: (year.year||2026)+1, semesters: {} }); await setDoc(sref('roles'), { byEmail: {} }); }
@@ -801,7 +808,7 @@ function App() {
 
   return <>
     <div className="top">
-      <h1>통합 시간표 <span className="hint" style={{fontWeight:400}}>{SCHOOL} {year.year}학년도</span></h1>
+      <div className="brand">{(year.logo || CFG.logoUrl) && <img src={year.logo || CFG.logoUrl} alt="" />}<div><h1>학교 통합 시간 관리 프로그램</h1><div className="sub">{SCHOOL} {year.year}학년도</div></div></div>
       <div className="tabs">
         <button className="btn" style={{marginRight:8,borderRadius:6}} onClick={goHome} title="내 첫 화면으로">⌂ 홈</button>
         <button className={tab==='class'?'on':''} onClick={()=>setTab('class')}>담임시간표</button>
@@ -809,6 +816,7 @@ function App() {
         <button className={tab==='lecture'?'on':''} onClick={()=>setTab('lecture')}>외부강의</button>
         <button className={tab==='room'?'on':''} onClick={()=>setTab('room')}>특별실</button>
         <button className={tab==='sub'?'on':''} onClick={()=>setTab('sub')}>보결</button>
+        <button className={tab==='sep'?'on':''} onClick={()=>setTab('sep')} title="분리지도가 필요한 학생을 맡을 교원 배치 (보결과 서로 연동)">개별학생 교육지원</button>
         <button className={tab==='status'?'on':''} onClick={()=>setTab('status')}>현황</button>
         {SHOW_PLAN_TAB && <button className={tab==='plan'?'on':''} onClick={()=>setTab('plan')} title="월간운영계획을 이 안에서 그대로 봅니다 (새 창으로 열려면 오른쪽 위 버튼)">월간운영계획</button>}
         <button className={tab==='settings'?'on':''} onClick={()=>setTab('settings')}>학년도 설정</button>
@@ -838,7 +846,8 @@ function App() {
     {tab==='room' && <RoomView {...{ year, bell, classList, teachers, ctt, lessons, bookings, lectures, canBook, addBooking, deleteBooking, myRole, toast, setModal, goLecture: ()=>setTab('lecture') }} />}
     {tab==='calendar' && <CalendarView {...{ calEvents, calAppId, lectures }} />}
     {tab==='plan' && <PlanFrame />}
-    {tab==='sub' && <SubView {...{ year, bell, classList, teachers, ctt, lessons, lectures, subs, canEdit: canSub, setModal, toast, defaultCid: myRole?.classId, saveSub: async (id, data) => { await setDoc(dref('subs', id), { ...data, createdBy: editorName(), createdAt: nowIso() }); log('sub', `${classLabel(data.classId)} ${shortDate(data.date)} ${data.p}교시 보결 → ${data.label}`); }, deleteSub: async (id) => { const d = subs[id]; await deleteDoc(dref('subs', id)); if (d) log('sub', `${classLabel(d.classId)} ${shortDate(d.date)} ${d.p}교시 보결 삭제`); } }} />}
+    {tab==='sub' && <SubView mode="sub" {...{ year, bell, classList, teachers, ctt, lessons, lectures, subs, seps, canEdit: canSub, setModal, toast, defaultCid: myRole?.classId, saveSub: async (id, data) => { await setDoc(dref('subs', id), { ...data, createdBy: editorName(), createdAt: nowIso() }); log('sub', `${classLabel(data.classId)} ${shortDate(data.date)} ${pLabel(data.p)} 보결 → ${data.label}`); }, deleteSub: async (id) => { const d = subs[id]; await deleteDoc(dref('subs', id)); if (d) log('sub', `${classLabel(d.classId)} ${shortDate(d.date)} ${pLabel(d.p)} 보결 삭제`); } }} />}
+    {tab==='sep' && <SubView mode="sep" {...{ year, bell, classList, teachers, ctt, lessons, lectures, subs, seps, canEdit: canSub, setModal, toast, defaultCid: myRole?.classId, saveSub: async (id, data) => { await setDoc(dref('seps', id), { ...data, createdBy: editorName(), createdAt: nowIso() }); log('sep', `${classLabel(data.classId)} ${shortDate(data.date)} ${pLabel(data.p)} 분리지도 → ${data.label}${data.student?' ('+data.student+')':''}`); }, deleteSub: async (id) => { const d = seps[id]; await deleteDoc(dref('seps', id)); if (d) log('sep', `${classLabel(d.classId)} ${shortDate(d.date)} ${pLabel(d.p)} 분리지도 삭제`); } }} />}
     {tab==='status' && <StatusView {...{ year, teachers, classList, ctt, lessons, lectures, logs, isAdmin }} />}
     {tab==='settings' && (isAdmin ? <Settings {...{ year, teachers, roles, isAdmin, classList, toast, log }} onRestore={onRestoreFile} onBlankAll={createBlankAll} onBackup={backupAll} onReset={(keep)=>setModal({ type:'confirm', title: keep ? '시간표 데이터를 모두 지울까요?' : '학년도를 초기화할까요?', body:<div><p className="warn">되돌릴 수 없습니다. 먼저 [전체 백업 내려받기]를 해 두세요.</p><p>{keep ? '담임·전담 시간표, 외부강의, 특별실 예약, 메모가 모두 지워지고 학급·전담·특별실·시정표 설정은 남습니다.' : '모든 시간표 데이터와 역할이 지워지고 학년도가 1년 올라갑니다. 학급 수·전담·특별실·시정표 설정은 남으니 바뀐 것만 고치면 됩니다.'}</p><p className="hint">연동된 일정표에서 외부강의로 들어간 줄도 함께 지웁니다.</p></div>, actions:[{label:'취소',on:()=>setModal(null)},{label: keep ? '데이터 지우기' : '학년도 초기화', primary:true, on:async()=>{ setModal(null); await resetYear(keep); toast('초기화했습니다.'); }}] })} /> : tryRole ? <div className="empty"><p>역할 체험 중에는 학년도 설정을 볼 수 없습니다.</p><button className="btn primary" onClick={()=>setTryRole(null)}>관리자(전체)로 돌아가기</button></div> : <div className="empty"><p>학년도 설정은 관리자만 할 수 있습니다.</p><button className="btn primary" onClick={()=>setModal({type:'admin'})}>관리자 암호 입력</button></div>)}
 
@@ -1088,8 +1097,13 @@ function TeacherView({ year, teachers, ctt, lessons, lectures, canEditTeacher, r
 }
 
 // ---------- 보결 ----------
-function SubView({ year, bell, classList, teachers, ctt, lessons, lectures, subs, canEdit, setModal, toast, defaultCid, saveSub, deleteSub }) {
+function SubView({ mode='sub', year, bell, classList, teachers, ctt, lessons, lectures, subs: subsAll, seps: sepsAll, canEdit, setModal, toast, defaultCid, saveSub, deleteSub }) {
+  const isSep = mode==='sep'; const KIND = isSep ? '분리지도' : '보결';
+  const subs = isSep ? (sepsAll||{}) : (subsAll||{});        // 이 탭이 기록하는 것
+  const others = isSep ? (subsAll||{}) : (sepsAll||{});      // 다른 탭의 기록 (같은 사람이 겹치면 안 되므로 함께 봄)
+  const allRecs = useMemo(() => [...Object.values(subsAll||{}), ...Object.values(sepsAll||{})], [subsAll, sepsAll]);
   const subClasses = classList.filter(c=>!c.startsWith('유'));
+  const placeRef = useRef(); const studentRef = useRef();
   const [cid, setCid] = useState(defaultCid || subClasses[0] || '');
   const [sem, setSem] = useState((new Date().getMonth()+1)>=8 || (new Date().getMonth()+1)<=1 ? 2 : 1);
   const [dimPast, setDimPast] = useState(readPref('dimPast', true));
@@ -1105,8 +1119,13 @@ function SubView({ year, bell, classList, teachers, ctt, lessons, lectures, subs
   // 그 날 어떤 사람(이름표 기준)의 바쁜 시간: 전담 수업 + 이미 배정된 보결
   const busyOf = (date, label, teacherId) => { const out = [];
     if (teacherId) for (const [lid,Ld] of Object.entries(lessons)) { if (!lid.endsWith('_'+sem)) continue; for (const [k,v] of Object.entries(Ld.slots||{})) if (v.teacherId===teacherId && parseKey(k).date===date) { const t = periodTime(bell, gradeOf(Ld.classId), parseKey(k).p); if (t) out.push(t); } }
-    for (const v of Object.values(subs)) if (v.date===date && v.label===label) { const t = slotTime(bell, gradeOf(v.classId), v.p); if (t) out.push(t); }
+    for (const v of allRecs) if (v.date===date && v.label===label) { const t = slotTime(bell, gradeOf(v.classId), v.p); if (t) out.push(t); }
     return out; };
+  // 그 반에 보결이 잡혀 있으면(담임 부재) 그 담임은 그 시간에 없는 사람
+  // 보결 기록이 "담임 부재"인지 (전담 부재 보결이면 담임은 그 시간에 있음)
+  const isClassAbsent = v => v.absent ? v.absent==='class' : !teachers.some(t => t.name && (v.origin||'').includes(t.name));
+  const absentClassAt = (c, date, me, skipP) => Object.values(subsAll||{}).some(v => v.classId===c && v.date===date && isClassAbsent(v) && !(skipP!=null && v.p===skipP) && overlaps(me, slotTime(bell, gradeOf(v.classId), v.p)));
+  const sameGroup = useMemo(() => new Set((bellGroup(bell, gradeOf(cid))?.grades)||[]), [bell, cid]);
   const lecAt = useMemo(() => { const m = {}; for (const lec of Object.values(lectures)) for (const sl of (lec.slots||[])) if (sl.classId===cid) m[slotKey(sl.date, sl.p)] = lec; return m; }, [lectures, cid]);
   const shortWho = v => v.whoType==='class' ? classCode(v.who) : v.label.slice(0,3);
   // 학기 보결 횟수 (공평 분배 참고)
@@ -1115,15 +1134,20 @@ function SubView({ year, bell, classList, teachers, ctt, lessons, lectures, subs
   const candidates = (date, p) => {
     const me = slotTime(bell, gradeOf(cid), p); const out = [];
     const isLunch = p===LUNCH;
-    const busyBySub = (label) => Object.values(subs).some(v => v.date===date && v.label===label && !(v.classId===cid && v.p===p) && overlaps(me, slotTime(bell, gradeOf(v.classId), v.p)));
+    const mineHere = subs[`${cid}_${date}_${p}`];
+    const busyBySub = (label) => allRecs.some(v => v.date===date && v.label===label && v!==mineHere && overlaps(me, slotTime(bell, gradeOf(v.classId), v.p)));
+    const busyWhy = (label) => { const v = allRecs.find(v => v.date===date && v.label===label && overlaps(me, slotTime(bell, gradeOf(v.classId), v.p))); if (!v) return ''; const kind = Object.values(subsAll||{}).includes(v) ? '보결' : '분리지도'; return `${classCode(v.classId)} ${pLabel(v.p)} ${kind} 중`; };
+    const absentClass = (c) => absentClassAt(c, date, me, (!isSep && c===cid) ? p : null); // 보결 탭에서 자기 반의 바로 이 칸 기록은 제외
     // 점심 확보: 이 보결을 맡아도 점심시간대 안에 lunchMin분 이상 비는 틈이 남는가 (전담·추가 인원만, 담임은 자기 반 점심을 함께 먹음)
-    const lunchLost = (label, teacherId) => lunchMin>0 && me && !hasLunchGap([...busyOf(date, label, teacherId).filter(b => !(b.s===me.s && b.e===me.e && Object.values(subs).some(v=>v.date===date&&v.label===label&&v.classId===cid&&v.p===p))), me], lunchWindow, lunchMin);
+    const lunchLost = (label, teacherId) => lunchMin>0 && me && !hasLunchGap([...busyOf(date, label, teacherId), me], lunchWindow, lunchMin);
     const clicked = L[slotKey(date,p)];
     // 이 반 담임 (전담 시간을 클릭한 경우)
-    if (clicked && !isLunch) out.push({ whoType:'class', who:cid, label:`${classCode(cid)} 담임`, why:'자기 반 전담 시간', busy: busyBySub(`${classCode(cid)} 담임`) });
+    if (clicked && !isLunch && !absentClass(cid)) out.push({ whoType:'class', who:cid, label:`${classCode(cid)} 담임`, why:'자기 반 전담 시간', busy: busyBySub(`${classCode(cid)} 담임`), same:true });
     // 다른 반 담임: 그 반이 전담 수업 중이면 비어 있음 (외부강의 시간은 담임이 있어야 하므로 제외) — 점심시간은 담임이 자기 반 지도 중이므로 제외
     for (const c of classList) { if (isLunch) break; if (c===cid || c.startsWith('유')) continue;
-      const lc = lunchTime(bell, gradeOf(c)); if (overlaps(me, lc)) continue; // 그 반 점심과 겹치면 담임은 불가 const Tc = ctt[`${c}_${sem}`]; if (!Tc) continue; const Lc = lessons[`${c}_${sem}`]?.slots || {};
+      const lc = lunchTime(bell, gradeOf(c)); if (overlaps(me, lc)) continue; // 그 반 점심과 겹치면 담임은 불가
+      if (absentClass(c)) continue; // 그 반에 보결이 잡혀 있으면 담임 부재
+      const Tc = ctt[`${c}_${sem}`]; if (!Tc) continue; const Lc = lessons[`${c}_${sem}`]?.slots || {};
       const qs = PERIODS.filter(q => overlaps(me, periodTime(bell, gradeOf(c), q)));
       if (!qs.length) continue;
       const lec = Object.values(lectures).some(l => (l.slots||[]).some(sl => sl.classId===c && sl.date===date && qs.includes(sl.p)));
@@ -1134,43 +1158,52 @@ function SubView({ year, bell, classList, teachers, ctt, lessons, lectures, subs
         else if (!cell || cell.k==='h') { whys.push('휴업일'); }
         else if (!cell.t) { whys.push('수업 없음'); }
         else { ok = false; break; } }
-      if (ok) out.push({ whoType:'class', who:c, label:`${classCode(c)} 담임`, why: Array.from(new Set(whys)).join(', '), busy: busyBySub(`${classCode(c)} 담임`) }); }
+      if (ok) out.push({ whoType:'class', who:c, label:`${classCode(c)} 담임`, why: Array.from(new Set(whys)).join(', '), busy: busyBySub(`${classCode(c)} 담임`), same: sameGroup.has(String(gradeOf(c))) }); }
     // 전담: 그 시간에 수업이 없으면
     for (const t of teachers) { if (t.type==='coop') continue; let busy = null;
       for (const [lid,Ld] of Object.entries(lessons)) { if (!lid.endsWith('_'+sem)) continue; for (const [k,v] of Object.entries(Ld.slots||{})) if (v.teacherId===t.id && parseKey(k).date===date && overlaps(me, periodTime(bell, gradeOf(Ld.classId), parseKey(k).p))) busy = `${classCode(Ld.classId)} ${v.t} 수업`; }
       if (clicked && clicked.teacherId===t.id) continue; // 빠지는 전담 본인
       const nl = !busy && !busyBySub(t.name) && lunchLost(t.name, t.id);
-      out.push({ whoType:'teacher', who:t.id, label:t.name, why: busy || (nl ? `점심시간 확보 안 됨 (${lunchMin}분 미만)` : '수업 없음'), busy: !!busy || busyBySub(t.name) || nl, noLunch: nl }); }
-    for (const x of extra) { const nl = !busyBySub(x) && lunchLost(x, null); out.push({ whoType:'extra', who:x, label:x, why: nl ? `점심시간 확보 안 됨 (${lunchMin}분 미만)` : '', busy: busyBySub(x) || nl, noLunch: nl }); }
+      const tg = teacherClasses(t).map(c=>String(gradeOf(c)));
+      out.push({ whoType:'teacher', who:t.id, label:t.name, why: busy || busyWhy(t.name) || (nl ? `점심시간 확보 안 됨 (${lunchMin}분 미만)` : '수업 없음'), busy: !!busy || busyBySub(t.name) || nl, noLunch: nl, same: tg.some(g=>sameGroup.has(g)) }); }
+    for (const x of extra) { const nl = !busyBySub(x) && lunchLost(x, null); out.push({ whoType:'extra', who:x, label:x, why: busyWhy(x) || (nl ? `점심시간 확보 안 됨 (${lunchMin}분 미만)` : ''), busy: busyBySub(x) || nl, noLunch: nl, same:false }); }
     return out;
   };
   const onCellClick = (key, date, p) => {
     const cell = p===LUNCH ? T?.cells?.[slotKey(date,1)] : T?.cells?.[key]; if (!cell || cell.k==='h') return;
     if (p===LUNCH && !lunchTime(bell, gradeOf(cid))) { toast('학년도 설정의 시정표에 이 학년군 점심시간을 먼저 넣어 주세요.', true); return; }
     const cur = subsOf[key];
-    if (!canEdit) { if (cur) toast(`보결: ${cur.label}`); return; }
+    if (!canEdit) { if (cur) toast(`${KIND}: ${cur.label}${cur.student?' ('+cur.student+')':''}`); return; }
     const cands = candidates(date, p); const les = L[key]; const lec = lecAt[key];
     const lt = p===LUNCH ? lunchTime(bell, gradeOf(cid)) : null;
-    const title = `${classLabel(cid)} ${fmtDate(date)} ${pLabel(p)} 보결` + (lt ? ` (${lt.s}~${lt.e} 급식 지도)` : les ? ` (${les.t} ${tById[les.teacherId]?.name||''} 전담 시간)` : lec ? ` (${lecName(lec)})` : '');
-    setModal({ type:'confirm', title, body:<div style={{maxHeight:'60vh',overflow:'auto'}}>
-      {cur && <p style={{margin:'0 0 8px'}}>현재 보결: <b>{cur.label}</b> <span className="hint">({cur.createdBy})</span></p>}
-      <div className="hint" style={{marginBottom:6}}>{p===LUNCH ? '점심시간 보결은 담임을 빼고 전담과 추가 인원만 나옵니다. ' : ''}비어 있는 분부터 보입니다. 숫자는 이번 학기 보결 횟수.{lunchMin>0 && ` 보결을 맡으면 본인 점심 ${lunchMin}분이 남지 않는 분은 회색으로 표시됩니다.`}</div>
+    const title = `${classLabel(cid)} ${fmtDate(date)} ${pLabel(p)} ${KIND}` + (lt ? ` (${lt.s}~${lt.e} 급식 지도)` : les ? ` (${les.t} ${tById[les.teacherId]?.name||''} 전담 시간)` : lec ? ` (${lecName(lec)})` : '');
+    const other = others[`${cid}_${date}_${p}`];
+    const sorted = cands.sort((a,b)=>(a.busy?1:0)-(b.busy?1:0) || (isSep ? (b.same?1:0)-(a.same?1:0) : 0));
+    setModal({ type:'confirm', title, body:<div style={{maxHeight:'62vh',overflow:'auto'}}>
+      {cur && <p style={{margin:'0 0 8px'}}>현재 {KIND}: <b>{cur.label}</b>{cur.student && <> · {cur.student}</>}{cur.place && <> · {cur.place}</>} <span className="hint">({cur.createdBy})</span></p>}
+      {other && <p className="warn" style={{margin:'0 0 8px'}}>이 시간에 이 반 {isSep?'보결':'분리지도'}: <b>{other.label}</b>{isSep ? ' — 담임이 부재중이므로 담임은 후보에서 빠집니다.' : ''}</p>}
+      {isSep && <div style={{display:'flex',gap:8,marginBottom:8}}>
+        <input ref={studentRef} defaultValue={cur?.student||''} placeholder="학생 (이름 또는 번호, 선택)" style={{flex:1,padding:6,border:'1px solid var(--line-strong)',borderRadius:6}}/>
+        <input ref={placeRef} defaultValue={cur?.place || year.sepPlace || ''} placeholder="분리 장소 (예: 학운위실)" style={{flex:1,padding:6,border:'1px solid var(--line-strong)',borderRadius:6}}/>
+      </div>}
+      <div className="hint" style={{marginBottom:6}}>{p===LUNCH ? `점심시간 ${KIND}는 담임을 빼고 전담과 추가 인원만 나옵니다. ` : ''}{isSep ? '같은 학년군에서 수업이 없는 분이 먼저(1순위), 그다음 다른 학년 담임과 전담입니다. ' : '비어 있는 분부터 보입니다. '}보결이나 분리지도에 이미 들어간 분, 자기 반에 보결이 잡힌 담임은 빠지거나 회색입니다. 숫자는 이번 학기 {KIND} 횟수.{lunchMin>0 && ` 맡으면 본인 점심 ${lunchMin}분이 남지 않는 분도 회색입니다.`}</div>
       <div style={{display:'flex',flexDirection:'column',gap:4}}>
-        {cands.sort((a,b)=>(a.busy?1:0)-(b.busy?1:0)).map((c,i)=><button key={i} className="btn" disabled={c.busy} style={{textAlign:'left',display:'flex',gap:10,alignItems:'center',background:c.busy?'#f3f3f1':'#fff'}} onClick={async()=>{ await saveSub(`${cid}_${date}_${p}`, { classId:cid, date, p, sem, whoType:c.whoType, who:c.who, label:c.label, origin: p===LUNCH ? '점심 지도' : les ? `${les.t} ${tById[les.teacherId]?.name||''}` : lec ? lecName(lec) : '담임' }); setModal(null); toast(`${c.label} 보결로 배정했습니다.`); }}>
-          <b style={{minWidth:90}}>{c.label}</b><span className="hint" style={{flex:1}}>{c.busy && c.whoType==='teacher' ? c.why : c.busy ? '다른 반 보결 중' : c.why}</span><span className="tag">{counts[c.label]||0}</span></button>)}
+        {sorted.map((c,i)=><button key={i} className="btn" disabled={c.busy} style={{textAlign:'left',display:'flex',gap:10,alignItems:'center',background:c.busy?'#f3f3f1':'#fff'}} onClick={async()=>{ const extraF = isSep ? { student: studentRef.current?.value.trim()||'', place: placeRef.current?.value.trim()||'' } : {}; await saveSub(`${cid}_${date}_${p}`, { classId:cid, date, p, sem, whoType:c.whoType, who:c.who, label:c.label, ...extraF, absent: (p!==LUNCH && les) ? 'teacher' : 'class', origin: p===LUNCH ? '점심 지도' : les ? `${les.t} ${tById[les.teacherId]?.name||''}` : lec ? lecName(lec) : '담임' }); setModal(null); toast(`${c.label} ${KIND}로 배정했습니다.`); }}>
+          <b style={{minWidth:90}}>{c.label}</b>{isSep && c.same && !c.busy && <span className="tag">동학년군</span>}<span className="hint" style={{flex:1}}>{c.why}</span><span className="tag">{counts[c.label]||0}</span></button>)}
       </div></div>,
-      actions:[{label:'취소',on:()=>setModal(null)}, ...(cur ? [{label:'보결 삭제',on:async()=>{ await deleteSub(cur.id); setModal(null); toast('지웠습니다.'); }}] : [])] });
+      actions:[{label:'취소',on:()=>setModal(null)}, ...(cur ? [{label:`${KIND} 삭제`,on:async()=>{ await deleteSub(cur.id); setModal(null); toast('지웠습니다.'); }}] : [])] });
   };
   const renderCell = (key, date, p) => {
     const cell = T?.cells?.[key]; const les = L[key]; const lec = lecAt[key]; const sb = subsOf[key];
-    if (sb) return { text: shortWho(sb), cls:'sub', title:`보결 ${sb.label} (원래 ${sb.origin})` };
-    if (p===LUNCH) { const c1 = T?.cells?.[slotKey(date,1)]; if (!c1 || c1.k==='h') return { text:'', style:{background:'#f5f5f3'} }; const lt = lunchTime(bell, gradeOf(cid)); return { text:'', cls:'lunch subable', title: lt ? `점심 ${lt.s}~${lt.e} · 누르면 점심 보결 배정` : '점심시간 미설정' }; }
-    if (lec) return { text: <LecText lec={lec}/>, cls:'lec subable', title: `${lecName(lec)} · 누르면 보결 배정` };
-    if (les) { const t = tById[les.teacherId]; return { text: les.t, cls:'lesson subable', style:{ background: t?.color||'#fff3b0' }, title: `${t?.name||'전담'} · 누르면 보결 배정` }; }
+    const ot = others[key]; const otTitle = ot ? ` · 이 시간 ${isSep?'보결':'분리지도'}: ${ot.label}` : '';
+    if (sb) return { text: shortWho(sb), cls: isSep?'sep':'sub', title:`${KIND} ${sb.label}${sb.student?' · '+sb.student:''}${sb.place?' · '+sb.place:''} (${sb.origin})${otTitle}` };
+    if (p===LUNCH) { const c1 = T?.cells?.[slotKey(date,1)]; if (!c1 || c1.k==='h') return { text:'', style:{background:'#f5f5f3'} }; const lt = lunchTime(bell, gradeOf(cid)); return { text: ot?'·':'', cls:'lunch subable', title: (lt ? `점심 ${lt.s}~${lt.e} · 누르면 점심 ${KIND} 배정` : '점심시간 미설정')+otTitle }; }
+    if (lec) return { text: <LecText lec={lec}/>, cls:'lec subable'+(ot?' hasother':''), title: `${lecName(lec)} · 누르면 ${KIND} 배정${otTitle}` };
+    if (les) { const t = tById[les.teacherId]; return { text: les.t, cls:'lesson subable'+(ot?' hasother':''), style:{ background: t?.color||'#fff3b0' }, title: `${t?.name||'전담'} · 누르면 ${KIND} 배정${otTitle}` }; }
     if (!cell) return { text:'', style:{background:'#f5f5f3'} };
     if (cell.k==='h') return { text: cell.t, cls:'h' };
-    if (cell.k==='e') return { text: cell.t, cls:'e subable', title:'행사 · 누르면 보결 배정' };
-    return { text: cell.t, cls:'faint subable', title:'담임 수업 · 누르면 보결 배정' };
+    if (cell.k==='e') return { text: cell.t, cls:'e subable'+(ot?' hasother':''), title:`행사 · 누르면 ${KIND} 배정${otTitle}` };
+    return { text: cell.t, cls:'faint subable'+(ot?' hasother':''), title:`담임 수업 · 누르면 ${KIND} 배정${otTitle}` };
   };
   const mine = Object.values(subsOf).sort((a,b)=>a.date.localeCompare(b.date)||pOrd(a.p)-pOrd(b.p));
   const byWho = useMemo(() => { const m = {}; for (const v of Object.values(subs)) { const w = year.semesters?.[sem]?.weeks||[]; if (!w.length) continue; if (v.date>=w[0].start && v.date<addDays(w.at(-1).start,7)) (m[v.label]=m[v.label]||[]).push(v); } return Object.entries(m).sort((a,b)=>b[1].length-a[1].length); }, [subs, year, sem]);
@@ -1179,19 +1212,19 @@ function SubView({ year, bell, classList, teachers, ctt, lessons, lectures, subs
       <label>학급 <select value={cid} onChange={e=>setCid(e.target.value)}>{subClasses.map(c=><option key={c} value={c}>{classLabel(c)}</option>)}</select></label>
       <div className="seg"><button className={sem===1?'on':''} onClick={()=>setSem(1)}>1학기</button><button className={sem===2?'on':''} onClick={()=>setSem(2)}>2학기</button></div>
       <PastToggle value={dimPast} onChange={setDimPast} />
-      <span className="hint">{canEdit ? '보결이 필요한 칸을 누르면 그 시간에 비어 있는 분이 나옵니다. 담임 과목 칸은 담임 부재, 전담 칸은 전담 부재로 봅니다.' : '보결 배정은 교무실무사 또는 관리자만 할 수 있습니다. 보기만 가능합니다.'}</span>
+      <span className="hint">{canEdit ? (isSep ? '분리지도가 필요한 학생의 반과 시간을 누르면 그 시간에 수업이 없는 교원이 나옵니다. 보결에 들어간 분과 보결이 잡힌 반의 담임은 자동으로 빠집니다.' : '보결이 필요한 칸을 누르면 그 시간에 비어 있는 분이 나옵니다. 담임 과목 칸은 담임 부재, 전담 칸은 전담 부재로 봅니다.') : `${KIND} 배정은 교무실무사 또는 관리자만 할 수 있습니다. 보기만 가능합니다.`}</span>
       <div className="spacer"/>
-      <div className="legend"><span><i style={{background:'#ffd9a8'}}/>보결 배정됨</span><span><i style={{background:'#eef6ff'}}/>점 = 점심시간 ({(()=>{ const lt=lunchTime(bell,gradeOf(cid)); return lt?`${lt.s}~${lt.e}`:'미설정'; })()})</span></div>
+      <div className="legend"><span><i style={{background: isSep?'#e4d7f5':'#ffd9a8'}}/>{KIND} 배정됨</span><span><i style={{background:'#fff',boxShadow:'inset 0 -3px 0 #c9a227'}}/>{isSep?'보결':'분리지도'} 있는 칸</span><span><i style={{background:'#eef6ff'}}/>점 = 점심시간 ({(()=>{ const lt=lunchTime(bell,gradeOf(cid)); return lt?`${lt.s}~${lt.e}`:'미설정'; })()})</span></div>
     </div></div>
     {!T ? <div className="empty">{classLabel(cid)} {sem}학기 시간표가 없습니다. 담임시간표에서 먼저 올려 주세요.</div>
     : <div className="wrap">
       <Grid weeks={T.weeks} renderCell={renderCell} dimPast={dimPast} onCellClick={onCellClick} periods={subPeriods} />
       <div style={{display:'flex',gap:14,alignItems:'flex-start',marginTop:14,flexWrap:'wrap'}}>
-        <div className="card" style={{margin:0,flex:'1 1 420px'}}><h3>{classLabel(cid)} 보결 기록 ({mine.length})</h3>
+        <div className="card" style={{margin:0,flex:'1 1 420px'}}><h3>{classLabel(cid)} {KIND} 기록 ({mine.length})</h3>
           {!mine.length && <p className="hint">아직 없습니다.</p>}
-          {mine.map(v=><div key={v.id} className="ev" style={{padding:'4px 0'}}><span style={{width:110}}>{fmtDate(v.date)}</span><span style={{width:50}}>{pLabel(v.p)}</span><span style={{width:110,color:'var(--muted)'}}>{v.origin}</span><b>{v.label}</b>{canEdit && <button className="btn danger" style={{padding:'0 8px',marginLeft:'auto'}} onClick={()=>deleteSub(v.id)}>삭제</button>}</div>)}
+          {mine.map(v=><div key={v.id} className="ev" style={{padding:'4px 0'}}><span style={{width:110}}>{fmtDate(v.date)}</span><span style={{width:50}}>{pLabel(v.p)}</span><span style={{width:110,color:'var(--muted)'}}>{v.origin}</span><b>{v.label}</b>{isSep && (v.student||v.place) && <span className="hint" style={{marginLeft:8}}>{[v.student, v.place].filter(Boolean).join(' · ')}</span>}{canEdit && <button className="btn danger" style={{padding:'0 8px',marginLeft:'auto'}} onClick={()=>deleteSub(v.id)}>삭제</button>}</div>)}
         </div>
-        <div className="card" style={{margin:0,flex:'1 1 320px'}}><h3>{sem}학기 보결 횟수 (전체)</h3>
+        <div className="card" style={{margin:0,flex:'1 1 320px'}}><h3>{sem}학기 {KIND} 횟수 (전체)</h3>
           {!byWho.length && <p className="hint">아직 없습니다.</p>}
           <table className="ov"><tbody>{byWho.map(([w,arr])=><tr key={w}><td style={{textAlign:'left'}}>{w}</td><td style={{fontWeight:700}}>{arr.length}</td><td className="hint" style={{textAlign:'left'}}>{arr.sort((a,b)=>a.date.localeCompare(b.date)).map(v=>`${shortDate(v.date)} ${classCode(v.classId)}`).join(', ')}</td></tr>)}</tbody></table>
         </div>
@@ -1333,6 +1366,9 @@ function Settings({ year, teachers, roles, isAdmin, classList, toast, log, onBla
     {st==='year' && <div className="card"><h3>학년도 · 학급</h3>
       <table className="form"><tbody>
         <tr><th style={{width:160}}>학년도</th><td><input type="number" value={y.year||''} onChange={e=>setY({...y, year:Number(e.target.value)})} style={{width:120}}/></td></tr>
+        <tr><th>학교 마크</th><td><div style={{display:'flex',alignItems:'center',gap:12}}>{y.logo ? <img src={y.logo} alt="" style={{height:44,width:44,objectFit:'contain',borderRadius:'50%',border:'1px solid var(--line)'}}/> : <span className="hint">없음</span>}
+          <input type="file" accept="image/*" style={{display:'none'}} id="logoFile" onChange={e=>{ const f=e.target.files?.[0]; e.target.value=''; if(!f) return; const img=new Image(); img.onload=()=>{ const S=128; const c=document.createElement('canvas'); c.width=S; c.height=S; const g=c.getContext('2d'); const r=Math.min(S/img.width,S/img.height); const w=img.width*r,h=img.height*r; g.drawImage(img,(S-w)/2,(S-h)/2,w,h); setY({...y, logo:c.toDataURL('image/png')}); URL.revokeObjectURL(img.src); }; img.src=URL.createObjectURL(f); }}/>
+          <button className="btn" onClick={()=>document.getElementById('logoFile').click()}>{y.logo?'바꾸기':'마크 올리기'}</button>{y.logo && <button className="btn" onClick={()=>setY({...y, logo:''})}>지우기</button>}<span className="hint">화면 왼쪽 위 제목 옆에 작게 표시됩니다 (png, jpg). 저장을 눌러야 반영됩니다.</span></div></td></tr>
         <tr><th>학교 계정 도메인</th><td><input placeholder="예: school.es.kr (비우면 모든 구글 계정 허용)" value={y.domain||''} onChange={e=>setY({...y, domain:e.target.value.trim()})}/></td></tr>
         <tr><th>학년별 학급 수</th><td style={{display:'flex',gap:10,flexWrap:'wrap'}}>{[1,2,3,4,5,6].map(g=><label key={g} className="chk">{g}학년 <input type="number" min="0" style={{width:60}} value={y.grades?.[g]||0} onChange={e=>setY({...y, grades:{...(y.grades||{}), [g]:Number(e.target.value)}})}/></label>)}<label className="chk">유치원 <input type="number" min="0" style={{width:60}} value={y.kinder||0} onChange={e=>setY({...y, kinder:Number(e.target.value)})}/></label></td></tr>
         <tr><th>특별실</th><td><input value={y.roomsText ?? (y.rooms||[]).map(r=>r.name).join(', ')} placeholder="예: 음악실, 과학1실, 과학2실, 영어1실, 영어2실, 체육관, 다목적실 (쉼표로)" onChange={e=>setY({...y, roomsText:e.target.value})}/><div className="hint">전담 교사 설정에서 담당 과목마다 특별실을 고르면 그 수업이 특별실 시간표에 자동으로 표시됩니다.</div></td></tr>

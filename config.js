@@ -4,6 +4,7 @@ window.SCHOOL_CONFIG = {
   schoolFullName: "화성바른초등학교",
   domain: "goedu.kr",
   showCalendarTab: true,
+  logoUrl: "logo.png",   // 같은 폴더의 학교 마크 파일 (학년도 설정에서 올린 마크가 있으면 그것이 우선)
   firebase: {
     apiKey: "AIzaSyDeV51pP4BQqxReIfBmXPEST9zeok5aAOs",
     authDomain: "school-calendar-6789a.firebaseapp.com",
