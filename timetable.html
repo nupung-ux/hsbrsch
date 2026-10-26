@@ -231,7 +231,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = CFG.timetableAppId || 'school-timetable';
-const VERSION = 'v7.5';
+const VERSION = 'v7.6';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -506,12 +506,13 @@ function App() {
   const canEditTeacher = tid => isAdmin || (myRole?.type==='전담' && myRole.teacherId===tid);
   const canEditLecture = grade => isAdmin || ((myRole?.type==='담임' || myRole?.type==='학년부장') && String(myRole.grade || gradeOf(myRole.classId))===String(grade));
   const canBook = !!email || !!deviceRole || isAdmin || !!tryRole;
-  const canSub = isAdmin || myRole?.type==='교무실무사';
+  const isManager = r => r?.type==='업무담당자' || r?.type==='교무실무사'; // 보결·개별지도 배정 담당 (예전 이름 교무실무사도 인정)
+  const canSub = isAdmin || isManager(myRole);
   const bell = year?.bell || DEFAULT_BELL;
   const editorName = () => tryRole ? `체험(${tryRole.name})` : (myRole?.name || email || (adminOn ? '관리자' : '익명'));
 
   const goHome = () => { // 역할에 맞는 첫 화면: 담임 → 우리 반, 전담 → 내 시간표, 학년부장 → 우리 학년 외부강의
-    if (myRole?.type==='전담') setTab('teacher'); else if (myRole?.type==='교무실무사') setTab('sub'); else setTab('class');
+    if (myRole?.type==='전담') setTab('teacher'); else if (isManager(myRole)) setTab('sub'); else setTab('class');
     setHomeKey(k=>k+1); history.replaceState(null,'','#/');
   };
   const roleKey = myRole ? `${myRole.type}|${myRole.classId||myRole.teacherId||myRole.grade||''}` : '';
@@ -834,11 +835,11 @@ function App() {
       <div className="spacer"/>
       {undoN>0 && <button className="btn" onClick={undo}>되돌리기 ({undoN})</button>}
       {(realAdmin || tryRole) && <label className="hint" style={{display:'flex',gap:4,alignItems:'center'}}>역할 체험
-        <select value={tryRole ? `${tryRole.type}:${tryRole.classId||tryRole.teacherId}` : ''} onChange={e=>{ const v=e.target.value; if (!v) { setTryRole(null); return; } const [ty,id]=v.split(':'); if (ty==='담임') setTryRole({ type:'담임', classId:id, name:`${id} 담임` }); else if (ty==='교무실무사') setTryRole({ type:'교무실무사', name:'교무실무사' }); else { const t=teachers.find(x=>x.id===id); setTryRole({ type:'전담', teacherId:id, name:`${t?.name||''} 전담` }); } }} style={{padding:'4px 6px',border:'1px solid var(--line-strong)',borderRadius:6}}>
+        <select value={tryRole ? `${tryRole.type}:${tryRole.classId||tryRole.teacherId}` : ''} onChange={e=>{ const v=e.target.value; if (!v) { setTryRole(null); return; } const [ty,id]=v.split(':'); if (ty==='담임') setTryRole({ type:'담임', classId:id, name:`${id} 담임` }); else if (ty==='업무담당자') setTryRole({ type:'업무담당자', name:'업무 담당자' }); else { const t=teachers.find(x=>x.id===id); setTryRole({ type:'전담', teacherId:id, name:`${t?.name||''} 전담` }); } }} style={{padding:'4px 6px',border:'1px solid var(--line-strong)',borderRadius:6}}>
           <option value="">관리자(전체)</option>
           <optgroup label="담임으로 보기">{classList.filter(c=>!c.startsWith('유')).map(c=><option key={c} value={`담임:${c}`}>{classLabel(c)} 담임</option>)}</optgroup>
           <optgroup label="전담으로 보기">{teachers.map(t=><option key={t.id} value={`전담:${t.id}`}>{t.name} ({teacherSubjects(t)})</option>)}</optgroup>
-          <option value="교무실무사:x">교무실무사 (보결 관리)</option>
+          <option value="업무담당자:x">업무 담당자 (보결, 개별지도 배정)</option>
         </select></label>}
       <span className="who" title={roleSource==='device' ? '이 컴퓨터에 저장된 역할입니다. 다른 컴퓨터에서는 다시 정하거나 학교 계정으로 로그인하세요.' : roleSource==='account' ? '학교 계정에 연결된 역할입니다.' : ''}>{tryRole ? `체험 중: ${tryRole.name}` : realRole ? `${roleSource==='device'?'이 컴퓨터: ':''}${realRole.name||email||''} · ${realRole.type}${realRole.classId?' '+classLabel(realRole.classId):''}${realRole.type==='관리자'&&realRole.prev?` (${realRole.prev.type}${realRole.prev.classId?' '+classLabel(realRole.prev.classId):''})`:''}` : email ? `${email} · 역할 미지정` : '역할 없음 (보기만 가능)'}{adminOn && ' · 관리자'}</span>
       {!accountRole && (deviceRole
@@ -1123,7 +1124,10 @@ function SubView({ mode='sub', year, bell, classList, teachers, ctt, lessons, le
   const extra = (year.extraSubs ?? '교감, 교장').split(/[,，]+/).map(x=>x.trim()).filter(Boolean);
   const lunchMin = Number(year.lunchMin ?? 30);
   const lunchWindow = useMemo(() => { const ls = (bell?.groups||[]).map(g=>g.lunch).filter(l=>l&&l[0]&&l[1]); if (!ls.length) return { s:'11:30', e:'14:00' }; return { s: ls.map(l=>l[0]).sort()[0], e: ls.map(l=>l[1]).sort().at(-1) }; }, [bell]);
-  const subsOf = useMemo(() => { const m = {}; for (const [k,v] of Object.entries(subs)) if (v.classId===cid) m[slotKey(v.date, v.p)] = { id:k, ...v }; return m; }, [subs, cid]);
+  // 보결은 칸마다 1건, 분리지도는 칸마다 여러 건(학생 여러 명) 가능
+  const subsOf = useMemo(() => { const m = {}; for (const [k,v] of Object.entries(subs)) if (v.classId===cid) { const key = slotKey(v.date, v.p); const r = { id:k, ...v }; if (isSep) (m[key] = m[key] || []).push(r); else m[key] = r; } return m; }, [subs, cid]);
+  const recsAt = key => isSep ? (subsOf[key] || []) : (subsOf[key] ? [subsOf[key]] : []);
+  const othersAt = key => Object.values(others).filter(v => v.classId===cid && slotKey(v.date, v.p)===key); // 같은 칸의 다른 쪽(보결↔분리지도) 기록
   // 점심 칸 위치: 이 학년군 점심 시작 전에 끝나는 마지막 교시 뒤 (예: 4교시 후 점심이면 1 2 3 4 점 5 6)
   const subPeriods = useMemo(() => { const lt = lunchTime(bell, gradeOf(cid)); if (!lt) return [...PERIODS, LUNCH]; let after = 0; for (const q of PERIODS) { const t = periodTime(bell, gradeOf(cid), q); if (t && t.e <= lt.s) after = q; } const arr = []; if (after===0) arr.push(LUNCH); for (const q of PERIODS) { arr.push(q); if (q===after) arr.push(LUNCH); } return arr; }, [bell, cid]);
   // 그 날 어떤 사람(이름표 기준)의 바쁜 시간: 전담 수업 + 이미 배정된 보결
@@ -1144,8 +1148,9 @@ function SubView({ mode='sub', year, bell, classList, teachers, ctt, lessons, le
   const candidates = (date, p) => {
     const me = slotTime(bell, gradeOf(cid), p); const out = [];
     const isLunch = p===LUNCH;
-    const mineHere = subs[`${cid}_${date}_${p}`];
-    const busyBySub = (label) => allRecs.some(v => v.date===date && v.label===label && v!==mineHere && overlaps(me, slotTime(bell, gradeOf(v.classId), v.p)));
+    const mineHere = isSep ? null : subs[`${cid}_${date}_${p}`];
+    const sameSlotSep = v => isSep && v.classId===cid && v.date===date && v.p===p && Object.values(subs).includes(v); // 같은 칸 분리지도는 같은 사람이 학생을 더 맡을 수 있음
+    const busyBySub = (label) => allRecs.some(v => v.date===date && v.label===label && v!==mineHere && !sameSlotSep(v) && overlaps(me, slotTime(bell, gradeOf(v.classId), v.p)));
     const busyWhy = (label) => { const v = allRecs.find(v => v.date===date && v.label===label && overlaps(me, slotTime(bell, gradeOf(v.classId), v.p))); if (!v) return ''; const kind = Object.values(subsAll||{}).includes(v) ? '보결' : '분리지도'; return `${classCode(v.classId)} ${pLabel(v.p)} ${kind} 중`; };
     const absentClass = (c) => absentClassAt(c, date, me, (!isSep && c===cid) ? p : null); // 보결 탭에서 자기 반의 바로 이 칸 기록은 제외
     // 점심 확보: 이 보결을 맡아도 점심시간대 안에 lunchMin분 이상 비는 틈이 남는가 (전담·추가 인원만, 담임은 자기 반 점심을 함께 먹음)
@@ -1182,31 +1187,35 @@ function SubView({ mode='sub', year, bell, classList, teachers, ctt, lessons, le
   const onCellClick = (key, date, p) => {
     const cell = p===LUNCH ? T?.cells?.[slotKey(date,1)] : T?.cells?.[key]; if (!cell || cell.k==='h') return;
     if (p===LUNCH && !lunchTime(bell, gradeOf(cid))) { toast('학년도 설정의 시정표에 이 학년군 점심시간을 먼저 넣어 주세요.', true); return; }
-    const cur = subsOf[key];
-    if (!canEdit) { if (cur) toast(`${KIND}: ${cur.label}${cur.student?' ('+cur.student+')':''}`); return; }
+    const curList = recsAt(key); const cur = curList[0];
+    if (!canEdit) { if (cur) toast(`${KIND}: ${curList.map(c=>c.label+(c.student?' ('+c.student+')':'')).join(', ')}`); return; }
     const cands = candidates(date, p); const les = L[key]; const lec = lecAt[key];
     const lt = p===LUNCH ? lunchTime(bell, gradeOf(cid)) : null;
     const title = `${classLabel(cid)} ${fmtDate(date)} ${pLabel(p)} ${KIND}` + (lt ? ` (${lt.s}~${lt.e} 급식 지도)` : les ? ` (${les.t} ${tById[les.teacherId]?.name||''} 전담 시간)` : lec ? ` (${lecName(lec)})` : '');
-    const other = others[`${cid}_${date}_${p}`];
+    const otherL = othersAt(key); const other = otherL[0];
     const sorted = cands.sort((a,b)=>(a.busy?1:0)-(b.busy?1:0) || (isSep ? (b.same?1:0)-(a.same?1:0) : 0));
     setModal({ type:'confirm', title, body:<div style={{maxHeight:'62vh',overflow:'auto'}}>
-      {cur && <p style={{margin:'0 0 8px'}}>현재 {KIND}: <b>{cur.label}</b>{cur.student && <> · {cur.student}</>}{cur.place && <> · {cur.place}</>} <span className="hint">({cur.createdBy})</span></p>}
-      {other && <p className="warn" style={{margin:'0 0 8px'}}>이 시간에 이 반 {isSep?'보결':'분리지도'}: <b>{other.label}</b>{isSep ? ' — 담임이 부재중이므로 담임은 후보에서 빠집니다.' : ''}</p>}
+      {!isSep && cur && <p style={{margin:'0 0 8px'}}>현재 {KIND}: <b>{cur.label}</b> <span className="hint">({cur.createdBy})</span></p>}
+      {isSep && curList.length>0 && <div style={{margin:'0 0 10px',padding:'8px 10px',background:'#f3edfb',borderRadius:6}}><b>현재 분리지도 ({curList.length})</b>
+        {curList.map(c=><div key={c.id} style={{display:'flex',gap:8,alignItems:'center',marginTop:4}}><b>{c.label}</b><span className="hint" style={{flex:1}}>{[c.student, c.place].filter(Boolean).join(' · ')||'학생 미기재'} ({c.createdBy})</span><button className="btn danger" style={{padding:'0 8px'}} onClick={async()=>{ await deleteSub(c.id); setModal(null); toast('지웠습니다.'); }}>삭제</button></div>)}
+        <div className="hint" style={{marginTop:6}}>학생이 더 있으면 아래에서 한 명 더 배정하세요. 같은 선생님이 두 학생을 함께 맡아도 됩니다.</div></div>}
+      {other && <p className="warn" style={{margin:'0 0 8px'}}>이 시간에 이 반 {isSep?'보결':'분리지도'}: <b>{otherL.map(o=>o.label).join(', ')}</b>{isSep && isClassAbsent(other) ? ' — 담임이 부재중이므로 담임은 후보에서 빠집니다.' : ''}</p>}
       {isSep && <div style={{display:'flex',gap:8,marginBottom:8}}>
-        <input ref={studentRef} defaultValue={cur?.student||''} placeholder="학생 (이름 또는 번호, 선택)" style={{flex:1,padding:6,border:'1px solid var(--line-strong)',borderRadius:6}}/>
-        <input ref={placeRef} defaultValue={cur?.place || year.sepPlace || ''} placeholder="분리 장소 (예: 학운위실)" style={{flex:1,padding:6,border:'1px solid var(--line-strong)',borderRadius:6}}/>
+        <input ref={studentRef} defaultValue="" placeholder="학생 (이름 또는 번호, 선택)" style={{flex:1,padding:6,border:'1px solid var(--line-strong)',borderRadius:6}}/>
+        <input ref={placeRef} defaultValue={cur?.place || ''} placeholder="분리 장소 (예: 학운위실)" style={{flex:1,padding:6,border:'1px solid var(--line-strong)',borderRadius:6}}/>
       </div>}
       <div className="hint" style={{marginBottom:6}}>{p===LUNCH ? `점심시간 ${KIND}는 담임을 빼고 전담과 추가 인원만 나옵니다. ` : ''}{isSep ? '같은 학년군에서 수업이 없는 분이 먼저(1순위), 그다음 다른 학년 담임과 전담입니다. ' : '비어 있는 분부터 보입니다. '}보결이나 분리지도에 이미 들어간 분, 자기 반에 보결이 잡힌 담임은 빠지거나 회색입니다. 숫자는 이번 학기 {KIND} 횟수.{lunchMin>0 && ` 맡으면 본인 점심 ${lunchMin}분이 남지 않는 분도 회색입니다.`}</div>
       <div style={{display:'flex',flexDirection:'column',gap:4}}>
-        {sorted.map((c,i)=><button key={i} className="btn" disabled={c.busy} style={{textAlign:'left',display:'flex',gap:10,alignItems:'center',background:c.busy?'#f3f3f1':'#fff'}} onClick={async()=>{ const extraF = isSep ? { student: studentRef.current?.value.trim()||'', place: placeRef.current?.value.trim()||'' } : {}; await saveSub(`${cid}_${date}_${p}`, { classId:cid, date, p, sem, whoType:c.whoType, who:c.who, label:c.label, ...extraF, absent: (p!==LUNCH && les) ? 'teacher' : 'class', origin: p===LUNCH ? '점심 지도' : les ? `${les.t} ${tById[les.teacherId]?.name||''}` : lec ? lecName(lec) : '담임' }); setModal(null); toast(`${c.label} ${KIND}로 배정했습니다.`); }}>
+        {sorted.map((c,i)=><button key={i} className="btn" disabled={c.busy} style={{textAlign:'left',display:'flex',gap:10,alignItems:'center',background:c.busy?'#f3f3f1':'#fff'}} onClick={async()=>{ const extraF = isSep ? { student: studentRef.current?.value.trim()||'', place: placeRef.current?.value.trim()||'' } : {}; await saveSub(isSep ? `${cid}_${date}_${p}_${Date.now().toString(36)}` : `${cid}_${date}_${p}`, { classId:cid, date, p, sem, whoType:c.whoType, who:c.who, label:c.label, ...extraF, absent: (p!==LUNCH && les) ? 'teacher' : 'class', origin: p===LUNCH ? '점심 지도' : les ? `${les.t} ${tById[les.teacherId]?.name||''}` : lec ? lecName(lec) : '담임' }); setModal(null); toast(`${c.label} ${KIND}로 배정했습니다.`); }}>
           <b style={{minWidth:90}}>{c.label}</b>{isSep && c.same && !c.busy && <span className="tag">동학년군</span>}<span className="hint" style={{flex:1}}>{c.why}</span><span className="tag">{counts[c.label]||0}</span></button>)}
       </div></div>,
-      actions:[{label:'취소',on:()=>setModal(null)}, ...(cur ? [{label:`${KIND} 삭제`,on:async()=>{ await deleteSub(cur.id); setModal(null); toast('지웠습니다.'); }}] : [])] });
+      actions:[{label:'닫기',on:()=>setModal(null)}, ...(!isSep && cur ? [{label:`${KIND} 삭제`,on:async()=>{ await deleteSub(cur.id); setModal(null); toast('지웠습니다.'); }}] : [])] });
   };
   const renderCell = (key, date, p) => {
-    const cell = T?.cells?.[key]; const les = L[key]; const lec = lecAt[key]; const sb = subsOf[key];
-    const ot = others[key]; const otTitle = ot ? ` · 이 시간 ${isSep?'보결':'분리지도'}: ${ot.label}` : '';
-    if (sb) return { text: shortWho(sb), cls: isSep?'sep':'sub', title:`${KIND} ${sb.label}${sb.student?' · '+sb.student:''}${sb.place?' · '+sb.place:''} (${sb.origin})${otTitle}` };
+    const cell = T?.cells?.[key]; const les = L[key]; const lec = lecAt[key]; const sbl = recsAt(key); const sb = sbl[0];
+    const otl = othersAt(key);
+    const ot = otl[0]; const otTitle = ot ? ` · 이 시간 ${isSep?'보결':'분리지도'}: ${otl.map(o=>o.label).join(', ')}` : '';
+    if (sb) return { text: sbl.length>1 ? `${sbl.length}명` : shortWho(sb), cls: isSep?'sep':'sub', title: sbl.map(r=>`${KIND} ${r.label}${r.student?' · '+r.student:''}${r.place?' · '+r.place:''}`).join(' / ')+` (${sb.origin})${otTitle}` };
     if (p===LUNCH) { const c1 = T?.cells?.[slotKey(date,1)]; if (!c1 || c1.k==='h') return { text:'', style:{background:'#f5f5f3'} }; const lt = lunchTime(bell, gradeOf(cid)); return { text: ot?'·':'', cls:'lunch subable', title: (lt ? `점심 ${lt.s}~${lt.e} · 누르면 점심 ${KIND} 배정` : '점심시간 미설정')+otTitle }; }
     if (lec) return { text: <LecText lec={lec}/>, cls:'lec subable'+(ot?' hasother':''), title: `${lecName(lec)} · 누르면 ${KIND} 배정${otTitle}` };
     if (les) { const t = tById[les.teacherId]; return { text: les.t, cls:'lesson subable'+(ot?' hasother':''), style:{ background: t?.color||'#fff3b0' }, title: `${t?.name||'전담'} · 누르면 ${KIND} 배정${otTitle}` }; }
@@ -1215,14 +1224,14 @@ function SubView({ mode='sub', year, bell, classList, teachers, ctt, lessons, le
     if (cell.k==='e') return { text: cell.t, cls:'e subable'+(ot?' hasother':''), title:`행사 · 누르면 ${KIND} 배정${otTitle}` };
     return { text: cell.t, cls:'faint subable'+(ot?' hasother':''), title:`담임 수업 · 누르면 ${KIND} 배정${otTitle}` };
   };
-  const mine = Object.values(subsOf).sort((a,b)=>a.date.localeCompare(b.date)||pOrd(a.p)-pOrd(b.p));
+  const mine = Object.values(subsOf).flat().sort((a,b)=>a.date.localeCompare(b.date)||pOrd(a.p)-pOrd(b.p));
   const byWho = useMemo(() => { const m = {}; for (const v of Object.values(subs)) { const w = year.semesters?.[sem]?.weeks||[]; if (!w.length) continue; if (v.date>=w[0].start && v.date<addDays(w.at(-1).start,7)) (m[v.label]=m[v.label]||[]).push(v); } return Object.entries(m).sort((a,b)=>b[1].length-a[1].length); }, [subs, year, sem]);
   return <div style={fixedStyle}>
     <div className="fixedhead" ref={headRef}><div className="bar">
       <label>학급 <select value={cid} onChange={e=>setCid(e.target.value)}>{subClasses.map(c=><option key={c} value={c}>{classLabel(c)}</option>)}</select></label>
       <div className="seg"><button className={sem===1?'on':''} onClick={()=>setSem(1)}>1학기</button><button className={sem===2?'on':''} onClick={()=>setSem(2)}>2학기</button></div>
       <PastToggle value={dimPast} onChange={setDimPast} />
-      <span className="hint">{canEdit ? (isSep ? '분리지도가 필요한 학생의 반과 시간을 누르면 그 시간에 수업이 없는 교원이 나옵니다. 보결에 들어간 분과 보결이 잡힌 반의 담임은 자동으로 빠집니다.' : '보결이 필요한 칸을 누르면 그 시간에 비어 있는 분이 나옵니다. 담임 과목 칸은 담임 부재, 전담 칸은 전담 부재로 봅니다.') : `${KIND} 배정은 교무실무사 또는 관리자만 할 수 있습니다. 보기만 가능합니다.`}</span>
+      <span className="hint">{canEdit ? (isSep ? '분리지도가 필요한 학생의 반과 시간을 누르면 그 시간에 수업이 없는 교원이 나옵니다. 보결에 들어간 분과 보결이 잡힌 반의 담임은 자동으로 빠집니다.' : '보결이 필요한 칸을 누르면 그 시간에 비어 있는 분이 나옵니다. 담임 과목 칸은 담임 부재, 전담 칸은 전담 부재로 봅니다.') : `${KIND} 배정은 업무 담당자 또는 관리자만 할 수 있습니다. 보기만 가능합니다.${year.subManagers ? ' 담당: '+year.subManagers : ''}`}</span>
       <div className="spacer"/>
       <div className="legend"><span><i style={{background: isSep?'#e4d7f5':'#ffd9a8'}}/>{KIND} 배정됨</span><span><i style={{background:'#fff',boxShadow:'inset 0 -3px 0 #c9a227'}}/>{isSep?'보결':'분리지도'} 있는 칸</span><span><i style={{background:'#eef6ff'}}/>점 = 점심시간 ({(()=>{ const lt=lunchTime(bell,gradeOf(cid)); return lt?`${lt.s}~${lt.e}`:'미설정'; })()})</span></div>
     </div></div>
@@ -1382,6 +1391,7 @@ function Settings({ year, teachers, roles, isAdmin, classList, toast, log, onBla
         <tr><th>학교 계정 도메인</th><td><input placeholder="예: school.es.kr (비우면 모든 구글 계정 허용)" value={y.domain||''} onChange={e=>setY({...y, domain:e.target.value.trim()})}/></td></tr>
         <tr><th>학년별 학급 수</th><td style={{display:'flex',gap:10,flexWrap:'wrap'}}>{[1,2,3,4,5,6].map(g=><label key={g} className="chk">{g}학년 <input type="number" min="0" style={{width:60}} value={y.grades?.[g]||0} onChange={e=>setY({...y, grades:{...(y.grades||{}), [g]:Number(e.target.value)}})}/></label>)}<label className="chk">유치원 <input type="number" min="0" style={{width:60}} value={y.kinder||0} onChange={e=>setY({...y, kinder:Number(e.target.value)})}/></label></td></tr>
         <tr><th>특별실</th><td><input value={y.roomsText ?? (y.rooms||[]).map(r=>r.name).join(', ')} placeholder="예: 음악실, 과학1실, 과학2실, 영어1실, 영어2실, 체육관, 다목적실 (쉼표로)" onChange={e=>setY({...y, roomsText:e.target.value})}/><div className="hint">전담 교사 설정에서 담당 과목마다 특별실을 고르면 그 수업이 특별실 시간표에 자동으로 표시됩니다.</div></td></tr>
+        <tr><th>보결, 개별지도 업무 담당자</th><td><input value={y.subManagers ?? ''} placeholder="예: 교무실무사 김○○, 생활인권부장 (쉼표로)" onChange={e=>setY({...y, subManagers:e.target.value})}/><div className="hint">안내용 이름입니다. 실제 배정 권한은 그분이 자기 컴퓨터(또는 계정)에서 역할을 「업무 담당자」로 정하면 생깁니다. 역할 탭에서 계정에 직접 줄 수도 있습니다.</div></td></tr>
         <tr><th>보결 가능 추가 인원</th><td><input value={y.extraSubs ?? '교감, 교장'} placeholder="예: 교감, 교장, 교무부장 (쉼표로)" onChange={e=>setY({...y, extraSubs:e.target.value})}/><div className="hint">담임, 전담 외에 보결에 들어갈 수 있는 분들. 보결 탭의 선택 목록에 항상 나오며, 점심시간 보결에도 나옵니다.</div></td></tr>
         <tr><th>일정표 연동</th><td><select value={y.calendarTarget||'test'} onChange={e=>setY({...y, calendarTarget:e.target.value})} style={{padding:6}}><option value="test">연동 안 함 (외부강의 일정을 월간운영계획에 넣지 않음)</option><option value="live">월간운영계획에 자동 입력</option></select><div className="hint">"자동 입력"으로 바꾸기 전에 월간운영계획 파일(index.html)을 연동용으로 교체해야 합니다. 바꾼 뒤에는 외부강의를 한 번씩 다시 저장하면 들어갑니다.</div></td></tr>
         <tr><th>학기 기간</th><td>
@@ -1822,7 +1832,7 @@ function RoleModal({ email, name, classList, teachers, onSave, onClose }) {
     <p className="hint" style={{marginTop:0}}>{device ? '로그인 없이 이 컴퓨터(브라우저)에만 저장됩니다. 교실 컴퓨터처럼 주로 한 분이 쓰는 컴퓨터에 알맞습니다. 다른 컴퓨터에서도 내 역할로 쓰려면 학교 계정으로 로그인한 뒤 역할을 연결하세요.' : email}</p>
     <table className="form"><tbody>
       <tr><th style={{width:90}}>이름</th><td><input value={nm} onChange={e=>setNm(e.target.value)}/></td></tr>
-      <tr><th>역할</th><td><select value={type} onChange={e=>setType(e.target.value)}><option>담임</option><option>전담</option><option>교무실무사</option></select></td></tr>
+      <tr><th>역할</th><td><select value={type} onChange={e=>setType(e.target.value)}><option>담임</option><option>전담</option><option value="업무담당자">업무 담당자 (보결, 개별지도 배정)</option></select>{type==='업무담당자' && <div className="hint">보결과 개별학생 교육지원 배정을 맡은 분(교무실무사, 담당 교사 등). 관리자도 배정할 수 있습니다.</div>}</td></tr>
       {type==='담임' && <tr><th>학급</th><td><select value={classId} onChange={e=>setClassId(e.target.value)}>{classList.map(c=><option key={c} value={c}>{classLabel(c)}</option>)}</select></td></tr>}
       {type==='전담' && <tr><th>전담</th><td><select value={teacherId} onChange={e=>setTeacherId(e.target.value)}>{teachers.map(t=><option key={t.id} value={t.id}>{t.name} ({teacherSubjects(t)||'담당 미입력'})</option>)}<option value="__new">+ 목록에 없음 — 내 이름으로 새로 등록</option></select><div className="hint">등록 후 전담시간표 화면의 [내 담당 설정]에서 과목·학급을 넣습니다.</div></td></tr>}
     </tbody></table>
