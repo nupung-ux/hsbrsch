@@ -231,7 +231,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = CFG.timetableAppId || 'school-timetable';
-const VERSION = 'v7.8';
+const VERSION = 'v7.9';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -838,13 +838,13 @@ function App() {
       <div className="spacer"/>
       {undoN>0 && <button className="btn" onClick={undo}>되돌리기 ({undoN})</button>}
       {(realAdmin || tryRole) && <label className="hint" style={{display:'flex',gap:4,alignItems:'center'}}>역할 체험
-        <select value={tryRole ? `${tryRole.type}:${tryRole.classId||tryRole.teacherId}` : ''} onChange={e=>{ const v=e.target.value; if (!v) { setTryRole(null); return; } const [ty,id]=v.split(':'); if (ty==='담임') setTryRole({ type:'담임', classId:id, name:`${id} 담임` }); else if (ty==='업무담당자') setTryRole({ type:'업무담당자', name:'업무 담당자' }); else { const t=teachers.find(x=>x.id===id); setTryRole({ type:'전담', teacherId:id, name:`${t?.name||''} 전담` }); } }} style={{padding:'4px 6px',border:'1px solid var(--line-strong)',borderRadius:6}}>
+        <select value={tryRole ? `${tryRole.type}:${tryRole.classId||tryRole.teacherId}` : ''} onChange={e=>{ const v=e.target.value; if (!v) { setTryRole(null); return; } const [ty,id]=v.split(':'); if (ty==='담임') setTryRole({ type:'담임', classId:id, name:`${id} 담임` }); else if (ty==='업무담당자') setTryRole({ type:'업무담당자', name:'교무실무사' }); else { const t=teachers.find(x=>x.id===id); setTryRole({ type:'전담', teacherId:id, name:`${t?.name||''} 전담` }); } }} style={{padding:'4px 6px',border:'1px solid var(--line-strong)',borderRadius:6}}>
           <option value="">관리자(전체)</option>
           <optgroup label="담임으로 보기">{classList.filter(c=>!c.startsWith('유')).map(c=><option key={c} value={`담임:${c}`}>{classLabel(c)} 담임</option>)}</optgroup>
           <optgroup label="전담으로 보기">{teachers.map(t=><option key={t.id} value={`전담:${t.id}`}>{t.name} ({teacherSubjects(t)})</option>)}</optgroup>
-          <option value="업무담당자:x">업무 담당자 (보결, 개별지도 배정)</option>
+          <option value="업무담당자:x">교무실무사 (보결, 개별지도 배정)</option>
         </select></label>}
-      <span className="who" title={roleSource==='device' ? '이 컴퓨터에 저장된 역할입니다. 다른 컴퓨터에서는 다시 정하거나 학교 계정으로 로그인하세요.' : roleSource==='account' ? '학교 계정에 연결된 역할입니다.' : ''}>{tryRole ? `체험 중: ${tryRole.name}` : realRole ? `${roleSource==='device'?'이 컴퓨터: ':''}${realRole.name||email||''} · ${realRole.type}${realRole.classId?' '+classLabel(realRole.classId):''}${realRole.type==='관리자'&&realRole.prev?` (${realRole.prev.type}${realRole.prev.classId?' '+classLabel(realRole.prev.classId):''})`:''}${!isManager(realRole)&&realRole.type!=='관리자'&&(realRole.duties?.sub||realRole.duties?.sep)?` +${[realRole.duties?.sub&&'보결',realRole.duties?.sep&&'개별지도'].filter(Boolean).join(',')}`:''}` : email ? `${email} · 역할 미지정` : '역할 없음 (보기만 가능)'}{adminOn && ' · 관리자'}</span>
+      <span className="who" title={roleSource==='device' ? '이 컴퓨터에 저장된 역할입니다. 다른 컴퓨터에서는 다시 정하거나 학교 계정으로 로그인하세요.' : roleSource==='account' ? '학교 계정에 연결된 역할입니다.' : ''}>{tryRole ? `체험 중: ${tryRole.name}` : realRole ? `${roleSource==='device'?'이 컴퓨터: ':''}${realRole.name||email||''} · ${realRole.type}${realRole.classId?' '+classLabel(realRole.classId):''}${realRole.type==='관리자'&&realRole.prev?` (${realRole.prev.type}${realRole.prev.classId?' '+classLabel(realRole.prev.classId):''})`:''}${!isManager(realRole)&&realRole.type!=='관리자'&&realRole.duties?.sep?' +개별지도 배정':''}` : email ? `${email} · 역할 미지정` : '역할 없음 (보기만 가능)'}{adminOn && ' · 관리자'}</span>
       {!accountRole && (deviceRole
         ? <button className="btn" onClick={()=>setModal({type:'confirm', title:'이 컴퓨터의 역할', body:<p>지금 이 컴퓨터는 <b>{deviceRole.name} · {deviceRole.type}{deviceRole.classId?' '+classLabel(deviceRole.classId):''}</b>으로 저장되어 있습니다.<br/><span className="hint">교실 컴퓨터처럼 한 사람이 쓰는 컴퓨터에만 저장해 두세요. 학교 계정으로 로그인하면 그 계정의 역할이 우선합니다.</span></p>, actions:[{label:'닫기',on:()=>setModal(null)},{label:'역할 지우기',on:()=>{ setDeviceRole(null); setModal(null); toast('이 컴퓨터의 역할을 지웠습니다.'); }},{label:'다시 정하기',primary:true,on:()=>setModal({type:'role', email:'__device', name:deviceRole.name, initial:deviceRole})}] })}>이 컴퓨터 역할</button>
         : <button className="btn primary" onClick={()=>setModal({type:'role', email:'__device', name:''})}>이 컴퓨터 역할 정하기</button>)}
@@ -1234,7 +1234,7 @@ function SubView({ mode='sub', year, bell, classList, teachers, ctt, lessons, le
       <label>학급 <select value={cid} onChange={e=>setCid(e.target.value)}>{subClasses.map(c=><option key={c} value={c}>{classLabel(c)}</option>)}</select></label>
       <div className="seg"><button className={sem===1?'on':''} onClick={()=>setSem(1)}>1학기</button><button className={sem===2?'on':''} onClick={()=>setSem(2)}>2학기</button></div>
       <PastToggle value={dimPast} onChange={setDimPast} />
-      <span className="hint">{canEdit ? (isSep ? '분리지도가 필요한 학생의 반과 시간을 누르면 그 시간에 수업이 없는 교원이 나옵니다. 보결에 들어간 분과 보결이 잡힌 반의 담임은 자동으로 빠집니다.' : '보결이 필요한 칸을 누르면 그 시간에 비어 있는 분이 나옵니다. 담임 과목 칸은 담임 부재, 전담 칸은 전담 부재로 봅니다.') : `${KIND} 배정은 업무 담당자 또는 관리자만 할 수 있습니다. 보기만 가능합니다.${year.subManagers ? ' 담당: '+year.subManagers : ''}`}</span>
+      <span className="hint">{canEdit ? (isSep ? '분리지도가 필요한 학생의 반과 시간을 누르면 그 시간에 수업이 없는 교원이 나옵니다. 보결에 들어간 분과 보결이 잡힌 반의 담임은 자동으로 빠집니다.' : '보결이 필요한 칸을 누르면 그 시간에 비어 있는 분이 나옵니다. 담임 과목 칸은 담임 부재, 전담 칸은 전담 부재로 봅니다.') : (isSep ? `개별지도 배정은 교무실무사, 담당 교사(추가 업무 체크) 또는 관리자만 할 수 있습니다. 보기만 가능합니다.${year.subManagers ? ' 담당: '+year.subManagers : ''}` : '보결 배정은 교무실무사 또는 관리자만 할 수 있습니다. 보기만 가능합니다.')}</span>
       <div className="spacer"/>
       <div className="legend"><span><i style={{background: isSep?'#e4d7f5':'#ffd9a8'}}/>{KIND} 배정됨</span><span><i style={{background:'#fff',boxShadow:'inset 0 -3px 0 #c9a227'}}/>{isSep?'보결':'분리지도'} 있는 칸</span><span><i style={{background:'#eef6ff'}}/>점 = 점심시간 ({(()=>{ const lt=lunchTime(bell,gradeOf(cid)); return lt?`${lt.s}~${lt.e}`:'미설정'; })()})</span></div>
     </div></div>
@@ -1394,7 +1394,7 @@ function Settings({ year, teachers, roles, isAdmin, classList, toast, log, onBla
         <tr><th>학교 계정 도메인</th><td><input placeholder="예: school.es.kr (비우면 모든 구글 계정 허용)" value={y.domain||''} onChange={e=>setY({...y, domain:e.target.value.trim()})}/></td></tr>
         <tr><th>학년별 학급 수</th><td style={{display:'flex',gap:10,flexWrap:'wrap'}}>{[1,2,3,4,5,6].map(g=><label key={g} className="chk">{g}학년 <input type="number" min="0" style={{width:60}} value={y.grades?.[g]||0} onChange={e=>setY({...y, grades:{...(y.grades||{}), [g]:Number(e.target.value)}})}/></label>)}<label className="chk">유치원 <input type="number" min="0" style={{width:60}} value={y.kinder||0} onChange={e=>setY({...y, kinder:Number(e.target.value)})}/></label></td></tr>
         <tr><th>특별실</th><td><input value={y.roomsText ?? (y.rooms||[]).map(r=>r.name).join(', ')} placeholder="예: 음악실, 과학1실, 과학2실, 영어1실, 영어2실, 체육관, 다목적실 (쉼표로)" onChange={e=>setY({...y, roomsText:e.target.value})}/><div className="hint">전담 교사 설정에서 담당 과목마다 특별실을 고르면 그 수업이 특별실 시간표에 자동으로 표시됩니다.</div></td></tr>
-        <tr><th>보결, 개별지도 업무 담당자</th><td><input value={y.subManagers ?? ''} placeholder="예: 교무실무사 김○○, 생활인권부장 (쉼표로)" onChange={e=>setY({...y, subManagers:e.target.value})}/><div className="hint">안내용 이름입니다. 실제 배정 권한은 그분이 자기 컴퓨터(또는 계정) 역할에서 「업무 담당자」를 고르거나, 담임이나 전담이면 역할 정하기의 「추가 업무」에서 보결 배정 또는 개별지도 배정을 체크하면 생깁니다. 로그인 계정은 역할 탭에서 관리자가 체크해 줄 수도 있습니다.</div></td></tr>
+        <tr><th>개별지도 배정 업무 담당자</th><td><input value={y.subManagers ?? ''} placeholder="예: 생활인권부장 홍○○ (쉼표로)" onChange={e=>setY({...y, subManagers:e.target.value})}/><div className="hint">안내용 이름입니다. 보결 배정은 교무실무사(역할에서 선택)와 관리자가 하고, 개별학생 교육지원 배정은 교무실무사 외에 담임이나 전담도 역할 정하기의 「추가 업무」에 체크하면 할 수 있습니다. 로그인 계정은 역할 탭에서 관리자가 체크해 줄 수도 있습니다.</div></td></tr>
         <tr><th>보결 가능 추가 인원</th><td><input value={y.extraSubs ?? '교감, 교장'} placeholder="예: 교감, 교장, 교무부장 (쉼표로)" onChange={e=>setY({...y, extraSubs:e.target.value})}/><div className="hint">담임, 전담 외에 보결에 들어갈 수 있는 분들. 보결 탭의 선택 목록에 항상 나오며, 점심시간 보결에도 나옵니다.</div></td></tr>
         <tr><th>일정표 연동</th><td><select value={y.calendarTarget||'test'} onChange={e=>setY({...y, calendarTarget:e.target.value})} style={{padding:6}}><option value="test">연동 안 함 (외부강의 일정을 월간운영계획에 넣지 않음)</option><option value="live">월간운영계획에 자동 입력</option></select><div className="hint">"자동 입력"으로 바꾸기 전에 월간운영계획 파일(index.html)을 연동용으로 교체해야 합니다. 바꾼 뒤에는 외부강의를 한 번씩 다시 저장하면 들어갑니다.</div></td></tr>
         <tr><th>학기 기간</th><td>
@@ -1450,9 +1450,8 @@ function Settings({ year, teachers, roles, isAdmin, classList, toast, log, onBla
       <p className="hint" style={{marginTop:0}}>관리자 권한은 여기서만 줄 수 있습니다. 관리자로 지정된 계정은 로그인만 하면 모든 학급·전담 시간표 편집과 설정이 가능합니다(암호 불필요).</p>
       {Object.keys(roles).length===0 ? <p className="hint">아직 로그인한 교사가 없습니다. 각자 학교 계정으로 로그인하면 역할을 고르게 되고 여기에 나타납니다.</p>
       : <table className="form"><thead><tr><th>이메일</th><th>이름</th><th>역할</th><th>대상</th><th></th></tr></thead><tbody>
-        {Object.entries(roles).map(([em,r])=><tr key={em}><td>{em}</td><td>{r.name}</td><td>{r.type==='교무실무사'?'업무담당자':r.type}</td><td>{r.classId||(r.grade?r.grade+'학년':'')||teachers.find(t=>t.id===r.teacherId)?.name||(r.type==='관리자'?'전체':'')}
+        {Object.entries(roles).map(([em,r])=><tr key={em}><td>{em}</td><td>{r.name}</td><td>{r.type==='업무담당자'||r.type==='교무실무사'?'교무실무사':r.type}</td><td>{r.classId||(r.grade?r.grade+'학년':'')||teachers.find(t=>t.id===r.teacherId)?.name||(r.type==='관리자'?'전체':'')}
           {r.type!=='관리자' && r.type!=='업무담당자' && r.type!=='교무실무사' && <div style={{display:'flex',gap:10,marginTop:2,fontSize:13}}>
-            <label className="chk"><input type="checkbox" checked={!!r.duties?.sub} onChange={async e=>{ await setDoc(sref('roles'),{byEmail:{...roles,[em]:{...r,duties:{...(r.duties||{}),sub:e.target.checked}}}}); }}/> 보결 배정</label>
             <label className="chk"><input type="checkbox" checked={!!r.duties?.sep} onChange={async e=>{ await setDoc(sref('roles'),{byEmail:{...roles,[em]:{...r,duties:{...(r.duties||{}),sep:e.target.checked}}}}); }}/> 개별지도 배정</label></div>}</td><td style={{whiteSpace:'nowrap'}}>
           {r.type!=='관리자' ? <button className="btn" style={{padding:'2px 8px',marginRight:6}} onClick={async()=>{ await setDoc(sref('roles'),{byEmail:{...roles,[em]:{...r,type:'관리자',prev:r}}}); toast(`${r.name||em}에게 관리자 권한을 주었습니다.`); }}>관리자로</button>
            : <button className="btn" style={{padding:'2px 8px',marginRight:6}} onClick={async()=>{ const b={...roles}; b[em]=r.prev||{...r,type:'담임'}; await setDoc(sref('roles'),{byEmail:b}); }}>관리자 해제</button>}
@@ -1841,18 +1840,17 @@ function RoleModal({ email, name, initial, classList, teachers, onSave, onClose 
     <p className="hint" style={{marginTop:0}}>{device ? '로그인 없이 이 컴퓨터(브라우저)에만 저장됩니다. 교실 컴퓨터처럼 주로 한 분이 쓰는 컴퓨터에 알맞습니다. 다른 컴퓨터에서도 내 역할로 쓰려면 학교 계정으로 로그인한 뒤 역할을 연결하세요.' : email}</p>
     <table className="form"><tbody>
       <tr><th style={{width:90}}>이름</th><td><input value={nm} onChange={e=>setNm(e.target.value)}/></td></tr>
-      <tr><th>역할</th><td><select value={type} onChange={e=>setType(e.target.value)}><option>담임</option><option>전담</option><option value="업무담당자">업무 담당자 (보결, 개별지도 배정)</option></select>{type==='업무담당자' && <div className="hint">보결과 개별학생 교육지원 배정을 맡은 분(교무실무사, 담당 교사 등). 관리자도 배정할 수 있습니다.</div>}</td></tr>
+      <tr><th>역할</th><td><select value={type} onChange={e=>setType(e.target.value)}><option>담임</option><option>전담</option><option value="업무담당자">교무실무사 (보결, 개별지도 배정)</option></select>{type==='업무담당자' && <div className="hint">보결 배정과 개별학생 교육지원 배정을 할 수 있습니다. 관리자도 배정할 수 있습니다.</div>}</td></tr>
       {type==='담임' && <tr><th>학급</th><td><select value={classId} onChange={e=>setClassId(e.target.value)}>{classList.map(c=><option key={c} value={c}>{classLabel(c)}</option>)}</select></td></tr>}
       <tr><th>추가 업무</th><td>
-        {isMgr ? <span className="hint">업무 담당자는 보결 배정과 개별학생 교육지원 배정을 모두 할 수 있습니다.</span>
+        {isMgr ? <span className="hint">교무실무사는 보결 배정과 개별학생 교육지원 배정을 모두 할 수 있습니다.</span>
         : <div style={{display:'flex',gap:16,flexWrap:'wrap'}}>
-          <label className="chk"><input type="checkbox" checked={duties.sub} onChange={e=>setDuties({...duties, sub:e.target.checked})}/> 보결 배정</label>
-          <label className="chk"><input type="checkbox" checked={duties.sep} onChange={e=>setDuties({...duties, sep:e.target.checked})}/> 개별학생 교육지원(분리지도) 배정</label>
-          <div className="hint" style={{width:'100%'}}>담임이나 전담이면서 이 업무도 맡은 분은 여기에 표시하세요. 해당 탭에서 배정할 수 있게 됩니다.</div></div>}
+          <label className="chk"><input type="checkbox" checked={duties.sep} onChange={e=>setDuties({...duties, sep:e.target.checked})}/> 개별학생 교육지원(분리지도) 배정 업무 담당</label>
+          <div className="hint" style={{width:'100%'}}>담임이나 전담이면서 분리지도 배정 업무를 맡은 분은 체크하세요. 개별지도 탭에서 배정할 수 있게 됩니다. 보결 배정은 교무실무사와 관리자만 합니다.</div></div>}
       </td></tr>
       {type==='전담' && <tr><th>전담</th><td><select value={teacherId} onChange={e=>setTeacherId(e.target.value)}>{teachers.map(t=><option key={t.id} value={t.id}>{t.name} ({teacherSubjects(t)||'담당 미입력'})</option>)}<option value="__new">+ 목록에 없음 — 내 이름으로 새로 등록</option></select><div className="hint">등록 후 전담시간표 화면의 [내 담당 설정]에서 과목·학급을 넣습니다.</div></td></tr>}
     </tbody></table>
-    <div className="row"><button className="btn" onClick={onClose}>나중에</button><button className="btn primary" disabled={!nm.trim()} onClick={()=>onSave(email, { type, name:nm.trim(), classId: type==='담임'?classId:null, teacherId: type==='전담'?teacherId:null, grade: type==='학년부장'?grade:null, duties: isMgr ? { sub:true, sep:true } : duties, at: nowIso() })}>저장</button></div>
+    <div className="row"><button className="btn" onClick={onClose}>나중에</button><button className="btn primary" disabled={!nm.trim()} onClick={()=>onSave(email, { type, name:nm.trim(), classId: type==='담임'?classId:null, teacherId: type==='전담'?teacherId:null, grade: type==='학년부장'?grade:null, duties: isMgr ? { sub:true, sep:true } : { sub:false, sep:duties.sep }, at: nowIso() })}>저장</button></div>
   </Modal>;
 }
 function UploadModal({ parsed, failed, fileCount, teachers, existing, lessons, canEditClass, onSave, onClose }) {
