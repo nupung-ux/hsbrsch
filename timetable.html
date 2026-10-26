@@ -231,7 +231,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = CFG.timetableAppId || 'school-timetable';
-const VERSION = 'v7.9';
+const VERSION = 'v8.0';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -854,7 +854,7 @@ function App() {
       <span className="hint" style={{fontSize:12,whiteSpace:'nowrap'}}>made by 너펑이 · {VERSION}</span>
     </div>
 
-    {tab==='class' && <ClassView key={'c'+homeKey} defaultCid={myRole?.classId} memos={memos} saveMemo={saveMemo} requestMoveLecture={requestMoveLecture} {...{ year, classList, teachers, ctt, lessons, lectures, canEditClass, requestMove, onUpload, toast, addLesson, askRepeat, addLessonKeys, deleteLesson, setModal, askText, saveClassWeekNote, markEvent, unmarkEvent, requestMoveEvent, createBlank }} />}
+    {tab==='class' && <ClassView key={'c'+homeKey} defaultCid={myRole?.classId} myTeacherId={myRole?.type==='전담' ? myRole.teacherId : null} memos={memos} saveMemo={saveMemo} requestMoveLecture={requestMoveLecture} {...{ year, classList, teachers, ctt, lessons, lectures, canEditClass, requestMove, onUpload, toast, addLesson, askRepeat, addLessonKeys, deleteLesson, setModal, askText, saveClassWeekNote, markEvent, unmarkEvent, requestMoveEvent, createBlank }} />}
     {tab==='teacher' && <TeacherView key={'t'+homeKey} defaultTid={myRole?.teacherId} memos={memos} saveMemo={saveMemo} myClassId={myRole?.type==='담임' ? myRole.classId : null} onSelfEdit={tid=>setModal({type:'teacherSelf', teacherId:tid})} setModal={setModal} {...{ year, teachers, ctt, lessons, lectures, canEditTeacher, requestMove, addLesson, askRepeat, addLessonKeys, deleteLesson, toast, teacherNotes, saveTeacherCell, saveTeacherWeekNote, askText }} />}
     {tab==='lecture' && <LectureView key={'l'+homeKey} defaultGrade={myRole?.grade || gradeOf(myRole?.classId)} {...{ year, bell, classList, teachers, ctt, lessons, lectures, bookings, canEditLecture, saveLecture, deleteLecture, toast, setModal }} />}
     {tab==='room' && <RoomView {...{ year, bell, classList, teachers, ctt, lessons, bookings, lectures, canBook, addBooking, deleteBooking, myRole, toast, setModal, goLecture: ()=>setTab('lecture') }} />}
@@ -944,10 +944,13 @@ function MemoPad({ id, memo, canEdit, saveMemo, title }) {
     <textarea value={text} readOnly={!canEdit} onChange={e=>onChange(e.target.value)} onBlur={flush} placeholder={canEdit ? '자유롭게 적는 메모장입니다. 전담 선생님께 부탁할 것, 바뀐 일정, 확인할 것 등.\n쓰는 대로 저장되고 같은 화면을 보는 모두에게 보입니다.' : '메모가 없습니다.'} spellCheck={false}/>
   </div>;
 }
-function ClassView({ year, classList, teachers, ctt, lessons, lectures, canEditClass, requestMove, requestMoveLecture, onUpload, toast, defaultCid, memos, saveMemo, addLesson, askRepeat, addLessonKeys, deleteLesson, setModal, askText, saveClassWeekNote, markEvent, unmarkEvent, requestMoveEvent, createBlank }) {
+function ClassView({ year, classList, teachers, ctt, lessons, lectures, canEditClass, requestMove, requestMoveLecture, onUpload, toast, defaultCid, myTeacherId, memos, saveMemo, addLesson, askRepeat, addLessonKeys, deleteLesson, setModal, askText, saveClassWeekNote, markEvent, unmarkEvent, requestMoveEvent, createBlank }) {
   const [dimPast, setDimPast] = useState(readPref('dimPast', true));
   const [headRef, fixedStyle] = useFixedHead();
-  const [cid, setCid] = useState(location.hash.match(/#\/class\/([^/]+)/)?.[1] || defaultCid || classList[0] || '');
+  // 전담이면 내가 맡은 학급을 목록 위에, 처음 열 때도 그중 첫 반
+  const myClasses = useMemo(() => { const t = teachers.find(x=>x.id===myTeacherId); return t ? classList.filter(c => teacherClasses(t).includes(c)) : []; }, [teachers, classList, myTeacherId]);
+  const otherClasses = useMemo(() => classList.filter(c => !myClasses.includes(c)), [classList, myClasses]);
+  const [cid, setCid] = useState(location.hash.match(/#\/class\/([^/]+)/)?.[1] || defaultCid || myClasses[0] || classList[0] || '');
   const [sem, setSem] = useState(() => semOfToday(year));
   const [showAll, setShowAll] = useState(false);
   const dragRef = useRef(null);
@@ -1002,7 +1005,8 @@ function ClassView({ year, classList, teachers, ctt, lessons, lectures, canEditC
   return <div style={{...fixedStyle, position:'relative'}} onDragEnter={onFileDragEnter} onDragOver={onFileDragOver} onDragLeave={onFileDragLeave} onDrop={onFileDrop}>
     {fileOver && <div className="dropzone"><div><b>여기에 놓으면 연간시간표(hwpx)를 올립니다</b><br/><span className="hint">여러 파일을 한꺼번에 놓아도 됩니다. 학급은 파일 안의 정보로 자동 구분됩니다.</span></div></div>}
     <div className="fixedhead" ref={headRef}><div className="bar">
-      <label>학급 <select value={cid} onChange={e=>setCid(e.target.value)}>{classList.map(c=><option key={c} value={c}>{classLabel(c)}</option>)}</select></label>
+      <label>학급 <select value={cid} onChange={e=>setCid(e.target.value)}>{!myClasses.length ? classList.map(c=><option key={c} value={c}>{classLabel(c)}</option>)
+        : <><optgroup label="내 담당 학급">{myClasses.map(c=><option key={c} value={c} style={{fontWeight:700}}>{classLabel(c)}</option>)}</optgroup><optgroup label="그 외 학급">{otherClasses.map(c=><option key={c} value={c} style={{color:'#9aa3ad'}}>{classLabel(c)}</option>)}</optgroup></>}</select></label>
       <div className="seg"><button className={sem===1?'on':''} onClick={()=>setSem(1)}>1학기</button><button className={sem===2?'on':''} onClick={()=>setSem(2)}>2학기</button></div>
       <label><input type="checkbox" checked={showAll} onChange={e=>setShowAll(e.target.checked)} /> 담임 과목도 보기</label>
       <PastToggle value={dimPast} onChange={setDimPast} />
