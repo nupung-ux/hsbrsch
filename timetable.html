@@ -231,7 +231,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = CFG.timetableAppId || 'school-timetable';
-const VERSION = 'v7.6';
+const VERSION = 'v7.7';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -1268,8 +1268,8 @@ function StatusView({ year, teachers, classList, ctt, lessons, lectures, logs, i
   const conflicts = []; for (const t of teachers) { const m = {}; for (const [id,L] of Object.entries(lessons)) { if (!id.endsWith('_'+sem)) continue; for (const [k,v] of Object.entries(L.slots||{})) if (v.teacherId===t.id) (m[k]=m[k]||[]).push(L.classId); } for (const [k,cs] of Object.entries(m)) if (cs.length>1) conflicts.push({ teacher:t, key:k, classes:cs }); }
   conflicts.sort((a,b)=>a.key.localeCompare(b.key));
   // 외부강의 분배
-  const w2 = year.semesters?.[2]?.weeks; const semOfDate = d => (w2?.length && d >= w2[0].start) ? 2 : 1;
-  const lecs = Object.values(lectures).filter(l=>(l.slots||[]).some(sl=>semOfDate(sl.date)===sem)).map(l=>({ ...l, slots:(l.slots||[]).filter(sl=>semOfDate(sl.date)===sem) })).sort((a,b)=>String(a.grade).localeCompare(String(b.grade))||(a.name||'').localeCompare(b.name||''));
+  const w2 = year.semesters?.[2]?.weeks; const semOfD = d => (w2?.length && d >= w2[0].start) ? 2 : 1;
+  const lecs = Object.values(lectures).filter(l=>(l.slots||[]).some(sl=>semOfD(sl.date)===sem)).map(l=>({ ...l, slots:(l.slots||[]).filter(sl=>semOfD(sl.date)===sem) })).sort((a,b)=>String(a.grade).localeCompare(String(b.grade))||(a.name||'').localeCompare(b.name||''));
   const uploaded = classList.filter(c=>ctt[`${c}_${sem}`]);
   return <>
     <div className="bar">
