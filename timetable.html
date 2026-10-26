@@ -231,7 +231,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = CFG.timetableAppId || 'school-timetable';
-const VERSION = 'v8.0';
+const VERSION = 'v8.1';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -876,6 +876,7 @@ function App() {
     {modal?.type==='teacherSelf' && <TeacherSelfModal teachers={teachers} teacherId={modal.teacherId} classList={classList} rooms={year.rooms||[]} toast={toast} onClose={()=>setModal(null)} onSaved={()=>{ setModal(null); toast('저장했습니다.'); log('settings','전담 본인 담당 설정'); }} />}
     {modal?.type==='book' && <BookModal room={modal.room} date={modal.date} col={modal.col} weeks={modal.weeks||[]} classList={classList} myRole={myRole} onClose={()=>setModal(null)} onSave={async(b,n)=>{ await addBooking(b,n); setModal(null); toast('예약했습니다.'); }} />}
     {modal?.type==='admin' && <AdminModal adminHash={adminHash} onOk={adminUnlock} onClose={()=>setModal(null)} />}
+    {modal?.type==='uploadHelp' && <UploadHelp onClose={()=>setModal(null)} onPick={modal.pick} />}
     {modal?.type==='role' && <RoleModal email={modal.email} name={modal.name} initial={modal.initial} classList={classList} teachers={teachers} onSave={saveRole} onClose={()=>setModal(null)} />}
     {modal?.type==='upload' && <UploadModal parsed={modal.parsed} failed={modal.failed} fileCount={modal.fileCount} teachers={teachers} existing={ctt} lessons={lessons} canEditClass={canEditClass} onSave={saveUpload} onClose={()=>setModal(null)} />}
     {toastEl}
@@ -944,6 +945,19 @@ function MemoPad({ id, memo, canEdit, saveMemo, title }) {
     <textarea value={text} readOnly={!canEdit} onChange={e=>onChange(e.target.value)} onBlur={flush} placeholder={canEdit ? '자유롭게 적는 메모장입니다. 전담 선생님께 부탁할 것, 바뀐 일정, 확인할 것 등.\n쓰는 대로 저장되고 같은 화면을 보는 모두에게 보입니다.' : '메모가 없습니다.'} spellCheck={false}/>
   </div>;
 }
+// 연간시간표 올리는 방법 안내
+function UploadHelp({ onClose, onPick }) {
+  return <Modal title="연간시간표 올리는 방법" onClose={onClose}>
+    <ol style={{margin:'0 0 12px',paddingLeft:22,lineHeight:1.8}}>
+      <li><b>스쿨마스터</b>에서 우리 반 연간시간표(1학기, 2학기)를 한글 파일로 내려받습니다.</li>
+      <li>한글에서 열어 <b>전담 수업 칸에 배경색</b>을 칠합니다 (과목마다 색이 달라도 되고 같아도 됩니다). 프로그램은 과목 글자와 색칠 여부로 전담 수업을 찾습니다. 담임과 나누어 하는 과목(일부 전담)은 전담이 하는 칸만 색칠하세요.</li>
+      <li>파일 → <b>다른 이름으로 저장</b> → 파일 형식을 <b>「HWPX 문서 (*.hwpx)」</b>로 바꿔 저장합니다. <span style={{color:'var(--danger)'}}>기본값인 .hwp 형식은 올릴 수 없습니다.</span></li>
+      <li>여기서 [연간시간표(hwpx) 올리기]를 누르거나 파일을 이 화면에 끌어다 놓습니다. 1학기와 2학기가 한 파일에 있으면 한 번에 둘 다 올라갑니다.</li>
+    </ol>
+    <div className="hint" style={{lineHeight:1.6}}>• 회색 칸과 빨간 밑줄은 휴업일, 파란 밑줄은 행사 시간으로 읽습니다.<br/>• 다시 올릴 때는 "기존 수정 유지"를 고르면 그동안 고친 내용은 남고 나머지만 새 파일로 채워집니다.<br/>• 한글 파일이 아직 없으면 [빈 시간표로 시작]으로 먼저 쓰고 나중에 올려도 됩니다.</div>
+    <div className="row"><button className="btn" onClick={onClose}>닫기</button>{onPick && <button className="btn primary" onClick={()=>{ onClose(); onPick(); }}>파일 고르기</button>}</div>
+  </Modal>;
+}
 function ClassView({ year, classList, teachers, ctt, lessons, lectures, canEditClass, requestMove, requestMoveLecture, onUpload, toast, defaultCid, myTeacherId, memos, saveMemo, addLesson, askRepeat, addLessonKeys, deleteLesson, setModal, askText, saveClassWeekNote, markEvent, unmarkEvent, requestMoveEvent, createBlank }) {
   const [dimPast, setDimPast] = useState(readPref('dimPast', true));
   const [headRef, fixedStyle] = useFixedHead();
@@ -962,9 +976,9 @@ function ClassView({ year, classList, teachers, ctt, lessons, lectures, canEditC
   const onFileDragOver = e => { if (!isFileDrag(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = edit ? 'copy' : 'none'; };
   const onFileDragLeave = e => { if (!isFileDrag(e)) return; overCnt.current = Math.max(0, overCnt.current-1); if (!overCnt.current) setFileOver(false); };
   const onFileDrop = e => { if (!isFileDrag(e)) return; e.preventDefault(); overCnt.current = 0; setFileOver(false);
-    const files = Array.from(e.dataTransfer.files||[]).filter(f => /\.hwpx$/i.test(f.name));
+    const all = Array.from(e.dataTransfer.files||[]); const files = all.filter(f => /\.hwpx$/i.test(f.name));
     if (!edit) { toast('이 학급의 시간표를 올릴 권한이 없습니다.'); return; }
-    if (!files.length) { toast('hwpx 파일만 올릴 수 있습니다.'); return; }
+    if (!files.length) { if (all.some(f=>/\.hwp$/i.test(f.name))) setModal({ type:'confirm', title:'hwp 파일은 올릴 수 없습니다', body:<p>한글에서 <b>다른 이름으로 저장 → 파일 형식 「HWPX 문서 (*.hwpx)」</b>로 저장한 뒤 올려 주세요.</p>, actions:[{label:'닫기',on:()=>setModal(null)},{label:'올리는 방법 보기',primary:true,on:()=>setModal({type:'uploadHelp'})}] }); else toast('hwpx 파일만 올릴 수 있습니다.'); return; }
     onUpload(files); };
   useEffect(()=>{ if (!cid && classList.length) setCid(classList[0]); }, [classList]);
   useEffect(()=>{ if (cid) history.replaceState(null,'',`#/class/${cid}`); }, [cid]);
@@ -1013,11 +1027,12 @@ function ClassView({ year, classList, teachers, ctt, lessons, lectures, canEditC
       <TodayBtn sem={sem} year={year} setSem={setSem} />
       <div className="spacer"/>
       <div className="legend">{subjectStats.map(x=><span key={x.teacher.id+x.sub.subject} title={(x.mode==='year'?'연간 기준 · ':'')+(x.exp!=null?`기준 ${x.exp}시간`:'')}><i style={{background:x.teacher.color}}/>{x.sub.subject} {x.teacher.name} <b style={{color:x.exp!=null&&x.n!==x.exp?'var(--danger)':'inherit'}}>{x.n}</b>{x.exp!=null&&`/${x.exp}`}{x.mode==='year'&&<small style={{color:'var(--muted)'}}>연간</small>}</span>)}<span><i style={{background:'var(--holiday)'}}/>휴업·행사</span><span style={{color:'var(--event)',textDecoration:'underline'}}>행사시간</span></div>
-      <input ref={fileRef} type="file" accept=".hwpx" multiple style={{display:'none'}} onChange={e=>{ if(e.target.files.length) onUpload(e.target.files); e.target.value=''; }} />
+      <input ref={fileRef} type="file" accept=".hwpx,.hwp" multiple style={{display:'none'}} onChange={e=>{ const fs = Array.from(e.target.files||[]); e.target.value=''; if (!fs.length) return; const hwp = fs.filter(f=>/\.hwp$/i.test(f.name)); if (hwp.length) { setModal({ type:'confirm', title:'hwp 파일은 올릴 수 없습니다', body:<p><b>{hwp.map(f=>f.name).join(', ')}</b><br/><br/>한글에서 파일을 연 뒤 <b>다른 이름으로 저장 → 파일 형식 「HWPX 문서 (*.hwpx)」</b>로 저장해서 올려 주세요. 전담 칸 배경색은 그대로 유지됩니다.</p>, actions:[{label:'닫기',on:()=>setModal(null)},{label:'올리는 방법 보기',primary:true,on:()=>setModal({type:'uploadHelp'})}] }); return; } onUpload(fs); }} />
       <button className="btn primary" disabled={!edit} onClick={()=>fileRef.current.click()} title="여러 파일을 한 번에 선택하거나, 파일을 이 화면에 끌어다 놓아도 됩니다">연간시간표(hwpx) 올리기</button>
+      <button className="btn" onClick={()=>setModal({type:'uploadHelp', pick: edit ? ()=>fileRef.current.click() : null})} title="스쿨마스터 파일 준비 방법">올리는 방법 ?</button>
     </div></div>
     {!classList.length ? <div className="empty">학년도 설정에서 학급 수를 먼저 입력해 주세요.</div>
-    : !T ? <div className="empty"><p>{classLabel(cid)} {sem}학기 시간표가 아직 없습니다.</p>{edit ? <div style={{display:'flex',gap:10,justifyContent:'center'}}><button className="btn primary" onClick={()=>fileRef.current.click()}>스쿨마스터 연간시간표(hwpx) 올리기</button>{year.semesters?.[sem]?.weeks?.length ? <button className="btn" onClick={()=>createBlank(cid, sem)}>빈 시간표로 시작</button> : <span className="hint" style={{alignSelf:'center'}}>빈 시간표로 시작하려면 학년도 설정에서 {sem}학기 기간을 정해 주세요.</span>}</div> : <p className="hint">담임 선생님이 올리면 여기에 나타납니다.</p>}<p className="hint" style={{marginTop:12}}>빈 시간표로 시작하면 전담·외부강의·행사를 바로 넣을 수 있고, 나중에 한글 파일을 올리면 입력한 내용은 유지한 채 나머지가 채워집니다.</p></div>
+    : !T ? <div className="empty"><p>{classLabel(cid)} {sem}학기 시간표가 아직 없습니다.</p>{edit ? <div style={{display:'flex',gap:10,justifyContent:'center'}}><button className="btn primary" onClick={()=>fileRef.current.click()}>스쿨마스터 연간시간표(hwpx) 올리기</button>{year.semesters?.[sem]?.weeks?.length ? <button className="btn" onClick={()=>createBlank(cid, sem)}>빈 시간표로 시작</button> : <span className="hint" style={{alignSelf:'center'}}>빈 시간표로 시작하려면 학년도 설정에서 {sem}학기 기간을 정해 주세요.</span>}</div> : <p className="hint">담임 선생님이 올리면 여기에 나타납니다.</p>}<p className="hint" style={{marginTop:12}}>스쿨마스터 연간시간표를 한글에서 열어 전담 칸에 배경색을 칠하고 <b>hwpx 형식으로 저장</b>해서 올립니다 (기본 hwp는 안 됩니다). <a href="#" onClick={e=>{ e.preventDefault(); setModal({type:'uploadHelp'}); }}>자세한 방법 보기</a><br/>빈 시간표로 시작하면 전담, 외부강의, 행사를 바로 넣을 수 있고, 나중에 한글 파일을 올리면 입력한 내용은 유지한 채 나머지가 채워집니다.</p></div>
     : <div className="wrap"><div className="withmemo"><div className="main">
         <Grid weeks={T.weeks} renderCell={renderCell} canDrop={canDrop} dimPast={dimPast} onCellClick={onCellClick} onNoteClick={edit ? (no, cur)=>askText(`${no}주 비고`, cur, v=>saveClassWeekNote(cid, sem, no, v)) : undefined}
           onFill={edit ? (from, keys)=>{ const l = L[from]; if (l) addLessonKeys(cid, sem, keys, l.teacherId, l.t); } : undefined}
