@@ -231,7 +231,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = CFG.timetableAppId || 'school-timetable';
-const VERSION = 'v8.2';
+const VERSION = 'v8.3';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -837,12 +837,12 @@ function App() {
       </div>
       <div className="spacer"/>
       {undoN>0 && <button className="btn" onClick={undo}>되돌리기 ({undoN})</button>}
-      {(realAdmin || tryRole) && <label className="hint" style={{display:'flex',gap:4,alignItems:'center'}}>역할 체험
-        <select value={tryRole ? `${tryRole.type}:${tryRole.classId||tryRole.teacherId}` : ''} onChange={e=>{ const v=e.target.value; if (!v) { setTryRole(null); return; } const [ty,id]=v.split(':'); if (ty==='담임') setTryRole({ type:'담임', classId:id, name:`${id} 담임` }); else if (ty==='업무담당자') setTryRole({ type:'업무담당자', name:'교무실무사' }); else { const t=teachers.find(x=>x.id===id); setTryRole({ type:'전담', teacherId:id, name:`${t?.name||''} 전담` }); } }} style={{padding:'4px 6px',border:'1px solid var(--line-strong)',borderRadius:6}}>
-          <option value="">관리자(전체)</option>
-          <optgroup label="담임으로 보기">{classList.filter(c=>!c.startsWith('유')).map(c=><option key={c} value={`담임:${c}`}>{classLabel(c)} 담임</option>)}</optgroup>
-          <optgroup label="전담으로 보기">{teachers.map(t=><option key={t.id} value={`전담:${t.id}`}>{t.name} ({teacherSubjects(t)})</option>)}</optgroup>
-          <option value="업무담당자:x">교무실무사 (보결, 개별지도 배정)</option>
+      {(realAdmin || tryRole) && <label className="hint" style={{display:'flex',gap:4,alignItems:'center',whiteSpace:'nowrap'}}>체험
+        <select value={tryRole ? `${tryRole.type}:${tryRole.classId||tryRole.teacherId}` : ''} onChange={e=>{ const v=e.target.value; if (!v) { setTryRole(null); return; } const [ty,id]=v.split(':'); if (ty==='담임') setTryRole({ type:'담임', classId:id, name:`${id} 담임` }); else if (ty==='업무담당자') setTryRole({ type:'업무담당자', name:'교무실무사' }); else { const t=teachers.find(x=>x.id===id); setTryRole({ type:'전담', teacherId:id, name:`${t?.name||''} 전담` }); } }} style={{padding:'4px 4px',border:'1px solid var(--line-strong)',borderRadius:6,maxWidth:120,fontSize:13}} title="관리자용 역할 체험 — 다른 역할로 보이는 화면을 확인합니다">
+          <option value="">관리자</option>
+          <optgroup label="담임">{classList.filter(c=>!c.startsWith('유')).map(c=><option key={c} value={`담임:${c}`}>{classCode(c)} 담임</option>)}</optgroup>
+          <optgroup label="전담">{teachers.map(t=><option key={t.id} value={`전담:${t.id}`}>{t.name}</option>)}</optgroup>
+          <option value="업무담당자:x">교무실무사</option>
         </select></label>}
       <span className="who" title={roleSource==='device' ? '이 컴퓨터에 저장된 역할입니다. 다른 컴퓨터에서는 다시 정하거나 학교 계정으로 로그인하세요.' : roleSource==='account' ? '학교 계정에 연결된 역할입니다.' : ''}>{tryRole ? `체험 중: ${tryRole.name}` : realRole ? `${roleSource==='device'?'이 컴퓨터: ':''}${realRole.name||email||''} · ${realRole.type}${realRole.classId?' '+classLabel(realRole.classId):''}${realRole.type==='관리자'&&realRole.prev?` (${realRole.prev.type}${realRole.prev.classId?' '+classLabel(realRole.prev.classId):''})`:''}${!isManager(realRole)&&realRole.type!=='관리자'&&realRole.duties?.sep?' +개별지도 배정':''}` : email ? `${email} · 역할 미지정` : '역할 없음 (보기만 가능)'}{adminOn && ' · 관리자'}</span>
       {!accountRole && (deviceRole
