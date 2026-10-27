@@ -231,7 +231,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = CFG.timetableAppId || 'school-timetable';
-const VERSION = 'v8.1';
+const VERSION = 'v8.2';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -1863,9 +1863,9 @@ function RoleModal({ email, name, initial, classList, teachers, onSave, onClose 
       {type==='담임' && <tr><th>학급</th><td><select value={classId} onChange={e=>setClassId(e.target.value)}>{classList.map(c=><option key={c} value={c}>{classLabel(c)}</option>)}</select></td></tr>}
       <tr><th>추가 업무</th><td>
         {isMgr ? <span className="hint">교무실무사는 보결 배정과 개별학생 교육지원 배정을 모두 할 수 있습니다.</span>
-        : <div style={{display:'flex',gap:16,flexWrap:'wrap'}}>
-          <label className="chk"><input type="checkbox" checked={duties.sep} onChange={e=>setDuties({...duties, sep:e.target.checked})}/> 개별학생 교육지원(분리지도) 배정 업무 담당</label>
-          <div className="hint" style={{width:'100%'}}>담임이나 전담이면서 분리지도 배정 업무를 맡은 분은 체크하세요. 개별지도 탭에서 배정할 수 있게 됩니다. 보결 배정은 교무실무사와 관리자만 합니다.</div></div>}
+        : <div>
+          <label className="chk" style={{whiteSpace:'nowrap',margin:0}}><input type="checkbox" checked={duties.sep} onChange={e=>setDuties({...duties, sep:e.target.checked})}/><span>개별학생 교육지원(분리지도) 배정 업무 담당</span></label>
+          <div className="hint" style={{marginTop:4}}>담임이나 전담이면서 분리지도 배정 업무를 맡은 분은 체크하세요. 개별지도 탭에서 배정할 수 있게 됩니다. 보결 배정은 교무실무사와 관리자만 합니다.</div></div>}
       </td></tr>
       {type==='전담' && <tr><th>전담</th><td><select value={teacherId} onChange={e=>setTeacherId(e.target.value)}>{teachers.map(t=><option key={t.id} value={t.id}>{t.name} ({teacherSubjects(t)||'담당 미입력'})</option>)}<option value="__new">+ 목록에 없음 — 내 이름으로 새로 등록</option></select><div className="hint">등록 후 전담시간표 화면의 [내 담당 설정]에서 과목·학급을 넣습니다.</div></td></tr>}
     </tbody></table>
