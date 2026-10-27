@@ -233,7 +233,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = CFG.timetableAppId || 'school-timetable';
-const VERSION = 'v8.7';
+const VERSION = 'v8.8';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -453,7 +453,8 @@ function App() {
   const [roles, setRoles] = useState({});
   const [adminHash, setAdminHash] = useState(undefined);
   const [sepHash, setSepHash] = useState(undefined);   // 개별지도 탭 비밀번호 (관리자 암호와 별개)
-  const [sepOpen, setSepOpen] = useState(false); // 메모리에만 둠: 새로고침하거나 다른 탭을 열면 다시 묻는다
+  const [sepOpen, setSepOpenState] = useState(() => { try { return sessionStorage.getItem('tt_sep_open')==='1'; } catch { return false; } }); // 브라우저 탭을 닫기 전까지 유지
+  const setSepOpen = v => { setSepOpenState(v); try { v ? sessionStorage.setItem('tt_sep_open','1') : sessionStorage.removeItem('tt_sep_open'); } catch {} };
   const [adminOn, setAdminOn] = useState(false);
   const [ctt, setCtt] = useState({});     // class_timetables by id
   const [lessons, setLessons] = useState({}); // lessons by id
@@ -1890,7 +1891,7 @@ function SepAuthModal({ sepHash, onOk, onClose, onAdmin }) {
   const [pw, setPw] = useState('');
   return <Modal title="개별학생 교육지원 — 비밀번호" onClose={onClose}>
     {sepHash===null ? <><p className="warn">아직 비밀번호가 정해지지 않았습니다. 관리자가 학년도 설정 → 학년도 · 학급 탭에서 「개별지도 비밀번호」를 먼저 정해 주세요.</p><div className="row"><button className="btn" onClick={onClose}>닫기</button><button className="btn primary" onClick={onAdmin}>관리자 암호로 들어가기</button></div></>
-    : <><p className="hint" style={{marginTop:0}}>학생 정보가 있는 화면이라 비밀번호를 아는 분만 볼 수 있습니다. 새로고침하거나 [잠그기]를 누르면 다시 묻습니다.</p>
+    : <><p className="hint" style={{marginTop:0}}>학생 정보가 있는 화면이라 비밀번호를 아는 분만 볼 수 있습니다. 이 브라우저 탭을 닫거나 [잠그기]를 누르기 전까지 유지됩니다.</p>
       <input type="password" value={pw} autoFocus onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==='Enter'&&onOk(pw)} style={{width:'100%',padding:8,border:'1px solid var(--line-strong)',borderRadius:6}}/>
       <div className="row"><button className="btn" onClick={onClose}>취소</button><button className="btn primary" onClick={()=>onOk(pw)}>확인</button></div></>}
   </Modal>;
