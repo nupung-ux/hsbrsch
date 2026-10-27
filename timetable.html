@@ -67,6 +67,8 @@
   .planwrap iframe{flex:1;border:0;width:100%;background:#fff}
   .withmemo{display:flex;gap:16px;align-items:flex-start}
   .withmemo .main{flex:0 0 auto;min-width:0}
+  .sidecard{flex:1 1 300px;min-width:280px;max-width:560px;position:sticky;top:calc(var(--fixed, 60px) + 10px);background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 14px;max-height:calc(100vh - var(--fixed, 60px) - 60px);overflow:auto}
+  .sidecard h3{margin:0 0 8px;font-size:15px}
   .memopad{flex:1 1 280px;min-width:260px;max-width:520px;position:sticky;top:calc(var(--fixed, 60px) + 10px);background:#fffbe6;border:1px solid #e8d98a;border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,.06);display:flex;flex-direction:column;height:calc(100vh - var(--fixed, 60px) - 60px);min-height:320px}
   .memopad .mh{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid #eadf9f;font-size:14px}
   .memopad textarea{flex:1;border:0;background:transparent;resize:none;padding:12px 14px;font:inherit;font-size:15px;line-height:1.6;outline:none;font-family:inherit}
@@ -231,7 +233,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = CFG.timetableAppId || 'school-timetable';
-const VERSION = 'v8.4';
+const VERSION = 'v8.5';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -450,6 +452,8 @@ function App() {
   const [teachers, setTeachers] = useState([]);
   const [roles, setRoles] = useState({});
   const [adminHash, setAdminHash] = useState(undefined);
+  const [sepHash, setSepHash] = useState(undefined);   // 개별지도 탭 비밀번호 (관리자 암호와 별개)
+  const [sepOpen, setSepOpen] = useState(() => { try { return sessionStorage.getItem('tt_sep_open')==='1'; } catch { return false; } });
   const [adminOn, setAdminOn] = useState(false);
   const [ctt, setCtt] = useState({});     // class_timetables by id
   const [lessons, setLessons] = useState({}); // lessons by id
@@ -474,6 +478,7 @@ function App() {
       onSnapshot(sref('teachers'), s => setTeachers(s.exists() ? (s.data().list||[]) : [])),
       onSnapshot(sref('roles'), s => setRoles(s.exists() ? (s.data().byEmail||{}) : {})),
       onSnapshot(sref('admin'), s => setAdminHash(s.exists() ? s.data().passwordHash : null)),
+      onSnapshot(sref('sepauth'), s => setSepHash(s.exists() ? s.data().passwordHash : null)),
       onSnapshot(query(cref('class_timetables')), s => { const m={}; s.forEach(d=>m[d.id]=d.data()); setCtt(m); }),
       onSnapshot(query(cref('lessons')), s => { const m={}; s.forEach(d=>m[d.id]=d.data()); setLessons(m); }),
       onSnapshot(query(cref('lectures')), s => { const m={}; s.forEach(d=>m[d.id]=d.data()); setLectures(m); }),
@@ -510,7 +515,9 @@ function App() {
   // 추가 업무(duties): 어떤 역할이든 보결 배정, 개별지도 배정 권한을 따로 가질 수 있음. 업무담당자 역할은 체크 안 해도 둘 다.
   const hasDuty = (r, d) => !!r && (isManager(r) ? (r.duties ? r.duties[d] !== false : true) : !!r.duties?.[d]);
   const canSub = isAdmin || hasDuty(myRole, 'sub');
-  const canSep = isAdmin || hasDuty(myRole, 'sep');
+  const canSep = isAdmin || sepOpen; // 개별지도는 비밀번호를 아는 사람(또는 관리자)만 보고 배정
+  const sepUnlock = async pw => { if (sepHash && await sha256(pw)===sepHash) { setSepOpen(true); try { sessionStorage.setItem('tt_sep_open','1'); } catch {} setModal(null); setTab('sep'); } else toast('비밀번호가 다릅니다.', true); };
+  const saveSepPw = async pw => { if (!pw || pw.length<4) { toast('4자 이상으로 정해 주세요.', true); return; } await setDoc(sref('sepauth'), { passwordHash: await sha256(pw), updatedAt: nowIso(), by: editorName() }); log('settings', '개별지도 비밀번호 변경'); toast('개별지도 비밀번호를 저장했습니다.'); };
   const bell = year?.bell || DEFAULT_BELL;
   const editorName = () => tryRole ? `체험(${tryRole.name})` : (myRole?.name || email || (adminOn ? '관리자' : '익명'));
 
@@ -830,7 +837,7 @@ function App() {
         <button className={tab==='lecture'?'on':''} onClick={()=>setTab('lecture')}><span className="w">외부</span><span className="w">강의</span></button>
         <button className={tab==='room'?'on':''} onClick={()=>setTab('room')}><span className="w">특별</span><span className="w">실</span></button>
         <button className={tab==='sub'?'on':''} onClick={()=>setTab('sub')}>보결</button>
-        <button className={tab==='sep'?'on':''} onClick={()=>setTab('sep')} title="개별학생 교육지원 (분리지도) — 보결과 서로 연동"><span className="w">개별</span><span className="w">지도</span></button>
+        <button className={tab==='sep'?'on':''} onClick={()=>{ if (isAdmin || sepOpen) setTab('sep'); else setModal({ type:'sepauth' }); }} title="개별학생 교육지원 (분리지도) — 비밀번호가 있어야 들어갑니다. 보결과 서로 연동"><span className="w">{(isAdmin||sepOpen)?'개별':'🔒개별'}</span><span className="w">지도</span></button>
         <button className={tab==='status'?'on':''} onClick={()=>setTab('status')}>현황</button>
         {SHOW_PLAN_TAB && <button className={tab==='plan'?'on':''} onClick={()=>setTab('plan')} title="월간운영계획을 이 안에서 그대로 봅니다"><span className="w">월간</span><span className="w">계획</span></button>}
         <button className={tab==='settings'?'on':''} onClick={()=>setTab('settings')} title="학년도 설정"><span className="w">학년도</span><span className="w">설정</span></button>
@@ -844,7 +851,7 @@ function App() {
           <optgroup label="전담">{teachers.map(t=><option key={t.id} value={`전담:${t.id}`}>{t.name}</option>)}</optgroup>
           <option value="업무담당자:x">교무실무사</option>
         </select></label>}
-      <span className="who" title={roleSource==='device' ? '이 컴퓨터에 저장된 역할입니다. 다른 컴퓨터에서는 다시 정하거나 학교 계정으로 로그인하세요.' : roleSource==='account' ? '학교 계정에 연결된 역할입니다.' : ''}>{tryRole ? `체험 중: ${tryRole.name}` : realRole ? `${roleSource==='device'?'이 컴퓨터: ':''}${realRole.name||email||''} · ${realRole.type}${realRole.classId?' '+classLabel(realRole.classId):''}${realRole.type==='관리자'&&realRole.prev?` (${realRole.prev.type}${realRole.prev.classId?' '+classLabel(realRole.prev.classId):''})`:''}${!isManager(realRole)&&realRole.type!=='관리자'&&realRole.duties?.sep?' +개별지도 배정':''}` : email ? `${email} · 역할 미지정` : '역할 없음 (보기만 가능)'}{adminOn && ' · 관리자'}</span>
+      <span className="who" title={roleSource==='device' ? '이 컴퓨터에 저장된 역할입니다. 다른 컴퓨터에서는 다시 정하거나 학교 계정으로 로그인하세요.' : roleSource==='account' ? '학교 계정에 연결된 역할입니다.' : ''}>{tryRole ? `체험 중: ${tryRole.name}` : realRole ? `${roleSource==='device'?'이 컴퓨터: ':''}${realRole.name||email||''} · ${realRole.type}${realRole.classId?' '+classLabel(realRole.classId):''}${realRole.type==='관리자'&&realRole.prev?` (${realRole.prev.type}${realRole.prev.classId?' '+classLabel(realRole.prev.classId):''})`:''}` : email ? `${email} · 역할 미지정` : '역할 없음 (보기만 가능)'}{adminOn && ' · 관리자'}</span>
       {!accountRole && (deviceRole
         ? <button className="btn" onClick={()=>setModal({type:'confirm', title:'이 컴퓨터의 역할', body:<p>지금 이 컴퓨터는 <b>{deviceRole.name} · {deviceRole.type}{deviceRole.classId?' '+classLabel(deviceRole.classId):''}</b>으로 저장되어 있습니다.<br/><span className="hint">교실 컴퓨터처럼 한 사람이 쓰는 컴퓨터에만 저장해 두세요. 학교 계정으로 로그인하면 그 계정의 역할이 우선합니다.</span></p>, actions:[{label:'닫기',on:()=>setModal(null)},{label:'역할 지우기',on:()=>{ setDeviceRole(null); setModal(null); toast('이 컴퓨터의 역할을 지웠습니다.'); }},{label:'다시 정하기',primary:true,on:()=>setModal({type:'role', email:'__device', name:deviceRole.name, initial:deviceRole})}] })}>이 컴퓨터 역할</button>
         : <button className="btn primary" onClick={()=>setModal({type:'role', email:'__device', name:''})}>이 컴퓨터 역할 정하기</button>)}
@@ -861,9 +868,10 @@ function App() {
     {tab==='calendar' && <CalendarView {...{ calEvents, calAppId, lectures }} />}
     {tab==='plan' && <PlanFrame />}
     {tab==='sub' && <SubView mode="sub" {...{ year, bell, classList, teachers, ctt, lessons, lectures, subs, seps, canEdit: canSub, setModal, toast, defaultCid: myRole?.classId, saveSub: async (id, data) => { await setDoc(dref('subs', id), { ...data, createdBy: editorName(), createdAt: nowIso() }); log('sub', `${classLabel(data.classId)} ${shortDate(data.date)} ${pLabel(data.p)} 보결 → ${data.label}`); }, deleteSub: async (id) => { const d = subs[id]; await deleteDoc(dref('subs', id)); if (d) log('sub', `${classLabel(d.classId)} ${shortDate(d.date)} ${pLabel(d.p)} 보결 삭제`); } }} />}
-    {tab==='sep' && <SubView mode="sep" {...{ year, bell, classList, teachers, ctt, lessons, lectures, subs, seps, canEdit: canSep, setModal, toast, defaultCid: myRole?.classId, saveSub: async (id, data) => { await setDoc(dref('seps', id), { ...data, createdBy: editorName(), createdAt: nowIso() }); log('sep', `${classLabel(data.classId)} ${shortDate(data.date)} ${pLabel(data.p)} 분리지도 → ${data.label}${data.student?' ('+data.student+')':''}`); }, deleteSub: async (id) => { const d = seps[id]; await deleteDoc(dref('seps', id)); if (d) log('sep', `${classLabel(d.classId)} ${shortDate(d.date)} ${pLabel(d.p)} 분리지도 삭제`); } }} />}
+    {tab==='sep' && !(isAdmin || sepOpen) && <div className="empty"><p>개별학생 교육지원 화면은 비밀번호가 있어야 볼 수 있습니다.</p><button className="btn primary" onClick={()=>setModal({type:'sepauth'})}>비밀번호 입력</button></div>}
+    {tab==='sep' && (isAdmin || sepOpen) && <SubView mode="sep" {...{ year, bell, classList, teachers, ctt, lessons, lectures, subs, seps, canEdit: canSep, setModal, toast, defaultCid: myRole?.classId, saveSub: async (id, data) => { await setDoc(dref('seps', id), { ...data, createdBy: editorName(), createdAt: nowIso() }); log('sep', `${classLabel(data.classId)} ${shortDate(data.date)} ${pLabel(data.p)} 분리지도 → ${data.label}${data.student?' ('+data.student+')':''}`); }, deleteSub: async (id) => { const d = seps[id]; await deleteDoc(dref('seps', id)); if (d) log('sep', `${classLabel(d.classId)} ${shortDate(d.date)} ${pLabel(d.p)} 분리지도 삭제`); } }} />}
     {tab==='status' && <StatusView {...{ year, teachers, classList, ctt, lessons, lectures, logs, isAdmin }} />}
-    {tab==='settings' && (isAdmin ? <Settings {...{ year, teachers, roles, isAdmin, classList, toast, log }} onRestore={onRestoreFile} onBlankAll={createBlankAll} onBackup={backupAll} onReset={(keep)=>setModal({ type:'confirm', title: keep ? '시간표 데이터를 모두 지울까요?' : '학년도를 초기화할까요?', body:<div><p className="warn">되돌릴 수 없습니다. 먼저 [전체 백업 내려받기]를 해 두세요.</p><p>{keep ? '담임·전담 시간표, 외부강의, 특별실 예약, 메모가 모두 지워지고 학급·전담·특별실·시정표 설정은 남습니다.' : '모든 시간표 데이터와 역할이 지워지고 학년도가 1년 올라갑니다. 학급 수·전담·특별실·시정표 설정은 남으니 바뀐 것만 고치면 됩니다.'}</p><p className="hint">연동된 일정표에서 외부강의로 들어간 줄도 함께 지웁니다.</p></div>, actions:[{label:'취소',on:()=>setModal(null)},{label: keep ? '데이터 지우기' : '학년도 초기화', primary:true, on:async()=>{ setModal(null); await resetYear(keep); toast('초기화했습니다.'); }}] })} /> : tryRole ? <div className="empty"><p>역할 체험 중에는 학년도 설정을 볼 수 없습니다.</p><button className="btn primary" onClick={()=>setTryRole(null)}>관리자(전체)로 돌아가기</button></div> : <div className="empty"><p>학년도 설정은 관리자만 할 수 있습니다.</p><button className="btn primary" onClick={()=>setModal({type:'admin'})}>관리자 암호 입력</button></div>)}
+    {tab==='settings' && (isAdmin ? <Settings {...{ year, teachers, roles, isAdmin, classList, toast, log }} onSepPw={saveSepPw} sepSet={sepHash!==null} onRestore={onRestoreFile} onBlankAll={createBlankAll} onBackup={backupAll} onReset={(keep)=>setModal({ type:'confirm', title: keep ? '시간표 데이터를 모두 지울까요?' : '학년도를 초기화할까요?', body:<div><p className="warn">되돌릴 수 없습니다. 먼저 [전체 백업 내려받기]를 해 두세요.</p><p>{keep ? '담임·전담 시간표, 외부강의, 특별실 예약, 메모가 모두 지워지고 학급·전담·특별실·시정표 설정은 남습니다.' : '모든 시간표 데이터와 역할이 지워지고 학년도가 1년 올라갑니다. 학급 수·전담·특별실·시정표 설정은 남으니 바뀐 것만 고치면 됩니다.'}</p><p className="hint">연동된 일정표에서 외부강의로 들어간 줄도 함께 지웁니다.</p></div>, actions:[{label:'취소',on:()=>setModal(null)},{label: keep ? '데이터 지우기' : '학년도 초기화', primary:true, on:async()=>{ setModal(null); await resetYear(keep); toast('초기화했습니다.'); }}] })} /> : tryRole ? <div className="empty"><p>역할 체험 중에는 학년도 설정을 볼 수 없습니다.</p><button className="btn primary" onClick={()=>setTryRole(null)}>관리자(전체)로 돌아가기</button></div> : <div className="empty"><p>학년도 설정은 관리자만 할 수 있습니다.</p><button className="btn primary" onClick={()=>setModal({type:'admin'})}>관리자 암호 입력</button></div>)}
 
     {modal?.type==='confirm' && <Modal title={modal.title} onClose={()=>setModal(null)}>{modal.body}<div className="row">{modal.actions.map((a,i)=><button key={i} className={'btn'+(a.primary?' primary':'')} onClick={a.on}>{a.label}</button>)}</div></Modal>}
     {modal?.type==='repeat' && <RepeatModal date={parseKey(modal.key).date} p={parseKey(modal.key).p} onOnce={modal.onOnce} onRepeat={modal.onRepeat} onClose={()=>setModal(null)} />}
@@ -876,6 +884,7 @@ function App() {
     {modal?.type==='teacherSelf' && <TeacherSelfModal teachers={teachers} teacherId={modal.teacherId} classList={classList} rooms={year.rooms||[]} toast={toast} onClose={()=>setModal(null)} onSaved={()=>{ setModal(null); toast('저장했습니다.'); log('settings','전담 본인 담당 설정'); }} />}
     {modal?.type==='book' && <BookModal room={modal.room} date={modal.date} col={modal.col} weeks={modal.weeks||[]} classList={classList} myRole={myRole} onClose={()=>setModal(null)} onSave={async(b,n)=>{ await addBooking(b,n); setModal(null); toast('예약했습니다.'); }} />}
     {modal?.type==='admin' && <AdminModal adminHash={adminHash} onOk={adminUnlock} onClose={()=>setModal(null)} />}
+    {modal?.type==='sepauth' && <SepAuthModal sepHash={sepHash} onOk={sepUnlock} onClose={()=>setModal(null)} onAdmin={()=>setModal({type:'admin'})} />}
     {modal?.type==='uploadHelp' && <UploadHelp onClose={()=>setModal(null)} onPick={modal.pick} />}
     {modal?.type==='role' && <RoleModal email={modal.email} name={modal.name} initial={modal.initial} classList={classList} teachers={teachers} onSave={saveRole} onClose={()=>setModal(null)} />}
     {modal?.type==='upload' && <UploadModal parsed={modal.parsed} failed={modal.failed} fileCount={modal.fileCount} teachers={teachers} existing={ctt} lessons={lessons} canEditClass={canEditClass} onSave={saveUpload} onClose={()=>setModal(null)} />}
@@ -884,7 +893,7 @@ function App() {
 }
 
 // ---------- 연간표 격자 (담임·전담 공용) ----------
-function Grid({ weeks, renderCell, notes, onDragStart, onDrop, canDrop, dimPast, onCellClick, onNoteClick, onFill, periods = PERIODS }) {
+function Grid({ weeks, renderCell, notes, onDragStart, onDrop, canDrop, dimPast, onCellClick, onNoteClick, onFill, periods = PERIODS, showNotes = true }) {
   const [over, setOver] = useState(null);
   const [fill, setFill] = useState(null); // { fromKey, col, wi, toWi, toCol }  (col = 요일*6 + 교시-1)
   const fillKeys = useMemo(() => { if (!fill || fill.toWi==null) return new Set(); const a = Math.min(fill.wi, fill.toWi), b = Math.max(fill.wi, fill.toWi); const c1 = Math.min(fill.col, fill.toCol), c2 = Math.max(fill.col, fill.toCol); const ks = new Set();
@@ -893,7 +902,7 @@ function Grid({ weeks, renderCell, notes, onDragStart, onDrop, canDrop, dimPast,
   useEffect(() => { if (!fill) return; document.body.classList.add('filling'); const up = () => { const ks = Array.from(fillKeys); setFill(null); if (ks.length && onFill) onFill(fill.fromKey, ks); }; addEventListener('mouseup', up); return () => { removeEventListener('mouseup', up); document.body.classList.remove('filling'); }; }, [fill, fillKeys]);
   return <table className="tt">
     <thead>
-      <tr><th rowSpan={2} style={{width:34}}>주</th><th rowSpan={2} style={{width:100}}>기간</th>{DAYS.map(d=><th key={d} colSpan={periods.length} className="day">{d}</th>)}<th rowSpan={2} style={{width:220}}>비고</th></tr>
+      <tr><th rowSpan={2} style={{width:34}}>주</th><th rowSpan={2} style={{width:100}}>기간</th>{DAYS.map(d=><th key={d} colSpan={periods.length} className="day">{d}</th>)}{showNotes && <th rowSpan={2} style={{width:220}}>비고</th>}</tr>
       <tr>{DAYS.map(d=>periods.map(p=><th key={d+p} className={'pn'+(p===1?' day':'')+(p===LUNCH?' lunchh':'')} style={{width:'var(--cell)'}} title={p===LUNCH?'점심시간 (보결용)':''}>{p===LUNCH?'점':p}</th>))}</tr>
     </thead>
     <tbody>
@@ -915,7 +924,7 @@ function Grid({ weeks, renderCell, notes, onDragStart, onDrop, canDrop, dimPast,
             style={{ ...(c.style||{}), ...(onCellClick && c.clickable ? { cursor:'pointer' } : {}) }}
           >{c.text||''}{onFill && c.fillable && <span className="fh" title="끌어서 같은 수업 채우기 (아래·옆 모두 가능)" onMouseDown={e=>{ e.preventDefault(); e.stopPropagation(); setFill({ fromKey:key, col:di*6+p-1, wi, toWi:null, toCol:null }); }} onClick={e=>e.stopPropagation()} />}</td>;
         }))}
-        <td className={'note'+(onNoteClick?' ed':'')} title={(notes?.[w.no]||w.note||'')+(onNoteClick?' (누르면 수정)':'')} onClick={onNoteClick ? ()=>onNoteClick(w.no, notes?.[w.no]||w.note||'') : undefined}>{notes?.[w.no]||w.note||''}</td>
+        {showNotes && <td className={'note'+(onNoteClick?' ed':'')} title={(notes?.[w.no]||w.note||'')+(onNoteClick?' (누르면 수정)':'')} onClick={onNoteClick ? ()=>onNoteClick(w.no, notes?.[w.no]||w.note||'') : undefined}>{notes?.[w.no]||w.note||''}</td>}
       </tr>)}
     </tbody>
   </table>;
@@ -1273,13 +1282,19 @@ function SubView({ mode='sub', year, bell, classList, teachers, ctt, lessons, le
       <label>학급 <select value={cid} onChange={e=>setCid(e.target.value)}>{subClasses.map(c=><option key={c} value={c}>{classLabel(c)}</option>)}</select></label>
       <div className="seg"><button className={sem===1?'on':''} onClick={()=>setSem(1)}>1학기</button><button className={sem===2?'on':''} onClick={()=>setSem(2)}>2학기</button></div>
       <PastToggle value={dimPast} onChange={setDimPast} />
-      <span className="hint">{canEdit ? (isSep ? '분리지도가 필요한 학생의 반과 시간을 누르면 그 시간에 수업이 없는 교원이 나옵니다. 보결에 들어간 분과 보결이 잡힌 반의 담임은 자동으로 빠집니다.' : '보결이 필요한 칸을 누르면 그 시간에 비어 있는 분이 나옵니다. 담임 과목 칸은 담임 부재, 전담 칸은 전담 부재로 봅니다.') : (isSep ? `개별지도 배정은 교무실무사, 담당 교사(추가 업무 체크) 또는 관리자만 할 수 있습니다. 보기만 가능합니다.${year.subManagers ? ' 담당: '+year.subManagers : ''}` : '보결 배정은 교무실무사 또는 관리자만 할 수 있습니다. 보기만 가능합니다.')}</span>
+      <span className="hint">{canEdit ? (isSep ? '분리지도가 필요한 학생의 반과 시간을 누르면 그 시간에 수업이 없는 교원이 나옵니다. 보결에 들어간 분과 보결이 잡힌 반의 담임은 자동으로 빠집니다.' : '보결이 필요한 칸을 누르면 그 시간에 비어 있는 분이 나옵니다. 담임 과목 칸은 담임 부재, 전담 칸은 전담 부재로 봅니다.') : (isSep ? '개별지도 배정은 비밀번호로 들어온 분과 관리자가 할 수 있습니다.' : '보결 배정은 교무실무사 또는 관리자만 할 수 있습니다. 보기만 가능합니다.')}</span>
       <div className="spacer"/>
       <div className="legend"><span><i style={{background: isSep?'#e4d7f5':'#ffd9a8'}}/>{KIND} 배정됨</span><span><i style={{background:'#fff',boxShadow:'inset 0 -3px 0 #c9a227'}}/>{isSep?'보결':'분리지도'} 있는 칸</span><span><i style={{background:'#eef6ff'}}/>점 = 점심시간 ({(()=>{ const lt=lunchTime(bell,gradeOf(cid)); return lt?`${lt.s}~${lt.e}`:'미설정'; })()})</span></div>
     </div></div>
     {!T ? <div className="empty">{classLabel(cid)} {sem}학기 시간표가 없습니다. 담임시간표에서 먼저 올려 주세요.</div>
     : <div className="wrap">
-      <Grid weeks={T.weeks} renderCell={renderCell} dimPast={dimPast} onCellClick={onCellClick} periods={subPeriods} />
+      <div className="withmemo"><div className="main">
+      <Grid weeks={T.weeks} renderCell={renderCell} dimPast={dimPast} onCellClick={onCellClick} periods={subPeriods} showNotes={false} />
+      </div>
+      <div className="sidecard"><h3>{classLabel(cid)} {KIND} 기록 ({mine.length})</h3>
+        {!mine.length && <p className="hint">아직 없습니다.</p>}
+        <div className="list">{mine.map(v=><div key={v.id} className="ev" style={{padding:'4px 0',flexWrap:'wrap'}}><span style={{width:84}}>{shortDate(v.date)}</span><span style={{width:44}}>{pLabel(v.p)}</span><b>{v.label}</b>{isSep && (v.student||v.place) && <span className="hint" style={{marginLeft:6}}>{[v.student, v.place].filter(Boolean).join(' · ')}</span>}<span className="hint" style={{marginLeft:6}}>({v.origin})</span>{canEdit && <button className="btn danger" style={{padding:'0 6px',marginLeft:'auto'}} onClick={()=>deleteSub(v.id)}>삭제</button>}</div>)}</div>
+      </div></div>
       {isSep && <div className="card" style={{margin:'14px 0 0'}}>
         <div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}><h3 style={{margin:0}}>날짜별 분리지도 현황 (전체 학급)</h3>
           <select value={dayRows.d} onChange={e=>setDayPick(e.target.value)} style={{padding:'4px 8px',border:'1px solid var(--line-strong)',borderRadius:6}}>{!sepDates.length && <option value="">기록 없음</option>}{sepDates.map(d=><option key={d} value={d}>{fmtDate(d)} ({Object.values(subs).filter(v=>v.date===d).length}건)</option>)}</select>
@@ -1293,10 +1308,6 @@ function SubView({ mode='sub', year, bell, classList, teachers, ctt, lessons, le
         </tbody></table>}
       </div>}
       <div style={{display:'flex',gap:14,alignItems:'flex-start',marginTop:14,flexWrap:'wrap'}}>
-        <div className="card" style={{margin:0,flex:'1 1 420px'}}><h3>{classLabel(cid)} {KIND} 기록 ({mine.length})</h3>
-          {!mine.length && <p className="hint">아직 없습니다.</p>}
-          {mine.map(v=><div key={v.id} className="ev" style={{padding:'4px 0'}}><span style={{width:110}}>{fmtDate(v.date)}</span><span style={{width:50}}>{pLabel(v.p)}</span><span style={{width:110,color:'var(--muted)'}}>{v.origin}</span><b>{v.label}</b>{isSep && (v.student||v.place) && <span className="hint" style={{marginLeft:8}}>{[v.student, v.place].filter(Boolean).join(' · ')}</span>}{canEdit && <button className="btn danger" style={{padding:'0 8px',marginLeft:'auto'}} onClick={()=>deleteSub(v.id)}>삭제</button>}</div>)}
-        </div>
         <div className="card" style={{margin:0,flex:'1 1 320px'}}><h3>{sem}학기 {KIND} 횟수 (전체)</h3>
           {!byWho.length && <p className="hint">아직 없습니다.</p>}
           <table className="ov"><tbody>{byWho.map(([w,arr])=><tr key={w}><td style={{textAlign:'left'}}>{w}</td><td style={{fontWeight:700}}>{arr.length}</td><td className="hint" style={{textAlign:'left'}}>{arr.sort((a,b)=>a.date.localeCompare(b.date)).map(v=>`${shortDate(v.date)} ${classCode(v.classId)}`).join(', ')}</td></tr>)}</tbody></table>
@@ -1418,7 +1429,8 @@ function TeacherSelfModal({ teachers, teacherId, classList, rooms, onSaved, onCl
 }
 
 // ---------- 학년도 설정 ----------
-function Settings({ year, teachers, roles, isAdmin, classList, toast, log, onBlankAll, onBackup, onReset, onRestore }) {
+function Settings({ year, teachers, roles, isAdmin, classList, toast, log, onBlankAll, onBackup, onReset, onRestore, onSepPw, sepSet }) {
+  const [sepPw, setSepPw] = useState('');
   const restoreRef = useRef();
   const [y, setY] = useState(year); const [ts, setTs] = useState(teachers);
   const [st, setSt] = useState(readPref('settingsTab', 'year'));
@@ -1445,7 +1457,7 @@ function Settings({ year, teachers, roles, isAdmin, classList, toast, log, onBla
         <tr><th>학교 계정 도메인</th><td><input placeholder="예: school.es.kr (비우면 모든 구글 계정 허용)" value={y.domain||''} onChange={e=>setY({...y, domain:e.target.value.trim()})}/></td></tr>
         <tr><th>학년별 학급 수</th><td style={{display:'flex',gap:10,flexWrap:'wrap'}}>{[1,2,3,4,5,6].map(g=><label key={g} className="chk">{g}학년 <input type="number" min="0" style={{width:60}} value={y.grades?.[g]||0} onChange={e=>setY({...y, grades:{...(y.grades||{}), [g]:Number(e.target.value)}})}/></label>)}<label className="chk">유치원 <input type="number" min="0" style={{width:60}} value={y.kinder||0} onChange={e=>setY({...y, kinder:Number(e.target.value)})}/></label></td></tr>
         <tr><th>특별실</th><td><input value={y.roomsText ?? (y.rooms||[]).map(r=>r.name).join(', ')} placeholder="예: 음악실, 과학1실, 과학2실, 영어1실, 영어2실, 체육관, 다목적실 (쉼표로)" onChange={e=>setY({...y, roomsText:e.target.value})}/><div className="hint">전담 교사 설정에서 담당 과목마다 특별실을 고르면 그 수업이 특별실 시간표에 자동으로 표시됩니다.</div></td></tr>
-        <tr><th>개별지도 배정 업무 담당자</th><td><input value={y.subManagers ?? ''} placeholder="예: 생활인권부장 홍○○ (쉼표로)" onChange={e=>setY({...y, subManagers:e.target.value})}/><div className="hint">안내용 이름입니다. 보결 배정은 교무실무사(역할에서 선택)와 관리자가 하고, 개별학생 교육지원 배정은 교무실무사 외에 담임이나 전담도 역할 정하기의 「추가 업무」에 체크하면 할 수 있습니다. 로그인 계정은 역할 탭에서 관리자가 체크해 줄 수도 있습니다.</div></td></tr>
+        <tr><th>개별지도 비밀번호</th><td><div style={{display:'flex',gap:8,alignItems:'center'}}><input type="password" value={sepPw} placeholder={sepSet ? '새 비밀번호 (바꿀 때만)' : '비밀번호 정하기 (4자 이상)'} onChange={e=>setSepPw(e.target.value)} style={{width:220}}/><button className="btn primary" disabled={!sepPw} onClick={async()=>{ await onSepPw(sepPw); setSepPw(''); }}>{sepSet?'바꾸기':'저장'}</button><span className={sepSet?'hint':'warn'} style={{fontSize:13}}>{sepSet ? '설정되어 있음' : '아직 없음 — 정하기 전에는 관리자만 개별지도 탭을 볼 수 있습니다'}</span></div><div className="hint">개별학생 교육지원(분리지도) 탭은 학생 정보가 있어 이 비밀번호를 아는 분만 보고 배정할 수 있습니다. 관리자 암호와 다르게 정해서 담당자(교무실무사, 생활인권부장 등)에게만 알려 주세요.</div></td></tr>
         <tr><th>보결 가능 추가 인원</th><td><input value={y.extraSubs ?? '교감, 교장'} placeholder="예: 교감, 교장, 교무부장 (쉼표로)" onChange={e=>setY({...y, extraSubs:e.target.value})}/><div className="hint">담임, 전담 외에 보결에 들어갈 수 있는 분들. 보결 탭의 선택 목록에 항상 나오며, 점심시간 보결에도 나옵니다.</div></td></tr>
         <tr><th>일정표 연동</th><td><select value={y.calendarTarget||'test'} onChange={e=>setY({...y, calendarTarget:e.target.value})} style={{padding:6}}><option value="test">연동 안 함 (외부강의 일정을 월간운영계획에 넣지 않음)</option><option value="live">월간운영계획에 자동 입력</option></select><div className="hint">"자동 입력"으로 바꾸기 전에 월간운영계획 파일(index.html)을 연동용으로 교체해야 합니다. 바꾼 뒤에는 외부강의를 한 번씩 다시 저장하면 들어갑니다.</div></td></tr>
         <tr><th>학기 기간</th><td>
@@ -1502,8 +1514,7 @@ function Settings({ year, teachers, roles, isAdmin, classList, toast, log, onBla
       {Object.keys(roles).length===0 ? <p className="hint">아직 로그인한 교사가 없습니다. 각자 학교 계정으로 로그인하면 역할을 고르게 되고 여기에 나타납니다.</p>
       : <table className="form"><thead><tr><th>이메일</th><th>이름</th><th>역할</th><th>대상</th><th></th></tr></thead><tbody>
         {Object.entries(roles).map(([em,r])=><tr key={em}><td>{em}</td><td>{r.name}</td><td>{r.type==='업무담당자'||r.type==='교무실무사'?'교무실무사':r.type}</td><td>{r.classId||(r.grade?r.grade+'학년':'')||teachers.find(t=>t.id===r.teacherId)?.name||(r.type==='관리자'?'전체':'')}
-          {r.type!=='관리자' && r.type!=='업무담당자' && r.type!=='교무실무사' && <div style={{display:'flex',gap:10,marginTop:2,fontSize:13}}>
-            <label className="chk"><input type="checkbox" checked={!!r.duties?.sep} onChange={async e=>{ await setDoc(sref('roles'),{byEmail:{...roles,[em]:{...r,duties:{...(r.duties||{}),sep:e.target.checked}}}}); }}/> 개별지도 배정</label></div>}</td><td style={{whiteSpace:'nowrap'}}>
+</td><td style={{whiteSpace:'nowrap'}}>
           {r.type!=='관리자' ? <button className="btn" style={{padding:'2px 8px',marginRight:6}} onClick={async()=>{ await setDoc(sref('roles'),{byEmail:{...roles,[em]:{...r,type:'관리자',prev:r}}}); toast(`${r.name||em}에게 관리자 권한을 주었습니다.`); }}>관리자로</button>
            : <button className="btn" style={{padding:'2px 8px',marginRight:6}} onClick={async()=>{ const b={...roles}; b[em]=r.prev||{...r,type:'담임'}; await setDoc(sref('roles'),{byEmail:b}); }}>관리자 해제</button>}
           <button className="btn danger" style={{padding:'2px 8px'}} onClick={async()=>{ const b={...roles}; delete b[em]; await setDoc(sref('roles'),{byEmail:b}); }}>삭제</button></td></tr>)}
@@ -1873,6 +1884,15 @@ function TextModal({ title, value, hint, onSave, onClose }) {
     <div className="row">{value && <button className="btn danger" onClick={()=>onSave('')}>지우기</button>}<button className="btn" onClick={onClose}>취소</button><button className="btn primary" onClick={()=>onSave(v.trim())}>저장</button></div>
   </Modal>;
 }
+function SepAuthModal({ sepHash, onOk, onClose, onAdmin }) {
+  const [pw, setPw] = useState('');
+  return <Modal title="개별학생 교육지원 — 비밀번호" onClose={onClose}>
+    {sepHash===null ? <><p className="warn">아직 비밀번호가 정해지지 않았습니다. 관리자가 학년도 설정 → 학년도 · 학급 탭에서 「개별지도 비밀번호」를 먼저 정해 주세요.</p><div className="row"><button className="btn" onClick={onClose}>닫기</button><button className="btn primary" onClick={onAdmin}>관리자 암호로 들어가기</button></div></>
+    : <><p className="hint" style={{marginTop:0}}>학생 정보가 있는 화면이라 비밀번호를 아는 분만 볼 수 있습니다. 한 번 입력하면 이 창을 닫기 전까지 유지됩니다.</p>
+      <input type="password" value={pw} autoFocus onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==='Enter'&&onOk(pw)} style={{width:'100%',padding:8,border:'1px solid var(--line-strong)',borderRadius:6}}/>
+      <div className="row"><button className="btn" onClick={onClose}>취소</button><button className="btn primary" onClick={()=>onOk(pw)}>확인</button></div></>}
+  </Modal>;
+}
 function AdminModal({ adminHash, onOk, onClose }) {
   const [pw, setPw] = useState('');
   return <Modal title={adminHash===null ? '관리자 암호 만들기' : '관리자 암호'} onClose={onClose}>
@@ -1891,14 +1911,8 @@ function RoleModal({ email, name, initial, classList, teachers, onSave, onClose 
     <p className="hint" style={{marginTop:0}}>{device ? '로그인 없이 이 컴퓨터(브라우저)에만 저장됩니다. 교실 컴퓨터처럼 주로 한 분이 쓰는 컴퓨터에 알맞습니다. 다른 컴퓨터에서도 내 역할로 쓰려면 학교 계정으로 로그인한 뒤 역할을 연결하세요.' : email}</p>
     <table className="form"><tbody>
       <tr><th style={{width:90}}>이름</th><td><input value={nm} onChange={e=>setNm(e.target.value)}/></td></tr>
-      <tr><th>역할</th><td><select value={type} onChange={e=>setType(e.target.value)}><option>담임</option><option>전담</option><option value="업무담당자">교무실무사 (보결, 개별지도 배정)</option></select>{type==='업무담당자' && <div className="hint">보결 배정과 개별학생 교육지원 배정을 할 수 있습니다. 관리자도 배정할 수 있습니다.</div>}</td></tr>
+      <tr><th>역할</th><td><select value={type} onChange={e=>setType(e.target.value)}><option>담임</option><option>전담</option><option value="업무담당자">교무실무사 (보결 배정)</option></select>{type==='업무담당자' && <div className="hint">보결 탭에서 보결을 배정할 수 있습니다. 개별학생 교육지원 탭은 역할과 상관없이 별도 비밀번호로 들어갑니다.</div>}</td></tr>
       {type==='담임' && <tr><th>학급</th><td><select value={classId} onChange={e=>setClassId(e.target.value)}>{classList.map(c=><option key={c} value={c}>{classLabel(c)}</option>)}</select></td></tr>}
-      <tr><th>추가 업무</th><td>
-        {isMgr ? <span className="hint">교무실무사는 보결 배정과 개별학생 교육지원 배정을 모두 할 수 있습니다.</span>
-        : <div>
-          <label className="chk" style={{whiteSpace:'nowrap',margin:0}}><input type="checkbox" checked={duties.sep} onChange={e=>setDuties({...duties, sep:e.target.checked})}/><span>개별학생 교육지원(분리지도) 배정 업무 담당</span></label>
-          <div className="hint" style={{marginTop:4}}>담임이나 전담이면서 분리지도 배정 업무를 맡은 분은 체크하세요. 개별지도 탭에서 배정할 수 있게 됩니다. 보결 배정은 교무실무사와 관리자만 합니다.</div></div>}
-      </td></tr>
       {type==='전담' && <tr><th>전담</th><td><select value={teacherId} onChange={e=>setTeacherId(e.target.value)}>{teachers.map(t=><option key={t.id} value={t.id}>{t.name} ({teacherSubjects(t)||'담당 미입력'})</option>)}<option value="__new">+ 목록에 없음 — 내 이름으로 새로 등록</option></select><div className="hint">등록 후 전담시간표 화면의 [내 담당 설정]에서 과목·학급을 넣습니다.</div></td></tr>}
     </tbody></table>
     <div className="row"><button className="btn" onClick={onClose}>나중에</button><button className="btn primary" disabled={!nm.trim()} onClick={()=>onSave(email, { type, name:nm.trim(), classId: type==='담임'?classId:null, teacherId: type==='전담'?teacherId:null, grade: type==='학년부장'?grade:null, duties: isMgr ? { sub:true, sep:true } : { sub:false, sep:duties.sep }, at: nowIso() })}>저장</button></div>
