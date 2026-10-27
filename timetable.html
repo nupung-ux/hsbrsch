@@ -239,7 +239,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = CFG.timetableAppId || 'school-timetable';
-const VERSION = 'v9.2';
+const VERSION = 'v9.3';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -1190,6 +1190,45 @@ function SubView({ mode='sub', year, bell, classList, teachers, ctt, lessons, le
     const html = `<table border="1" style="border-collapse:collapse"><tr>${head.map(h=>`<th>${esc(h)}</th>`).join('')}</tr>${rows.map(v=>`<tr>${line(v).map(c=>`<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</table>`;
     try { if (navigator.clipboard?.write && window.ClipboardItem) await navigator.clipboard.write([new ClipboardItem({ 'text/html': new Blob([html],{type:'text/html'}), 'text/plain': new Blob([tsv],{type:'text/plain'}) })]); else await navigator.clipboard.writeText(tsv); toast(`${rows.length}건을 표로 복사했습니다. 한글, 엑셀, 구글 문서에 붙여 넣으세요.`); } catch { toast('복사하지 못했습니다. 브라우저가 막았을 수 있습니다.', true); } };
   const copyDay = () => copyRows(dayRows.rows, true);
+  // 전체 현황 새 창: 지금 데이터를 담은 독립 페이지 (기간·학급·교원 필터, 요약 표, 상세 표, 복사·인쇄)
+  const openOverview = () => {
+    const rows = Object.entries(subs).map(([id,v])=>{ const t = slotTime(bell, gradeOf(v.classId), v.p); return { date:v.date, cls:classLabel(v.classId), p:pLabel(v.p), time:t?`${t.s}~${t.e}`:'', student:v.student||'', place:v.place||'', who:v.label, origin:v.origin||'', by:v.createdBy||'', sem: semOfDate(year, v.date) }; }).sort((a,b)=>b.date.localeCompare(a.date)||a.cls.localeCompare(b.cls));
+    const title = `${SCHOOL} ${year.year}학년도 ${KIND} 전체 현황`;
+    const cols = isSep ? ['날짜','요일','학기','학급','교시','시간','학생','분리 장소','지도 교원','원래 수업','기록자'] : ['날짜','요일','학기','학급','교시','시간','보결 교원','원래 수업','기록자'];
+    const html = `<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>${title}</title>
+<style>body{font-family:"Malgun Gothic","Apple SD Gothic Neo",sans-serif;color:#1f2a37;margin:0;background:#fafaf8}.wrap{padding:18px 24px 40px}h1{font-size:20px;margin:0 0 4px}.hint{color:#6b7280;font-size:13px}
+.bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:12px 0;padding:10px 12px;background:#fff;border:1px solid #d6dae0;border-radius:8px}select,button{padding:5px 8px;font-size:14px;border:1px solid #9aa3ad;border-radius:6px;background:#fff}button.p{background:#1f2a37;color:#fff;border-color:#1f2a37;cursor:pointer}button{cursor:pointer}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-bottom:14px}.card{background:#fff;border:1px solid #d6dae0;border-radius:8px;padding:10px 12px}.card h3{margin:0 0 6px;font-size:14px}
+table{border-collapse:collapse;width:100%;font-size:13px;background:#fff}th,td{border:1px solid #d6dae0;padding:4px 7px;text-align:center}th{background:#eef1f4}td.l{text-align:left}.num{font-weight:700}
+.big{font-size:26px;font-weight:800}@media print{.bar,.noprint{display:none}body{background:#fff}.wrap{padding:0}}</style></head><body><div class="wrap">
+<h1>${title}</h1><div class="hint">${new Date().toLocaleString('ko-KR')} 기준 · 총 <b id="tot"></b>건 · 통합 시간 관리 프로그램에서 만든 현황입니다${isSep?' · 학생 정보가 있으니 외부에 공유하지 마세요':''}</div>
+<div class="bar">기간 <select id="fSem"><option value="">전체</option><option value="1">1학기</option><option value="2">2학기</option></select> 월 <select id="fMon"><option value="">전체</option></select> 학급 <select id="fCls"><option value="">전체</option></select> ${isSep?'지도 교원':'보결 교원'} <select id="fWho"><option value="">전체</option></select>
+<span style="flex:1"></span><button id="bCopy" class="p">상세 표 복사</button><button id="bPrint">인쇄</button></div>
+<div class="grid"><div class="card"><h3>${isSep?'지도 교원':'보결 교원'}별 횟수</h3><table id="tWho"></table></div><div class="card"><h3>학급별 건수</h3><table id="tCls"></table></div><div class="card"><h3>월별 건수</h3><table id="tMon"></table></div>${isSep?'<div class="card"><h3>학생별 건수 <span class="hint">(표기 기준)</span></h3><table id="tStu"></table></div>':''}</div>
+<div class="card"><h3>상세 (<span id="cnt"></span>건)</h3><div style="overflow:auto"><table id="tAll"></table></div></div>
+</div><script>
+const ROWS=${JSON.stringify(rows)}; const SEP=${isSep?'true':'false'}; const COLS=${JSON.stringify(cols)};
+const DOW=['일','월','화','수','목','금','토']; const dow=d=>DOW[new Date(d+'T00:00:00').getDay()];
+const uniq=a=>Array.from(new Set(a)); const $=id=>document.getElementById(id);
+const opt=(sel,vals,fmt)=>{ for(const v of vals){ const o=document.createElement('option'); o.value=v; o.textContent=fmt?fmt(v):v; sel.appendChild(o);} };
+opt($('fMon'), uniq(ROWS.map(r=>r.date.slice(0,7))).sort(), m=>m.slice(0,4)+'년 '+Number(m.slice(5))+'월'); opt($('fCls'), uniq(ROWS.map(r=>r.cls)).sort()); opt($('fWho'), uniq(ROWS.map(r=>r.who)).sort());
+const esc=x=>String(x).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+const line=r=>SEP?[r.date,dow(r.date),r.sem+'학기',r.cls,r.p,r.time,r.student,r.place,r.who,r.origin,r.by]:[r.date,dow(r.date),r.sem+'학기',r.cls,r.p,r.time,r.who,r.origin,r.by];
+const count=(rows,key)=>{ const m={}; for(const r of rows){ const k=key(r)||'-'; m[k]=(m[k]||0)+1;} return Object.entries(m).sort((a,b)=>b[1]-a[1]||String(a[0]).localeCompare(String(b[0]))); };
+const table=(el,pairs,h1,h2)=>{ el.innerHTML='<tr><th>'+h1+'</th><th>'+h2+'</th></tr>'+(pairs.length?pairs.map(([k,n])=>'<tr><td class="l">'+esc(k)+'</td><td class="num">'+n+'</td></tr>').join(''):'<tr><td colspan=2 class="hint">없음</td></tr>'); };
+let cur=[];
+function render(){ const sm=$('fSem').value, mo=$('fMon').value, cl=$('fCls').value, wh=$('fWho').value;
+  cur=ROWS.filter(r=>(!sm||String(r.sem)===sm)&&(!mo||r.date.slice(0,7)===mo)&&(!cl||r.cls===cl)&&(!wh||r.who===wh));
+  $('tot').textContent=ROWS.length; $('cnt').textContent=cur.length;
+  table($('tWho'),count(cur,r=>r.who),SEP?'지도 교원':'보결 교원','횟수'); table($('tCls'),count(cur,r=>r.cls),'학급','건수'); table($('tMon'),count(cur,r=>r.date.slice(0,7)).sort((a,b)=>a[0].localeCompare(b[0])).map(([k,n])=>[k.slice(0,4)+'년 '+Number(k.slice(5))+'월',n]),'월','건수'); if(SEP) table($('tStu'),count(cur,r=>r.cls+' '+(r.student||'(미기재)')),'학급 학생','건수');
+  $('tAll').innerHTML='<tr>'+COLS.map(c=>'<th>'+c+'</th>').join('')+'</tr>'+cur.map(r=>'<tr>'+line(r).map(c=>'<td>'+esc(c)+'</td>').join('')+'</tr>').join(''); }
+for(const id of ['fSem','fMon','fCls','fWho']) $(id).addEventListener('change',render); render();
+$('bPrint').onclick=()=>print();
+$('bCopy').onclick=async()=>{ const tsv=[COLS,...cur.map(line)].map(r=>r.join('\t')).join('\n'); const html='<table border=1>'+'<tr>'+COLS.map(c=>'<th>'+esc(c)+'</th>').join('')+'</tr>'+cur.map(r=>'<tr>'+line(r).map(c=>'<td>'+esc(c)+'</td>').join('')+'</tr>').join('')+'</table>'; try{ if(navigator.clipboard.write&&window.ClipboardItem) await navigator.clipboard.write([new ClipboardItem({'text/html':new Blob([html],{type:'text/html'}),'text/plain':new Blob([tsv],{type:'text/plain'})})]); else await navigator.clipboard.writeText(tsv); $('bCopy').textContent='복사됨 ('+cur.length+'건)'; setTimeout(()=>$('bCopy').textContent='상세 표 복사',1500);}catch(e){ alert('복사하지 못했습니다.'); } };
+<\/script></body></html>`;
+    const w = window.open('', '_blank', 'width=1300,height=900'); if (!w) { toast('새 창이 막혔습니다. 브라우저의 팝업 차단을 풀어 주세요.', true); return; }
+    w.document.open(); w.document.write(html); w.document.close();
+  };
   // 기록 표 (수정·삭제 포함) — 날짜별 현황과 학급별 기록에서 함께 씀
   const recTable = (rows, { showClass=true, showDate=false }={}) => <table className="ov" style={{marginTop:8}}><thead><tr>{showDate && <th>날짜</th>}{showClass && <th>학급</th>}<th>교시</th><th>시간</th>{isSep && <><th>학생</th><th>장소</th></>}<th>{isSep?'지도 교원':'보결'}</th><th>원래 수업</th><th>기록자</th><th></th></tr></thead><tbody>
     {rows.map(v=>{ const t = slotTime(bell, gradeOf(v.classId), v.p); const ed = editRow===v.id; return <tr key={v.id}>{showDate && <td>{shortDate(v.date)}</td>}{showClass && <td>{classLabel(v.classId)}</td>}<td>{pLabel(v.p)}</td><td className="hint">{t?`${t.s}~${t.e}`:''}</td>
@@ -1322,6 +1361,7 @@ function SubView({ mode='sub', year, bell, classList, teachers, ctt, lessons, le
       <PastToggle value={dimPast} onChange={setDimPast} />
       <span className="hint">{canEdit ? (isSep ? '분리지도가 필요한 학생의 반과 시간을 누르면 그 시간에 수업이 없는 교원이 나옵니다. 보결에 들어간 분과 보결이 잡힌 반의 담임은 자동으로 빠집니다.' : '보결이 필요한 칸을 누르면 그 시간에 비어 있는 분이 나옵니다. 담임 과목 칸은 담임 부재, 전담 칸은 전담 부재로 봅니다.') : (isSep ? '개별지도 배정은 비밀번호로 들어온 분과 관리자가 할 수 있습니다.' : '보결 배정은 교무실무사 또는 관리자만 할 수 있습니다. 보기만 가능합니다.')}</span>
       <div className="spacer"/>
+      <button className="btn" onClick={openOverview} title="전체 기간, 전체 학급의 기록을 새 창에서 요약과 함께 봅니다">전체 현황 ↗</button>
       {onLock && <button className="btn" onClick={onLock} title="비밀번호를 다시 묻도록 잠급니다">🔒 잠그기</button>}
       <div className="legend"><span><i style={{background: isSep?'#e4d7f5':'#ffd9a8'}}/>{KIND} 배정됨</span><span><i style={{background:'#fff',boxShadow:'inset 0 -3px 0 #c9a227'}}/>{isSep?'보결':'분리지도'} 있는 칸</span><span><i style={{background:'#eef6ff'}}/>점 = 점심시간 ({(()=>{ const lt=lunchTime(bell,gradeOf(cid)); return lt?`${lt.s}~${lt.e}`:'미설정'; })()})</span></div>
     </div></div>
