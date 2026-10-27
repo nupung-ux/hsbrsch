@@ -239,7 +239,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = CFG.timetableAppId || 'school-timetable';
-const VERSION = 'v9.3';
+const VERSION = 'v9.4';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -1224,7 +1224,7 @@ function render(){ const sm=$('fSem').value, mo=$('fMon').value, cl=$('fCls').va
   $('tAll').innerHTML='<tr>'+COLS.map(c=>'<th>'+c+'</th>').join('')+'</tr>'+cur.map(r=>'<tr>'+line(r).map(c=>'<td>'+esc(c)+'</td>').join('')+'</tr>').join(''); }
 for(const id of ['fSem','fMon','fCls','fWho']) $(id).addEventListener('change',render); render();
 $('bPrint').onclick=()=>print();
-$('bCopy').onclick=async()=>{ const tsv=[COLS,...cur.map(line)].map(r=>r.join('\t')).join('\n'); const html='<table border=1>'+'<tr>'+COLS.map(c=>'<th>'+esc(c)+'</th>').join('')+'</tr>'+cur.map(r=>'<tr>'+line(r).map(c=>'<td>'+esc(c)+'</td>').join('')+'</tr>').join('')+'</table>'; try{ if(navigator.clipboard.write&&window.ClipboardItem) await navigator.clipboard.write([new ClipboardItem({'text/html':new Blob([html],{type:'text/html'}),'text/plain':new Blob([tsv],{type:'text/plain'})})]); else await navigator.clipboard.writeText(tsv); $('bCopy').textContent='복사됨 ('+cur.length+'건)'; setTimeout(()=>$('bCopy').textContent='상세 표 복사',1500);}catch(e){ alert('복사하지 못했습니다.'); } };
+$('bCopy').onclick=async()=>{ const tsv=[COLS,...cur.map(line)].map(r=>r.join(String.fromCharCode(9))).join(String.fromCharCode(10)); const html='<table border=1>'+'<tr>'+COLS.map(c=>'<th>'+esc(c)+'</th>').join('')+'</tr>'+cur.map(r=>'<tr>'+line(r).map(c=>'<td>'+esc(c)+'</td>').join('')+'</tr>').join('')+'</table>'; try{ if(navigator.clipboard.write&&window.ClipboardItem) await navigator.clipboard.write([new ClipboardItem({'text/html':new Blob([html],{type:'text/html'}),'text/plain':new Blob([tsv],{type:'text/plain'})})]); else await navigator.clipboard.writeText(tsv); $('bCopy').textContent='복사됨 ('+cur.length+'건)'; setTimeout(()=>$('bCopy').textContent='상세 표 복사',1500);}catch(e){ alert('복사하지 못했습니다.'); } };
 <\/script></body></html>`;
     const w = window.open('', '_blank', 'width=1300,height=900'); if (!w) { toast('새 창이 막혔습니다. 브라우저의 팝업 차단을 풀어 주세요.', true); return; }
     w.document.open(); w.document.write(html); w.document.close();
