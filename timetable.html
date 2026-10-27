@@ -239,7 +239,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = CFG.timetableAppId || 'school-timetable';
-const VERSION = 'v9.1';
+const VERSION = 'v9.2';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -1199,10 +1199,6 @@ function SubView({ mode='sub', year, bell, classList, teachers, ctt, lessons, le
       <td className="hint">{v.origin}</td><td className="hint">{v.createdBy}</td>
       <td style={{whiteSpace:'nowrap'}}>{canEdit && (ed ? <><button className="btn primary" style={{padding:'0 8px'}} onClick={async()=>{ const st = isSep ? maskStudent(document.getElementById('es'+v.id).value) : v.student; const pl = isSep ? document.getElementById('ep'+v.id).value.trim() : v.place; const wv = document.getElementById('ew'+v.id).value; const pick = candidates(v.date, v.p, v.classId).find(c=>c.whoType+'|'+c.who===wv); const who = pick ? { whoType:pick.whoType, who:pick.who, label:pick.label } : {}; await updateRec(v, { ...(isSep?{ student:st, place:pl }:{}), ...who }); setEditRow(null); toast('고쳤습니다.'); }}>저장</button> <button className="btn" style={{padding:'0 8px'}} onClick={()=>setEditRow(null)}>취소</button></> : <><button className="btn" style={{padding:'0 8px'}} onClick={()=>setEditRow(v.id)}>수정</button> <button className="btn danger" style={{padding:'0 8px'}} onClick={()=>deleteSub(v.id)}>삭제</button></>)}</td></tr>; })}
   </tbody></table>;
-  // 학급별 기록: 날짜 선택(전체 기간 포함)
-  const [classDay, setClassDay] = useState('');
-  const classDates = useMemo(() => Array.from(new Set(mineAll.map(v=>v.date))).sort().reverse(), [mineAll]);
-  const classRows = useMemo(() => classDay ? mineAll.filter(v=>v.date===classDay) : mineAll, [mineAll, classDay]);
   const [cid, setCid] = useState(defaultCid || subClasses[0] || '');
   const [sem, setSem] = useState((new Date().getMonth()+1)>=8 || (new Date().getMonth()+1)<=1 ? 2 : 1);
   const [dimPast, setDimPast] = useState(readPref('dimPast', true));
@@ -1217,6 +1213,10 @@ function SubView({ mode='sub', year, bell, classList, teachers, ctt, lessons, le
   const recsAt = key => isSep ? (subsOf[key] || []) : (subsOf[key] ? [subsOf[key]] : []);
   const othersAt = key => Object.values(others).filter(v => v.classId===cid && slotKey(v.date, v.p)===key); // 같은 칸의 다른 쪽(보결↔분리지도) 기록
   const mineAll = useMemo(() => Object.values(subsOf).flat().sort((a,b)=>b.date.localeCompare(a.date)||pOrd(a.p)-pOrd(b.p)), [subsOf]); // 이 반 기록 (최근 날짜 먼저)
+  // 학급별 기록: 날짜 선택(전체 기간 포함)
+  const [classDay, setClassDay] = useState('');
+  const classDates = useMemo(() => Array.from(new Set(mineAll.map(v=>v.date))).sort().reverse(), [mineAll]);
+  const classRows = useMemo(() => classDay ? mineAll.filter(v=>v.date===classDay) : mineAll, [mineAll, classDay]);
   // 점심 칸 위치: 이 학년군 점심 시작 전에 끝나는 마지막 교시 뒤 (예: 4교시 후 점심이면 1 2 3 4 점 5 6)
   const subPeriods = useMemo(() => { const lt = lunchTime(bell, gradeOf(cid)); if (!lt) return [...PERIODS, LUNCH]; let after = 0; for (const q of PERIODS) { const t = periodTime(bell, gradeOf(cid), q); if (t && t.e <= lt.s) after = q; } const arr = []; if (after===0) arr.push(LUNCH); for (const q of PERIODS) { arr.push(q); if (q===after) arr.push(LUNCH); } return arr; }, [bell, cid]);
   // 그 날 어떤 사람(이름표 기준)의 바쁜 시간: 전담 수업 + 이미 배정된 보결
