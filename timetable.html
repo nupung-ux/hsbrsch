@@ -239,7 +239,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = CFG.timetableAppId || 'school-timetable';
-const VERSION = 'v9.0';
+const VERSION = 'v9.1';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -1182,13 +1182,27 @@ function SubView({ mode='sub', year, bell, classList, teachers, ctt, lessons, le
   const dayRows = useMemo(() => { const d = dayPick || (sepDates.includes(TODAY) ? TODAY : sepDates[0]); if (!d) return { d:'', rows:[] };
     const rows = Object.entries(subs).filter(([k,v])=>v.date===d).map(([k,v])=>({ id:k, ...v })).sort((a,b)=>pOrd(a.p)-pOrd(b.p)||a.classId.localeCompare(b.classId));
     return { d, rows }; }, [subs, dayPick, sepDates]);
-  const copyDay = async () => { const { d, rows } = dayRows; if (!rows.length) return;
-    const head = ['날짜','학급','교시','시간','학생','분리 장소','지도 교원','원래 수업','기록자'];
-    const line = v => { const t = slotTime(bell, gradeOf(v.classId), v.p); return [fmtDate(d), classLabel(v.classId), pLabel(v.p), t?`${t.s}~${t.e}`:'', v.student||'', v.place||'', v.label, v.origin||'', v.createdBy||'']; };
+  const copyRows = async (rows, withDate) => { if (!rows.length) return;
+    const head = [...(withDate?['날짜']:[]), '학급','교시','시간', ...(isSep?['학생','분리 장소']:[]), isSep?'지도 교원':'보결 교원','원래 수업','기록자'];
+    const line = v => { const t = slotTime(bell, gradeOf(v.classId), v.p); return [...(withDate?[fmtDate(v.date)]:[]), classLabel(v.classId), pLabel(v.p), t?`${t.s}~${t.e}`:'', ...(isSep?[v.student||'', v.place||'']:[]), v.label, v.origin||'', v.createdBy||'']; };
     const tsv = [head, ...rows.map(line)].map(r=>r.join('\t')).join('\n');
     const esc = x => String(x).replace(/&/g,'&amp;').replace(/</g,'&lt;');
     const html = `<table border="1" style="border-collapse:collapse"><tr>${head.map(h=>`<th>${esc(h)}</th>`).join('')}</tr>${rows.map(v=>`<tr>${line(v).map(c=>`<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</table>`;
-    try { if (navigator.clipboard?.write && window.ClipboardItem) await navigator.clipboard.write([new ClipboardItem({ 'text/html': new Blob([html],{type:'text/html'}), 'text/plain': new Blob([tsv],{type:'text/plain'}) })]); else await navigator.clipboard.writeText(tsv); toast(`${fmtDate(d)} 분리지도 ${rows.length}건을 표로 복사했습니다. 한글, 엑셀, 구글 문서에 붙여 넣으세요.`); } catch { toast('복사하지 못했습니다. 브라우저가 막았을 수 있습니다.', true); } };
+    try { if (navigator.clipboard?.write && window.ClipboardItem) await navigator.clipboard.write([new ClipboardItem({ 'text/html': new Blob([html],{type:'text/html'}), 'text/plain': new Blob([tsv],{type:'text/plain'}) })]); else await navigator.clipboard.writeText(tsv); toast(`${rows.length}건을 표로 복사했습니다. 한글, 엑셀, 구글 문서에 붙여 넣으세요.`); } catch { toast('복사하지 못했습니다. 브라우저가 막았을 수 있습니다.', true); } };
+  const copyDay = () => copyRows(dayRows.rows, true);
+  // 기록 표 (수정·삭제 포함) — 날짜별 현황과 학급별 기록에서 함께 씀
+  const recTable = (rows, { showClass=true, showDate=false }={}) => <table className="ov" style={{marginTop:8}}><thead><tr>{showDate && <th>날짜</th>}{showClass && <th>학급</th>}<th>교시</th><th>시간</th>{isSep && <><th>학생</th><th>장소</th></>}<th>{isSep?'지도 교원':'보결'}</th><th>원래 수업</th><th>기록자</th><th></th></tr></thead><tbody>
+    {rows.map(v=>{ const t = slotTime(bell, gradeOf(v.classId), v.p); const ed = editRow===v.id; return <tr key={v.id}>{showDate && <td>{shortDate(v.date)}</td>}{showClass && <td>{classLabel(v.classId)}</td>}<td>{pLabel(v.p)}</td><td className="hint">{t?`${t.s}~${t.e}`:''}</td>
+      {isSep && <><td>{ed ? <input id={'es'+v.id} defaultValue={v.student||''} placeholder="김○○" style={{width:80,padding:'2px 5px'}}/> : (v.student||<span className="hint">-</span>)}</td>
+      <td>{ed ? <input id={'ep'+v.id} defaultValue={v.place||''} style={{width:90,padding:'2px 5px'}}/> : (v.place||<span className="hint">-</span>)}</td></>}
+      <td style={{fontWeight:700}}>{ed ? <select id={'ew'+v.id} defaultValue={v.whoType+'|'+v.who} style={{padding:'2px 4px',maxWidth:170}} title="그 시간에 비어 있는 분만 고를 수 있습니다">{(()=>{ const cs = candidates(v.date, v.p, v.classId).filter(c=>!c.busy || (c.whoType===v.whoType && String(c.who)===String(v.who))); if (!cs.some(c=>c.whoType===v.whoType && String(c.who)===String(v.who))) cs.unshift({ whoType:v.whoType, who:v.who, label:v.label, why:'현재' }); return cs.map(c=><option key={c.whoType+'|'+c.who} value={c.whoType+'|'+c.who}>{c.label}{c.same?' (동학년군)':''}</option>); })()}</select> : v.label}</td>
+      <td className="hint">{v.origin}</td><td className="hint">{v.createdBy}</td>
+      <td style={{whiteSpace:'nowrap'}}>{canEdit && (ed ? <><button className="btn primary" style={{padding:'0 8px'}} onClick={async()=>{ const st = isSep ? maskStudent(document.getElementById('es'+v.id).value) : v.student; const pl = isSep ? document.getElementById('ep'+v.id).value.trim() : v.place; const wv = document.getElementById('ew'+v.id).value; const pick = candidates(v.date, v.p, v.classId).find(c=>c.whoType+'|'+c.who===wv); const who = pick ? { whoType:pick.whoType, who:pick.who, label:pick.label } : {}; await updateRec(v, { ...(isSep?{ student:st, place:pl }:{}), ...who }); setEditRow(null); toast('고쳤습니다.'); }}>저장</button> <button className="btn" style={{padding:'0 8px'}} onClick={()=>setEditRow(null)}>취소</button></> : <><button className="btn" style={{padding:'0 8px'}} onClick={()=>setEditRow(v.id)}>수정</button> <button className="btn danger" style={{padding:'0 8px'}} onClick={()=>deleteSub(v.id)}>삭제</button></>)}</td></tr>; })}
+  </tbody></table>;
+  // 학급별 기록: 날짜 선택(전체 기간 포함)
+  const [classDay, setClassDay] = useState('');
+  const classDates = useMemo(() => Array.from(new Set(mineAll.map(v=>v.date))).sort().reverse(), [mineAll]);
+  const classRows = useMemo(() => classDay ? mineAll.filter(v=>v.date===classDay) : mineAll, [mineAll, classDay]);
   const [cid, setCid] = useState(defaultCid || subClasses[0] || '');
   const [sem, setSem] = useState((new Date().getMonth()+1)>=8 || (new Date().getMonth()+1)<=1 ? 2 : 1);
   const [dimPast, setDimPast] = useState(readPref('dimPast', true));
@@ -1202,6 +1216,7 @@ function SubView({ mode='sub', year, bell, classList, teachers, ctt, lessons, le
   const subsOf = useMemo(() => { const m = {}; for (const [k,v] of Object.entries(subs)) if (v.classId===cid) { const key = slotKey(v.date, v.p); const r = { id:k, ...v }; if (isSep) (m[key] = m[key] || []).push(r); else m[key] = r; } return m; }, [subs, cid]);
   const recsAt = key => isSep ? (subsOf[key] || []) : (subsOf[key] ? [subsOf[key]] : []);
   const othersAt = key => Object.values(others).filter(v => v.classId===cid && slotKey(v.date, v.p)===key); // 같은 칸의 다른 쪽(보결↔분리지도) 기록
+  const mineAll = useMemo(() => Object.values(subsOf).flat().sort((a,b)=>b.date.localeCompare(a.date)||pOrd(a.p)-pOrd(b.p)), [subsOf]); // 이 반 기록 (최근 날짜 먼저)
   // 점심 칸 위치: 이 학년군 점심 시작 전에 끝나는 마지막 교시 뒤 (예: 4교시 후 점심이면 1 2 3 4 점 5 6)
   const subPeriods = useMemo(() => { const lt = lunchTime(bell, gradeOf(cid)); if (!lt) return [...PERIODS, LUNCH]; let after = 0; for (const q of PERIODS) { const t = periodTime(bell, gradeOf(cid), q); if (t && t.e <= lt.s) after = q; } const arr = []; if (after===0) arr.push(LUNCH); for (const q of PERIODS) { arr.push(q); if (q===after) arr.push(LUNCH); } return arr; }, [bell, cid]);
   // 그 날 어떤 사람(이름표 기준)의 바쁜 시간: 전담 수업 + 이미 배정된 보결
@@ -1296,7 +1311,6 @@ function SubView({ mode='sub', year, bell, classList, teachers, ctt, lessons, le
     if (cell.k==='e') return { text: cell.t, cls:'e subable'+(ot?' hasother':''), title:`행사 · 누르면 ${KIND} 배정${otTitle}` };
     return { text: cell.t, cls:'faint subable'+(ot?' hasother':''), title:`담임 수업 · 누르면 ${KIND} 배정${otTitle}` };
   };
-  const mine = Object.values(subsOf).flat().sort((a,b)=>a.date.localeCompare(b.date)||pOrd(a.p)-pOrd(b.p));
   // 횟수 범위: 보결은 이 학기, 분리지도는 1·2학기 전체(학년도)
   const yearRange = useMemo(() => { const ws = [1,2].flatMap(k=>year.semesters?.[k]?.weeks||[]); if (!ws.length) return null; const st = ws.map(w=>w.start).sort(); return { a: st[0], b: addDays(st.at(-1), 7) }; }, [year]);
   const byWho = useMemo(() => { const m = {}; const w = year.semesters?.[sem]?.weeks||[]; const rng = isSep ? yearRange : (w.length ? { a: w[0].start, b: addDays(w.at(-1).start,7) } : null); if (!rng) return [];
@@ -1321,19 +1335,13 @@ function SubView({ mode='sub', year, bell, classList, teachers, ctt, lessons, le
         <div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}><h3 style={{margin:0}}>날짜별 현황 (전체 학급)</h3>
           <select value={dayRows.d} onChange={e=>setDayPick(e.target.value)} style={{padding:'4px 8px',border:'1px solid var(--line-strong)',borderRadius:6}}>{!sepDates.length && <option value="">기록 없음</option>}{sepDates.map(d=><option key={d} value={d}>{fmtDate(d)} ({Object.values(subs).filter(v=>v.date===d).length}건)</option>)}</select>
           <button className="btn primary" disabled={!dayRows.rows.length} onClick={copyDay}>표로 복사</button></div><div className="hint" style={{marginTop:4}}>[표로 복사] 뒤 한글, 엑셀, 구글 문서에 붙여 넣으면 표로 들어갑니다 (분리대장 작성용).</div>
-        {dayRows.rows.length>0 && <table className="ov" style={{marginTop:8}}><thead><tr><th>학급</th><th>교시</th><th>시간</th><th>학생</th><th>분리 장소</th><th>지도 교원</th><th>원래 수업</th><th>기록자</th><th></th></tr></thead><tbody>
-          {dayRows.rows.map(v=>{ const t = slotTime(bell, gradeOf(v.classId), v.p); const ed = editRow===v.id; return <tr key={v.id}><td>{classLabel(v.classId)}</td><td>{pLabel(v.p)}</td><td>{t?`${t.s}~${t.e}`:''}</td>
-            <td>{ed ? <input id={'es'+v.id} defaultValue={v.student||''} placeholder="김○○" style={{width:90,padding:'2px 5px'}}/> : (v.student||<span className="hint">-</span>)}</td>
-            <td>{ed ? <input id={'ep'+v.id} defaultValue={v.place||''} style={{width:110,padding:'2px 5px'}}/> : (v.place||<span className="hint">-</span>)}</td>
-            <td style={{fontWeight:700}}>{ed ? <select id={'ew'+v.id} defaultValue={v.whoType+'|'+v.who} style={{padding:'2px 4px',maxWidth:200}} title="그 시간에 비어 있는 분만 고를 수 있습니다">{(()=>{ const cs = candidates(v.date, v.p, v.classId).filter(c=>!c.busy || (c.whoType===v.whoType && String(c.who)===String(v.who))); if (!cs.some(c=>c.whoType===v.whoType && String(c.who)===String(v.who))) cs.unshift({ whoType:v.whoType, who:v.who, label:v.label, why:'현재' }); return cs.map(c=><option key={c.whoType+'|'+c.who} value={c.whoType+'|'+c.who}>{c.label}{c.same?' (동학년군)':''}{c.why && c.why!=='수업 없음' ? ' — '+c.why : ''}</option>); })()}</select> : v.label}</td><td className="hint">{v.origin}</td><td className="hint">{v.createdBy}</td>
-            <td style={{whiteSpace:'nowrap'}}>{canEdit && (ed ? <><button className="btn primary" style={{padding:'0 8px'}} onClick={async()=>{ const st = maskStudent(document.getElementById('es'+v.id).value); const pl = document.getElementById('ep'+v.id).value.trim(); const wv = document.getElementById('ew'+v.id).value; const cs = candidates(v.date, v.p, v.classId); const pick = cs.find(c=>c.whoType+'|'+c.who===wv); const who = pick ? { whoType:pick.whoType, who:pick.who, label:pick.label } : {}; await updateRec(v, { student:st, place:pl, ...who }); setEditRow(null); toast('고쳤습니다.'); }}>저장</button> <button className="btn" style={{padding:'0 8px'}} onClick={()=>setEditRow(null)}>취소</button></> : <><button className="btn" style={{padding:'0 8px'}} onClick={()=>setEditRow(v.id)}>수정</button> <button className="btn danger" style={{padding:'0 8px'}} onClick={()=>deleteSub(v.id)}>삭제</button></>)}</td></tr>; })}
-        </tbody></table>}
+        {dayRows.rows.length>0 && recTable(dayRows.rows, { showClass:true })}
       </div>}
-        <div className="card"><h3>{classLabel(cid)} {KIND} 기록 <span className="hint" style={{fontWeight:400}}>({mine.length})</span></h3>
-          {!mine.length ? <p className="hint" style={{margin:0}}>아직 없습니다.</p>
-          : <table className="ov"><thead><tr><th>날짜</th><th>교시</th><th>{isSep?'지도 교원':'보결'}</th>{isSep && <th>학생 · 장소</th>}<th>원래 수업</th><th></th></tr></thead><tbody>
-            {mine.map(v=><tr key={v.id}><td>{shortDate(v.date)}</td><td>{pLabel(v.p)}</td><td style={{fontWeight:700}}>{v.label}</td>{isSep && <td>{[v.student, v.place].filter(Boolean).join(' · ')||<span className="hint">-</span>}</td>}<td className="hint">{v.origin}</td><td>{canEdit && <button className="btn danger" style={{padding:'0 6px'}} onClick={()=>deleteSub(v.id)}>삭제</button>}</td></tr>)}
-          </tbody></table>}
+        <div className="card">
+          <div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}><h3 style={{margin:0}}>{classLabel(cid)} {KIND} 기록 <span className="hint" style={{fontWeight:400}}>({classRows.length}{classDay?`/${mineAll.length}`:''})</span></h3>
+            <select value={classDay} onChange={e=>setClassDay(e.target.value)} style={{padding:'4px 8px',border:'1px solid var(--line-strong)',borderRadius:6}}><option value="">전체 기간 ({mineAll.length}건)</option>{classDates.map(d=><option key={d} value={d}>{fmtDate(d)} ({mineAll.filter(v=>v.date===d).length}건)</option>)}</select>
+            <button className="btn primary" disabled={!classRows.length} onClick={()=>copyRows(classRows, true)}>표로 복사</button></div>
+          {!classRows.length ? <p className="hint" style={{margin:'8px 0 0'}}>아직 없습니다.</p> : recTable(classRows, { showClass:false, showDate:true })}
         </div>
         <div className="card"><h3>{isSep ? `${year.year}학년도 분리지도 횟수` : `${sem}학기 보결 횟수`} <span className="hint" style={{fontWeight:400}}>({isSep?'1·2학기 합산, 전체 학급':'전체 학급'})</span></h3>
           {!byWho.length ? <p className="hint" style={{margin:0}}>아직 없습니다.</p>
