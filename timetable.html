@@ -239,7 +239,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = CFG.timetableAppId || 'school-timetable';
-const VERSION = 'v9.5';
+const VERSION = 'v9.6';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -1353,7 +1353,10 @@ $('bCopy').onclick=async()=>{ const tsv=[COLS,...cur.map(line)].map(r=>r.join(St
   // 횟수 범위: 보결은 이 학기, 개별지도는 1·2학기 전체(학년도)
   const yearRange = useMemo(() => { const ws = [1,2].flatMap(k=>year.semesters?.[k]?.weeks||[]); if (!ws.length) return null; const st = ws.map(w=>w.start).sort(); return { a: st[0], b: addDays(st.at(-1), 7) }; }, [year]);
   const byWho = useMemo(() => { const m = {}; const w = year.semesters?.[sem]?.weeks||[]; const rng = isSep ? yearRange : (w.length ? { a: w[0].start, b: addDays(w.at(-1).start,7) } : null); if (!rng) return [];
-    for (const v of Object.values(subs)) if (v.date>=rng.a && v.date<rng.b) (m[v.label]=m[v.label]||[]).push(v); return Object.entries(m).sort((a,b)=>b[1].length-a[1].length); }, [subs, year, sem, isSep, yearRange]);
+    for (const v of Object.values(subs)) if (v.date>=rng.a && v.date<rng.b) (m[v.label]=m[v.label]||[]).push(v);
+    // 정렬: 담임(학년반 순) → 전담(이름 순) → 추가 인원
+    const key = ([label, arr]) => { const v = arr[0]; if (v.whoType==='class') { const [g,c] = String(v.who).split('-').map(Number); return [0, g*100+c, label]; } if (v.whoType==='teacher') return [1, 0, label]; return [2, 0, label]; };
+    return Object.entries(m).sort((a,b)=>{ const ka=key(a), kb=key(b); return ka[0]-kb[0] || ka[1]-kb[1] || String(ka[2]).localeCompare(String(kb[2])); }); }, [subs, year, sem, isSep, yearRange]);
   return <div style={fixedStyle}>
     <div className="fixedhead" ref={headRef}><div className="bar">
       <label>학급 <select value={cid} onChange={e=>setCid(e.target.value)}>{subClasses.map(c=><option key={c} value={c}>{classLabel(c)}</option>)}</select></label>
@@ -1385,7 +1388,7 @@ $('bCopy').onclick=async()=>{ const tsv=[COLS,...cur.map(line)].map(r=>r.join(St
         </div>
         <div className="card"><h3>{isSep ? `${year.year}학년도 개별지도 횟수` : `${sem}학기 보결 횟수`} <span className="hint" style={{fontWeight:400}}>({isSep?'1·2학기 합산, 전체 학급':'전체 학급'})</span></h3>
           {!byWho.length ? <p className="hint" style={{margin:0}}>아직 없습니다.</p>
-          : <table className="ov"><tbody>{byWho.map(([w,arr])=><tr key={w}><td style={{textAlign:'left',fontWeight:700,whiteSpace:'nowrap'}}>{w}</td><td style={{fontWeight:700,width:40}}>{arr.length}</td><td className="hint" style={{textAlign:'left'}}>{arr.sort((a,b)=>a.date.localeCompare(b.date)).map(v=>`${shortDate(v.date)} ${classCode(v.classId)}`).join(', ')}</td></tr>)}</tbody></table>}
+          : <table className="ov"><thead><tr><th>{isSep?'지도 교사':'보결 교사'}</th><th style={{width:44}}>횟수</th><th>날짜 (학급)</th></tr></thead><tbody>{byWho.map(([w,arr])=><tr key={w}><td style={{textAlign:'left',fontWeight:700,whiteSpace:'nowrap'}}>{w}</td><td style={{fontWeight:700}}>{arr.length}</td><td className="hint" style={{textAlign:'left'}}>{arr.sort((a,b)=>a.date.localeCompare(b.date)).map(v=>`${shortDate(v.date)} ${classCode(v.classId)}`).join(', ')}</td></tr>)}</tbody></table>}
         </div>
       </div></div>
     </div>}
