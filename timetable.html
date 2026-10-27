@@ -239,7 +239,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = CFG.timetableAppId || 'school-timetable';
-const VERSION = 'v8.9';
+const VERSION = 'v9.0';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -1216,7 +1216,7 @@ function SubView({ mode='sub', year, bell, classList, teachers, ctt, lessons, le
   const lecAt = useMemo(() => { const m = {}; for (const lec of Object.values(lectures)) for (const sl of (lec.slots||[])) if (sl.classId===cid) m[slotKey(sl.date, sl.p)] = lec; return m; }, [lectures, cid]);
   const shortWho = v => v.whoType==='class' ? classCode(v.who) : v.label.slice(0,3);
   // 학기 보결 횟수 (공평 분배 참고)
-  const counts = useMemo(() => { const c = {}; const w = year.semesters?.[sem]?.weeks||[]; if (!w.length) return c; const a = w[0].start, b = addDays(w.at(-1).start, 7); for (const v of Object.values(subs)) if (v.date>=a && v.date<b) c[v.label]=(c[v.label]||0)+1; return c; }, [subs, year, sem]);
+  const counts = useMemo(() => { const c = {}; const w = year.semesters?.[sem]?.weeks||[]; let a, b; if (isSep) { const ws = [1,2].flatMap(k=>year.semesters?.[k]?.weeks||[]); if (!ws.length) return c; const st = ws.map(x=>x.start).sort(); a = st[0]; b = addDays(st.at(-1), 7); } else { if (!w.length) return c; a = w[0].start; b = addDays(w.at(-1).start, 7); } for (const v of Object.values(subs)) if (v.date>=a && v.date<b) c[v.label]=(c[v.label]||0)+1; return c; }, [subs, year, sem, isSep]);
   // 후보 계산: 날짜·교시에 비어 있는 사람
   const candidates = (date, p, cc = cid, L = lessons[`${cc}_${sem}`]?.slots || {}) => {
     const sameGroup = new Set((bellGroup(bell, gradeOf(cc))?.grades)||[]);
@@ -1276,7 +1276,7 @@ function SubView({ mode='sub', year, bell, classList, teachers, ctt, lessons, le
         <input ref={studentRef} defaultValue="" placeholder="학생 — 김○○ 또는 번호 (선택)" style={{flex:1,padding:6,border:'1px solid var(--line-strong)',borderRadius:6}}/>
         <input ref={placeRef} defaultValue={cur?.place || ''} placeholder="분리 장소 (예: 학운위실)" style={{flex:1,padding:6,border:'1px solid var(--line-strong)',borderRadius:6}}/>
       </div><div className="hint" style={{marginTop:3,color:'var(--danger)'}}>개인정보 보호: 학생 이름 전체를 쓰지 말고 <b>김○○</b>처럼 성만 쓰거나 번호로 적어 주세요. 전체 이름으로 보이면 자동으로 김○○ 형태로 바꿔 저장합니다.</div></div>}
-      <div className="hint" style={{marginBottom:6}}>{p===LUNCH ? `점심시간 ${KIND}는 담임을 빼고 전담과 추가 인원만 나옵니다. ` : ''}{isSep ? '같은 학년군에서 수업이 없는 분이 먼저(1순위), 그다음 다른 학년 담임과 전담입니다. ' : '비어 있는 분부터 보입니다. '}보결이나 분리지도에 이미 들어간 분, 자기 반에 보결이 잡힌 담임은 빠지거나 회색입니다. 숫자는 이번 학기 {KIND} 횟수.{lunchMin>0 && ` 맡으면 본인 점심 ${lunchMin}분이 남지 않는 분도 회색입니다.`}</div>
+      <div className="hint" style={{marginBottom:6}}>{p===LUNCH ? `점심시간 ${KIND}는 담임을 빼고 전담과 추가 인원만 나옵니다. ` : ''}{isSep ? '같은 학년군에서 수업이 없는 분이 먼저(1순위), 그다음 다른 학년 담임과 전담입니다. ' : '비어 있는 분부터 보입니다. '}보결이나 분리지도에 이미 들어간 분, 자기 반에 보결이 잡힌 담임은 빠지거나 회색입니다. 숫자는 {isSep?'올해(1·2학기)':'이번 학기'} {KIND} 횟수.{lunchMin>0 && ` 맡으면 본인 점심 ${lunchMin}분이 남지 않는 분도 회색입니다.`}</div>
       <div style={{display:'flex',flexDirection:'column',gap:4}}>
         {sorted.map((c,i)=><button key={i} className="btn" disabled={c.busy} style={{textAlign:'left',display:'flex',gap:10,alignItems:'center',background:c.busy?'#f3f3f1':'#fff'}} onClick={async()=>{ const extraF = isSep ? { student: maskStudent(studentRef.current?.value), place: placeRef.current?.value.trim()||'' } : {}; await saveSub(isSep ? `${cid}_${date}_${p}_${Date.now().toString(36)}` : `${cid}_${date}_${p}`, { classId:cid, date, p, sem, whoType:c.whoType, who:c.who, label:c.label, ...extraF, absent: (p!==LUNCH && les) ? 'teacher' : 'class', origin: p===LUNCH ? '점심 지도' : les ? `${les.t} ${tById[les.teacherId]?.name||''}` : lec ? lecName(lec) : '담임' }); setModal(null); toast(`${c.label} ${KIND}로 배정했습니다.`); }}>
           <b style={{minWidth:90}}>{c.label}</b>{isSep && c.same && !c.busy && <span className="tag">동학년군</span>}<span className="hint" style={{flex:1}}>{c.why}</span><span className="tag">{counts[c.label]||0}</span></button>)}
@@ -1297,7 +1297,10 @@ function SubView({ mode='sub', year, bell, classList, teachers, ctt, lessons, le
     return { text: cell.t, cls:'faint subable'+(ot?' hasother':''), title:`담임 수업 · 누르면 ${KIND} 배정${otTitle}` };
   };
   const mine = Object.values(subsOf).flat().sort((a,b)=>a.date.localeCompare(b.date)||pOrd(a.p)-pOrd(b.p));
-  const byWho = useMemo(() => { const m = {}; for (const v of Object.values(subs)) { const w = year.semesters?.[sem]?.weeks||[]; if (!w.length) continue; if (v.date>=w[0].start && v.date<addDays(w.at(-1).start,7)) (m[v.label]=m[v.label]||[]).push(v); } return Object.entries(m).sort((a,b)=>b[1].length-a[1].length); }, [subs, year, sem]);
+  // 횟수 범위: 보결은 이 학기, 분리지도는 1·2학기 전체(학년도)
+  const yearRange = useMemo(() => { const ws = [1,2].flatMap(k=>year.semesters?.[k]?.weeks||[]); if (!ws.length) return null; const st = ws.map(w=>w.start).sort(); return { a: st[0], b: addDays(st.at(-1), 7) }; }, [year]);
+  const byWho = useMemo(() => { const m = {}; const w = year.semesters?.[sem]?.weeks||[]; const rng = isSep ? yearRange : (w.length ? { a: w[0].start, b: addDays(w.at(-1).start,7) } : null); if (!rng) return [];
+    for (const v of Object.values(subs)) if (v.date>=rng.a && v.date<rng.b) (m[v.label]=m[v.label]||[]).push(v); return Object.entries(m).sort((a,b)=>b[1].length-a[1].length); }, [subs, year, sem, isSep, yearRange]);
   return <div style={fixedStyle}>
     <div className="fixedhead" ref={headRef}><div className="bar">
       <label>학급 <select value={cid} onChange={e=>setCid(e.target.value)}>{subClasses.map(c=><option key={c} value={c}>{classLabel(c)}</option>)}</select></label>
@@ -1332,7 +1335,7 @@ function SubView({ mode='sub', year, bell, classList, teachers, ctt, lessons, le
             {mine.map(v=><tr key={v.id}><td>{shortDate(v.date)}</td><td>{pLabel(v.p)}</td><td style={{fontWeight:700}}>{v.label}</td>{isSep && <td>{[v.student, v.place].filter(Boolean).join(' · ')||<span className="hint">-</span>}</td>}<td className="hint">{v.origin}</td><td>{canEdit && <button className="btn danger" style={{padding:'0 6px'}} onClick={()=>deleteSub(v.id)}>삭제</button>}</td></tr>)}
           </tbody></table>}
         </div>
-        <div className="card"><h3>{sem}학기 {KIND} 횟수 <span className="hint" style={{fontWeight:400}}>(전체)</span></h3>
+        <div className="card"><h3>{isSep ? `${year.year}학년도 분리지도 횟수` : `${sem}학기 보결 횟수`} <span className="hint" style={{fontWeight:400}}>({isSep?'1·2학기 합산, 전체 학급':'전체 학급'})</span></h3>
           {!byWho.length ? <p className="hint" style={{margin:0}}>아직 없습니다.</p>
           : <table className="ov"><tbody>{byWho.map(([w,arr])=><tr key={w}><td style={{textAlign:'left',fontWeight:700,whiteSpace:'nowrap'}}>{w}</td><td style={{fontWeight:700,width:40}}>{arr.length}</td><td className="hint" style={{textAlign:'left'}}>{arr.sort((a,b)=>a.date.localeCompare(b.date)).map(v=>`${shortDate(v.date)} ${classCode(v.classId)}`).join(', ')}</td></tr>)}</tbody></table>}
         </div>
