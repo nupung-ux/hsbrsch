@@ -1063,6 +1063,10 @@
           showToast("날짜와 교육활동내용은 필수입니다.", "error");
           return;
         }
+        if (!formData.department) {
+          showToast("부서를 선택해 주세요.", "error");
+          return;
+        }
 
         try {
           const cleanFormData = { ...formData };
@@ -2063,7 +2067,7 @@
                     <div>
                       <label className="flex items-center space-x-2 cursor-pointer mb-2">
                         <input type="checkbox" name="isRepeating" checked={formData.isRepeating} onChange={handleInputChange} className="rounded text-blue-600 focus:ring-blue-500" />
-                        <span className="text-sm font-medium text-gray-700">기간 선택 (요일 미선택 시 매일 반복)</span>
+                        <span className="text-sm font-medium text-gray-700">반복 일정 (기간을 정하고 요일을 고르세요. 요일 미선택 시 매일 반복)</span>
                       </label>
                       
                       {formData.isRepeating && (
@@ -2099,7 +2103,7 @@
 
                 <div>
                   <div className="flex items-center justify-between mb-2">
-                    <label className="block text-sm font-semibold text-gray-700">부서</label>
+                    <label className="block text-sm font-semibold text-gray-700">부서 <span className="text-red-500">*</span></label>
                     {formData.department && (
                       <button type="button" onClick={() => setFormData(prev => ({ ...prev, department: '' }))} className="text-xs text-gray-500 hover:text-gray-700 underline">
                         선택 해제
