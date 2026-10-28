@@ -234,12 +234,15 @@ const SCHOOL = CFG.schoolName || '우리 학교';
 const SHOW_PLAN_TAB = CFG.showCalendarTab !== false;
 const CAL_APP_ID = CFG.calendarAppId || 'school-calendar';
 document.title = `${SCHOOL} 통합 시간표`;
+// 브라우저 탭 아이콘: 학년도 설정에서 올린 마크 > config.js의 logoUrl
+const setFavicon = src => { if (!src) return; let l = document.querySelector('link[rel="icon"]'); if (!l) { l = document.createElement('link'); l.rel = 'icon'; document.head.appendChild(l); } if (l.href !== src) l.href = src; };
+setFavicon(CFG.logoUrl);
 const firebaseConfig = CONFIG_OK ? CFG.firebase : { apiKey:'x', authDomain:'x', projectId:'x', appId:'x' };
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = CFG.timetableAppId || 'school-timetable';
-const VERSION = 'v9.6';
+const VERSION = 'v9.7';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -478,6 +481,7 @@ function App() {
   const [undoN, setUndoN] = useState(0);
 
   useEffect(() => { onAuthStateChanged(auth, u => { setUser(u); if (!u) signInAnonymously(auth).catch(e=>console.error(e)); }); }, []);
+  useEffect(() => { setFavicon(year?.logo || CFG.logoUrl); }, [year?.logo]);
   useEffect(() => { const f = () => { const el = document.querySelector('.top'); if (el) document.documentElement.style.setProperty('--topbar', el.offsetHeight+'px'); }; f(); addEventListener('resize', f); const t = setInterval(f, 1000); return () => { removeEventListener('resize', f); clearInterval(t); }; }, []);
   useEffect(() => { if (!user) return;
     const un = [
