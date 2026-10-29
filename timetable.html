@@ -249,7 +249,7 @@ const ROOM = SANDBOX ? (new URLSearchParams(location.search).get('room') || '').
 const APP_ID = SANDBOX ? (ROOM ? `${SANDBOX_BASE}-${ROOM}` : SANDBOX_BASE) : (CFG.timetableAppId || 'school-timetable');
 if (SANDBOX) document.title = `[연습용] ${document.title}`;
 if (SANDBOX) document.body.classList.add('sandbox');
-const VERSION = 'v10.1';
+const VERSION = 'v10.2';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -600,8 +600,9 @@ function App() {
   useEffect(() => { if (!user || !year) return; return onSnapshot(query(calCol()), s => { const a=[]; s.forEach(d=>a.push({ id:d.id, ...d.data() })); a.sort((x,y)=>(x.date||'').localeCompare(y.date||'')); setCalEvents(a); }); }, [user, calAppId]);
   const email = user && !user.isAnonymous ? user.email : null;
   const accountRole = email ? roles[email] : null;            // 구글 계정에 연결된 역할
-  const [deviceRole, setDeviceRoleState] = useState(() => { try { return JSON.parse(localStorage.getItem('tt_device_role')||'null'); } catch { return null; } }); // 이 컴퓨터에 저장된 역할
-  const setDeviceRole = r => { try { r ? localStorage.setItem('tt_device_role', JSON.stringify(r)) : localStorage.removeItem('tt_device_role'); } catch {} setDeviceRoleState(r); };
+  const ROLE_KEY = SANDBOX ? `tt_device_role_${APP_ID}` : 'tt_device_role'; // 연습용 방은 실제 화면의 컴퓨터 역할과 따로
+  const [deviceRole, setDeviceRoleState] = useState(() => { try { return JSON.parse(localStorage.getItem(ROLE_KEY)||'null'); } catch { return null; } }); // 이 컴퓨터에 저장된 역할
+  const setDeviceRole = r => { try { r ? localStorage.setItem(ROLE_KEY, JSON.stringify(r)) : localStorage.removeItem(ROLE_KEY); } catch {} setDeviceRoleState(r); };
   const realRole = accountRole || deviceRole;                  // 계정 역할이 있으면 우선, 없으면 컴퓨터 역할
   const roleSource = accountRole ? 'account' : deviceRole ? 'device' : null;
   const [tryRole, setTryRole] = useState(null); // 관리자용 역할 체험 (담임 4-1, 전담 ○○○ 으로 보기)
@@ -1108,7 +1109,7 @@ function ClassView({ year, classList, teachers, ctt, lessons, lectures, canEditC
     if (!edit) { toast('이 학급의 시간표를 올릴 권한이 없습니다.'); return; }
     if (!files.length) { if (all.some(f=>/\.hwp$/i.test(f.name))) setModal({ type:'confirm', title:'hwp 파일은 올릴 수 없습니다', body:<p>한글에서 <b>다른 이름으로 저장 → 파일 형식 「HWPX 문서 (*.hwpx)」</b>로 저장한 뒤 올려 주세요.</p>, actions:[{label:'닫기',on:()=>setModal(null)},{label:'올리는 방법 보기',primary:true,on:()=>setModal({type:'uploadHelp'})}] }); else toast('hwpx 파일만 올릴 수 있습니다.'); return; }
     onUpload(files); };
-  useEffect(()=>{ if (!cid && classList.length) setCid(classList[0]); }, [classList]);
+  useEffect(()=>{ if (classList.length && (!cid || !classList.includes(cid))) setCid(myClasses[0] || classList[0]); }, [classList]);
   useEffect(()=>{ if (cid) history.replaceState(null,'',`#/class/${cid}`); }, [cid]);
   const id = `${cid}_${sem}`; const T = ctt[id]; const L = lessons[id]?.slots || {};
   const edit = canEditClass(cid);
@@ -1187,7 +1188,7 @@ function TeacherView({ year, teachers, ctt, lessons, lectures, canEditTeacher, r
   const [tid, setTid] = useState(location.hash.match(/#\/teacher\/([^/]+)/)?.[1] || defaultTid || mineT[0]?.id || teachers[0]?.id || '');
   const [sem, setSem] = useState(() => semOfToday(year));
   const dragRef = useRef(null);
-  useEffect(()=>{ if (!tid && teachers.length) setTid(teachers[0].id); }, [teachers]);
+  useEffect(()=>{ if (teachers.length && (!tid || !teachers.some(x=>x.id===tid))) setTid(mineT[0]?.id || teachers[0].id); }, [teachers]);
   useEffect(()=>{ if (tid) history.replaceState(null,'',`#/teacher/${tid}`); }, [tid]);
   const t = teachers.find(x=>x.id===tid);
   const edit = canEditTeacher(tid);
