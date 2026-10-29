@@ -243,11 +243,13 @@ const firebaseConfig = CONFIG_OK ? CFG.firebase : { apiKey:'x', authDomain:'x', 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-const APP_ID = CFG.timetableAppId || 'school-timetable';
 const SANDBOX = !!CFG.sandbox; // 연습용 페이지: 데이터 저장 공간이 따로이고 월간운영계획과 연동하지 않음
+const SANDBOX_BASE = CFG.timetableAppId || 'school-timetable-sandbox';
+const ROOM = SANDBOX ? (new URLSearchParams(location.search).get('room') || '').replace(/[^a-z0-9]/gi,'').slice(0,12) : '';
+const APP_ID = SANDBOX ? (ROOM ? `${SANDBOX_BASE}-${ROOM}` : SANDBOX_BASE) : (CFG.timetableAppId || 'school-timetable');
 if (SANDBOX) document.title = `[연습용] ${document.title}`;
 if (SANDBOX) document.body.classList.add('sandbox');
-const VERSION = 'v10.0';
+const VERSION = 'v10.1';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -457,6 +459,84 @@ function Modal({ title, children, onClose, wide }) {
 function useToast(){ const [t,setT]=useState(null); const show=(msg,err)=>{ setT({msg,err}); setTimeout(()=>setT(null),2600); }; const el = t ? <div className={'toast'+(t.err?' err':'')}>{t.msg}</div> : null; return [show, el]; }
 
 // ---------- 메인 ----------
+// ---------- 연습용: 방 목록과 초기 데이터 ----------
+const roomsRef = () => doc(db, 'artifacts', SANDBOX_BASE, 'public', 'data', 'settings', 'rooms');
+const mondayOnOrAfter = iso => { const k = (new Date(iso+'T00:00:00').getDay()+6)%7; return addDays(iso, k===0 ? 0 : 7-k); };
+const mondayOf = iso => { const k = (new Date(iso+'T00:00:00').getDay()+6)%7; return addDays(iso, -k); };
+async function seedSandbox(roomName) {
+  const y = Number(TODAY.slice(0,4)) - (Number(TODAY.slice(5,7)) < 3 ? 1 : 0);
+  const w1 = makeWeeks(mondayOnOrAfter(`${y}-03-02`), 18), w2 = makeWeeks(mondayOnOrAfter(`${y}-08-24`), 20);
+  const grades = {1:4,2:4,3:4,4:4,5:4,6:4};
+  const classes = []; for (let g=1; g<=6; g++) for (let c=1; c<=4; c++) classes.push(`${g}-${c}`);
+  const rooms = ['과학실','음악실','체육관','영어실','컴퓨터실'].map(name=>({name}));
+  const year = { year: y, domain: '', grades, kinder: 0, rooms, extraSubs: '교감, 교장', lunchMin: 30, bell: DEFAULT_BELL, calendarTarget: 'test', semesters: { 1:{ weeks: w1 }, 2:{ weeks: w2 } }, semStart: {1: w1[0].start, 2: w2[0].start}, semCount: {1:18, 2:20}, roomName };
+  const T = (id, name, color, subject, cls, hours, room) => ({ id, name, color, type:'normal', subjects:[{ subject, coverage:'full', classes: cls, semHours1: String(hours), semHours2: String(hours), hoursMode:'sem', room }] });
+  const g = n => classes.filter(c => gradeOf(c)===String(n));
+  const teachers = [ T('t46s','46과학','#fff3b0','과',[...g(4),...g(6)],2,'과학실'), T('t35s','35과학','#ffe4b3','과',[...g(3),...g(5)],2,'과학실'), T('tche','체육','#bfe6ff','체',[...g(3),...g(4),...g(5),...g(6)],1,'체육관'), T('t35e','35영어','#d5f5d0','영',[...g(3),...g(5)],1,'영어실'), T('t46e','46영어','#e8dcff','영',[...g(4),...g(6)],1,'영어실') ];
+  // 전담 시간 배치 (요일 0~4, 교시) — 같은 전담이 같은 시간에 두 반을 맡지 않도록 고정 배치
+  const S = {}; const put = (cid, tid, letter, slots) => (S[cid] = S[cid]||[]).push(...slots.map(([d,p])=>({ d, p, tid, letter })));
+  [...g(4),...g(6)].forEach((c,k)=> put(c,'t46s','과', k<5 ? [[k,1],[k,2]] : [[k-5,3],[k-5,4]]));
+  [...g(3),...g(5)].forEach((c,k)=> put(c,'t35s','과', k<5 ? [[k,1],[k,2]] : [[k-5,3],[k-5,4]]));
+  [...g(3),...g(4),...g(5),...g(6)].forEach((c,k)=> put(c,'tche','체', k<5 ? [[k,3]] : k<10 ? [[k-5,4]] : k<15 ? [[k-10,5]] : [[0,6]]));
+  const engA = { 0:[0,5],1:[1,5],2:[2,5],3:[3,5],4:[4,5],5:[0,6],6:[1,6],7:[3,6] }, engB = { ...engA, 7:[4,6] };
+  [...g(3),...g(5)].forEach((c,k)=> put(c,'t35e','영',[engA[k]])); [...g(4),...g(6)].forEach((c,k)=> put(c,'t46e','영',[engB[k]]));
+  const ppd = { 1:[5,4,5,4,4], 2:[5,4,5,4,4], 3:[5,5,6,5,5], 4:[5,5,6,5,5], 5:[6,6,5,6,6], 6:[6,6,5,6,6] };
+  const fill = { 1:'국국국국국국수수수수바바슬슬슬즐즐즐즐창창', 2:'국국국국국국수수수수바바슬슬슬즐즐즐즐창창', 3:'국국국국국수수수수사사사도과체체체음음미미자자', 4:'국국국국국수수수수사사사도과체체체음음미미자자', 5:'국국국국국수수수수사사사도과실실체음음미미자자동', 6:'국국국국국수수수수사사사도과실실체음음미미자자동' };
+  const holidays = new Set([`${y}-05-05`,`${y}-06-06`,`${y}-08-15`,`${y}-10-03`,`${y}-10-09`,`${y}-12-25`,`${y+1}-01-01`]);
+  const nextMon = addDays(mondayOf(TODAY), 7), thisMon = mondayOf(TODAY);
+  const writes = [];
+  for (const cid of classes) { const gr = Number(gradeOf(cid)); const pat = {}; for (const x of (S[cid]||[])) pat[`${x.d}_${x.p}`] = x; const f = fill[gr]; let fi = 0;
+    for (const [sem, weeks] of [[1,w1],[2,w2]]) { const cells = {}, slots = {};
+      for (const w of weeks) for (let d=0; d<5; d++) { const date = addDays(w.start, d); const hol = holidays.has(date);
+        for (const p of PERIODS) { const key = slotKey(date, p); if (p > ppd[gr][d]) continue; if (hol) { cells[key] = { t:'휴', k:'h' }; continue; }
+          const x = pat[`${d}_${p}`]; if (x) { cells[key] = { t:x.letter, k:'n' }; slots[key] = { teacherId: x.tid, t: x.letter, from: 'seed' }; } else { cells[key] = { t: f[fi % f.length], k:'n' }; fi++; } } }
+      // 행사 시간 두 칸 (다음 주 수요일 5교시, 그다음 주 금요일 4교시)
+      for (const [dd, pp, ev] of [[addDays(nextMon,2),5,'학예회 연습'],[addDays(nextMon,11),4,'학급 행사']]) { const k = slotKey(dd,pp); if (cells[k] && cells[k].k==='n') cells[k] = { ...cells[k], k:'e', ev }; }
+      writes.push(setDoc(dref('class_timetables', `${cid}_${sem}`), { classId: cid, sem, year: y, weeks, cells, totals: {}, source: 'seed', uploadedAt: nowIso(), uploadedBy: '연습용 초기 자료' }));
+      writes.push(setDoc(dref('lessons', `${cid}_${sem}`), { classId: cid, sem, slots, updatedAt: nowIso(), updatedBy: '연습용 초기 자료' })); } }
+  await Promise.all(writes);
+  await setDoc(sref('year'), year); await setDoc(sref('teachers'), { list: teachers }); await setDoc(sref('roles'), { byEmail: {} });
+  await setDoc(sref('admin'), { passwordHash: await sha256('1234'), updatedAt: nowIso() }); await setDoc(sref('sepauth'), { passwordHash: await sha256('1234'), updatedAt: nowIso(), by: '연습용' });
+  // 외부강의 2개 (4학년 소프트웨어 교육 — 금요일, 5학년 보건교육 — 목요일)
+  const lecs = [ { id:'Lseed1', kind:'외부강의', name:'소프트웨어 교육', subject:'실', grade:'4', instructor:'외부 강사', room:'컴퓨터실', session:1, count:4, classes:g(4), slots: g(4).flatMap((c,i)=>[0,1,2,3].map(w=>({ classId:c, date: addDays(nextMon, 7*w+4), p: i+1 }))) },
+    { id:'Lseed2', kind:'보건', name:'보건교육', subject:'', grade:'5', instructor:'보건교사', room:'', session:1, count:3, classes:g(5), slots: g(5).flatMap((c,i)=>[0,1,2].map(w=>({ classId:c, date: addDays(nextMon, 7*w+3), p: i+1 }))) } ];
+  for (const L of lecs) { await setDoc(dref('lectures', L.id), { ...L, updatedAt: nowIso(), updatedBy: '연습용 초기 자료' });
+    if (L.room) for (const sl of L.slots) { const tt = periodTime(DEFAULT_BELL, gradeOf(sl.classId), sl.p); await setDoc(dref('room_bookings', `lec_${L.id}_${sl.classId}_${sl.date}_${sl.p}`), { room: L.room, date: sl.date, p: sl.p, colKey: tt?`${tt.s}-${tt.e}`:null, classId: sl.classId, grade: gradeOf(sl.classId), text: classCode(sl.classId), lectureId: L.id, createdBy: '연습용', createdAt: nowIso() }); }
+    if (!isNoncurr(L)) { const byDate = {}; for (const sl of L.slots) (byDate[sl.date] = byDate[sl.date]||[]).push(sl.p); for (const [date, ps] of Object.entries(byDate)) await setDoc(dref('school_events', `lec_${L.id}_${date}`), { date, endDate: date, activity: L.name, time: periodsText(ps), department: `${L.grade}학년`, manager: L.instructor, location: L.room, note: '', isImportant: false, groupId: `lec_${L.id}`, lectureId: L.id, isRepeating: false, repeatDays: [], excludeWeekends: false, createdAt: nowIso() }); } }
+  // 특별실 예약 몇 건
+  const bk = (room, date, p, grade, text, i) => { const tt = periodTime(DEFAULT_BELL, grade, p); return setDoc(dref('room_bookings', `m_seed_${i}`), { room, date, p, colKey: tt?`${tt.s}-${tt.e}`:null, s: tt?.s, e: tt?.e, classId: null, grade, text, createdBy: '연습용', createdAt: nowIso() }); };
+  await bk('음악실', addDays(thisMon,1), 3, '3', '3-2 합창', 1); await bk('음악실', addDays(thisMon,3), 5, '5', '방과후 오케스트라', 2); await bk('체육관', addDays(thisMon,2), 2, '1', '1-3 신체활동', 3); await bk('컴퓨터실', addDays(nextMon,1), 2, '6', '6-1 정보', 4);
+  // 보결 2건, 개별지도 2건 (이번 주)
+  await setDoc(dref('subs', `3-2_${addDays(thisMon,0)}_2`), { classId:'3-2', date: addDays(thisMon,0), p:2, sem: 2, whoType:'class', who:'3-3', label:'33 담임', origin:'담임', absent:'class', createdBy:'연습용', createdAt: nowIso() });
+  await setDoc(dref('subs', `5-1_${addDays(thisMon,1)}_1`), { classId:'5-1', date: addDays(thisMon,1), p:1, sem: 2, whoType:'teacher', who:'tche', label:'체육', origin:'담임', absent:'class', createdBy:'연습용', createdAt: nowIso() });
+  await setDoc(dref('seps', `4-2_${addDays(thisMon,0)}_3_seed`), { classId:'4-2', date: addDays(thisMon,0), p:3, sem: 2, whoType:'teacher', who:'t46s', label:'46과학', student:'김○○', place:'학운위실(성찰실)', origin:'담임', absent:'class', createdBy:'연습용', createdAt: nowIso() });
+  await setDoc(dref('seps', `6-3_${addDays(thisMon,2)}_4_seed`), { classId:'6-3', date: addDays(thisMon,2), p:4, sem: 2, whoType:'extra', who:'교감', label:'교감', student:'이○○', place:'상담실', origin:'담임', absent:'class', createdBy:'연습용', createdAt: nowIso() });
+  await setDoc(dref('memos', 'class_4-1'), { text: '연습용 메모장입니다. 자유롭게 써 보세요.', updatedAt: nowIso(), updatedBy: '연습용' });
+  await setDoc(sref('seeded'), { at: nowIso() });
+}
+function RoomPicker() {
+  const [rooms, setRooms] = useState(null); const [name, setName] = useState(''); const [busy, setBusy] = useState(false); const [ready, setReady] = useState(false);
+  useEffect(() => { onAuthStateChanged(auth, u => { if (!u) signInAnonymously(auth).catch(()=>{}); else setReady(true); }); }, []);
+  useEffect(() => { if (!ready) return; return onSnapshot(roomsRef(), s => setRooms(s.exists() ? (s.data().list||[]) : [])); }, [ready]);
+  const go = id => { location.href = `timetable.html?test&room=${id}`; };
+  const create = async () => { const nm = name.trim(); if (!nm) return; setBusy(true); const id = Math.random().toString(36).slice(2,8); await setDoc(roomsRef(), { list: [...(rooms||[]), { id, name: nm, createdAt: nowIso() }] }); go(id); };
+  const remove = async r => { if (!confirm(`"${r.name}" 방을 지울까요? 그 방의 연습 자료가 모두 지워집니다.`)) return; setBusy(true);
+    const b = ['artifacts', `${SANDBOX_BASE}-${r.id}`, 'public', 'data'];
+    for (const c of ['class_timetables','lessons','lectures','room_bookings','teacher_notes','subs','seps','memos','logs','school_events','settings']) { const snap = await getDocs(query(collection(db, ...b, c))); for (const d of snap.docs) await deleteDoc(d.ref); }
+    await setDoc(roomsRef(), { list: (rooms||[]).filter(x=>x.id!==r.id) }); setBusy(false); };
+  return <div style={{maxWidth:720,margin:'50px auto',padding:'0 20px',lineHeight:1.7}}>
+    <div className="sandbox-tag" style={{display:'inline-block',marginBottom:10}}>연습용</div>
+    <h1 style={{fontSize:24,margin:'0 0 6px'}}>{SCHOOL} 통합 시간 관리 — 연습 방 고르기</h1>
+    <p className="hint">연습 방마다 자료가 따로 있어서 다른 선생님과 섞이지 않습니다. 내 방을 만들면 24학급(학년별 4반), 전담 5명, 외부강의, 특별실 예약, 보결, 개별지도가 미리 들어간 상태로 시작합니다. 관리자 암호와 개별지도 비밀번호는 모두 <b>1234</b> 입니다.</p>
+    <div className="card" style={{marginTop:14}}><h3>새 방 만들기</h3>
+      <div style={{display:'flex',gap:8}}><input value={name} onChange={e=>setName(e.target.value)} onKeyDown={e=>e.key==='Enter'&&create()} placeholder="방 이름 (예: 홍길동, 4학년 연구실)" style={{flex:1,padding:8,border:'1px solid var(--line-strong)',borderRadius:6}}/><button className="btn primary" disabled={busy||!name.trim()} onClick={create}>{busy?'만드는 중…':'만들고 들어가기'}</button></div>
+      <p className="hint" style={{margin:'6px 0 0'}}>들어간 뒤 처음 한 번 초기 자료를 채우는 데 10~20초 걸립니다.</p></div>
+    <div className="card"><h3>있는 방으로 들어가기 {rooms && <span className="hint" style={{fontWeight:400}}>({rooms.length})</span>}</h3>
+      {rooms===null ? <p className="hint">불러오는 중…</p> : !rooms.length ? <p className="hint">아직 만든 방이 없습니다.</p>
+      : <table className="form"><tbody>{rooms.slice().sort((a,b)=>b.createdAt.localeCompare(a.createdAt)).map(r=><tr key={r.id}><td style={{fontWeight:700}}>{r.name}</td><td className="hint">{r.createdAt.slice(0,16).replace('T',' ')}</td><td style={{textAlign:'right',whiteSpace:'nowrap'}}><button className="btn primary" onClick={()=>go(r.id)}>들어가기</button> <button className="btn danger" disabled={busy} onClick={()=>remove(r)}>방 지우기</button></td></tr>)}</tbody></table>}</div>
+    <p className="hint"><a href="timetable.html">실제 운영 화면으로</a></p>
+  </div>;
+}
 function App() {
   const [user, setUser] = useState(null);
   const [tab, setTab] = useState(location.hash.startsWith('#/teacher') ? 'teacher' : location.hash.startsWith('#/room') ? 'room' : location.hash.startsWith('#/calendar') ? 'calendar' : location.hash.startsWith('#/lecture') ? 'lecture' : 'class');
@@ -467,6 +547,12 @@ function App() {
   const [roles, setRoles] = useState({});
   const [adminHash, setAdminHash] = useState(undefined);
   const [sepHash, setSepHash] = useState(undefined);   // 개별지도 탭 비밀번호 (관리자 암호와 별개)
+  const [yearExists, setYearExists] = useState(undefined);
+  const [seeding, setSeeding] = useState(false);
+  useEffect(() => { // 연습 방이 비어 있으면 초기 자료 채우기 (한 번만)
+    if (!SANDBOX || !ROOM || !user || yearExists!==false || seeding) return;
+    (async () => { setSeeding(true); try { const mark = await getDoc(sref('seeded')); if (mark.exists()) return; const rl = await getDoc(roomsRef()); const rn = (rl.exists() ? (rl.data().list||[]) : []).find(r=>r.id===ROOM)?.name || ROOM; await seedSandbox(rn); } catch(e) { console.error(e); } finally { setSeeding(false); } })();
+  }, [user, yearExists]);
   const [sepOpen, setSepOpenState] = useState(() => { try { return sessionStorage.getItem('tt_sep_open')==='1'; } catch { return false; } }); // 브라우저 탭을 닫기 전까지 유지
   const setSepOpen = v => { setSepOpenState(v); try { v ? sessionStorage.setItem('tt_sep_open','1') : sessionStorage.removeItem('tt_sep_open'); } catch {} };
   const [adminOn, setAdminOn] = useState(false);
@@ -490,7 +576,7 @@ function App() {
   useEffect(() => { const f = () => { const el = document.querySelector('.top'); if (el) document.documentElement.style.setProperty('--topbar', el.offsetHeight+'px'); }; f(); addEventListener('resize', f); const t = setInterval(f, 1000); return () => { removeEventListener('resize', f); clearInterval(t); }; }, []);
   useEffect(() => { if (!user) return;
     const un = [
-      onSnapshot(sref('year'), s => setYear(s.exists() ? s.data() : { year: new Date().getFullYear(), domain: CFG.domain || '', grades: {1:0,2:0,3:0,4:0,5:0,6:0}, kinder: 0, semesters: {} })),
+      onSnapshot(sref('year'), s => { setYearExists(s.exists()); setYear(s.exists() ? s.data() : { year: new Date().getFullYear(), domain: CFG.domain || '', grades: {1:0,2:0,3:0,4:0,5:0,6:0}, kinder: 0, semesters: {} }); }),
       onSnapshot(sref('teachers'), s => setTeachers(s.exists() ? (s.data().list||[]) : [])),
       onSnapshot(sref('roles'), s => setRoles(s.exists() ? (s.data().byEmail||{}) : {})),
       onSnapshot(sref('admin'), s => setAdminHash(s.exists() ? s.data().passwordHash : null)),
@@ -857,10 +943,11 @@ function App() {
   };
 
   if (!user || !year) return <div className="empty">불러오는 중…</div>;
+  if (SANDBOX && ROOM && (seeding || yearExists===false)) return <div className="empty"><p>연습 방 초기 자료를 채우는 중입니다… (10~20초)</p><p className="hint">24학급 시간표, 전담 5명, 외부강의, 예약, 보결, 개별지도 기록을 만들고 있습니다.</p></div>;
 
   return <>
     <div className="top">
-      {SANDBOX && <div className="sandbox-tag" title="연습용 페이지입니다. 여기서 입력하거나 지운 것은 실제 운영 데이터에 영향을 주지 않습니다.">연습용</div>}
+      {SANDBOX && <a className="sandbox-tag" href="timetable.html?test" style={{textDecoration:'none'}} title="연습용 페이지입니다. 여기서 한 것은 실제 운영 데이터에 영향을 주지 않습니다. 누르면 방 고르기로 돌아갑니다.">연습용{year.roomName ? ` · ${year.roomName}` : ''}</a>}
       <div className="brand">{(year.logo || CFG.logoUrl) && <img src={year.logo || CFG.logoUrl} alt="" />}<div><h1>학교 통합 시간 관리</h1><div className="sub">{SCHOOL} {year.year}학년도</div></div></div>
       <div className="tabs">
         <button className="btn" style={{marginRight:8,borderRadius:6}} onClick={goHome} title="내 첫 화면으로">⌂</button>
@@ -2082,7 +2169,7 @@ function SetupNotice() {
     <p className="hint">자세한 순서는 함께 받은 <b>설치안내.html</b>에 있습니다.</p>
   </div>;
 }
-createRoot(document.getElementById('root')).render(CONFIG_OK ? <App/> : <SetupNotice/>);
+createRoot(document.getElementById('root')).render(!CONFIG_OK ? <SetupNotice/> : (SANDBOX && !ROOM) ? <RoomPicker/> : <App/>);
 </script>
 </body>
 </html>
