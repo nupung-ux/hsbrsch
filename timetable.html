@@ -247,7 +247,7 @@ const APP_ID = CFG.timetableAppId || 'school-timetable';
 const SANDBOX = !!CFG.sandbox; // 연습용 페이지: 데이터 저장 공간이 따로이고 월간운영계획과 연동하지 않음
 if (SANDBOX) document.title = `[연습용] ${document.title}`;
 if (SANDBOX) document.body.classList.add('sandbox');
-const VERSION = 'v9.8';
+const VERSION = 'v9.9';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -913,7 +913,7 @@ function App() {
       <div style={{display:'flex',flexDirection:'column',gap:6,maxHeight:'60vh',overflow:'auto'}}>{modal.options.map((o,i)=><button key={i} className="btn" disabled={o.disabled} style={{textAlign:'left',display:'flex',gap:10,alignItems:'center',background:o.color?undefined:'#fff'}} onClick={()=>{ setModal(null); modal.onPick(o); }}>{o.color && <i style={{display:'inline-block',width:16,height:16,background:o.color,border:'1px solid var(--line)'}}/>}<b>{o.label}</b>{o.sub && <span className="hint">{o.sub}</span>}</button>)}</div>
       <div className="row"><button className="btn" onClick={()=>setModal(null)}>취소</button></div>
     </Modal>}
-    {modal?.type==='teacherSelf' && <TeacherSelfModal teachers={teachers} teacherId={modal.teacherId} classList={classList} rooms={year.rooms||[]} toast={toast} onClose={()=>setModal(null)} onSaved={()=>{ setModal(null); toast('저장했습니다.'); log('settings','전담 본인 담당 설정'); }} />}
+    {modal?.type==='teacherSelf' && <TeacherSelfModal teachers={teachers} teacherId={modal.teacherId} classList={classList} rooms={year.rooms||[]} toast={toast} onClose={()=>setModal(null)} onSaved={(id)=>{ const isNew = modal.teacherId==='__new'; setModal(null); toast(isNew ? '새 전담을 등록했습니다.' : '저장했습니다.'); log('settings', isNew ? `새 전담 등록 (${id})` : '전담 본인 담당 설정'); if (isNew && id) { history.replaceState(null,'',`#/teacher/${id}`); setHomeKey(k=>k+1); } }} />}
     {modal?.type==='book' && <BookModal room={modal.room} date={modal.date} col={modal.col} weeks={modal.weeks||[]} classList={classList} myRole={myRole} onClose={()=>setModal(null)} onSave={async(b,n)=>{ await addBooking(b,n); setModal(null); toast('예약했습니다.'); }} />}
     {modal?.type==='admin' && <AdminModal adminHash={adminHash} onOk={adminUnlock} onClose={()=>setModal(null)} />}
     {modal?.type==='sepauth' && <SepAuthModal sepHash={sepHash} onOk={sepUnlock} onClose={()=>setModal(null)} onAdmin={()=>setModal({type:'admin'})} />}
@@ -1142,6 +1142,7 @@ function TeacherView({ year, teachers, ctt, lessons, lectures, canEditTeacher, r
       </select></label>
       <div className="seg"><button className={sem===1?'on':''} onClick={()=>setSem(1)}>1학기</button><button className={sem===2?'on':''} onClick={()=>setSem(2)}>2학기</button></div>
       {edit && t && <button className="btn" onClick={()=>onSelfEdit(tid)}>내 담당 설정</button>}
+      <button className="btn" onClick={()=>onSelfEdit('__new')} title="목록에 없는 전담 선생님을 새로 등록합니다">+ 새 전담 등록</button>
       <PastToggle value={dimPast} onChange={setDimPast} />
       <TodayBtn sem={sem} year={year} setSem={setSem} />
       <div className="spacer"/>
@@ -1153,7 +1154,7 @@ function TeacherView({ year, teachers, ctt, lessons, lectures, canEditTeacher, r
         <tr><td className="wk">과목</td>{hourRows.map(r=><td key={r.subject+r.classId}>{r.subject}</td>)}<td/></tr></tbody></table>
       {hourRows.some(r=>r.mode==='year') && <div className="hint" style={{marginTop:4}}>"연" 표시 과목은 1·2학기를 합친 연간 시수 기준입니다.</div>}
     </div>}</div>
-    {!t ? <div className="empty">학년도 설정에서 전담 교사를 먼저 등록해 주세요.</div>
+    {!t ? <div className="empty"><p>등록된 전담 교사가 없습니다.</p><button className="btn primary" onClick={()=>onSelfEdit('__new')}>+ 새 전담 등록</button><p className="hint" style={{marginTop:10}}>학년도 설정 → 전담 교사 탭에서 여러 명을 한꺼번에 넣을 수도 있습니다.</p></div>
     : !normTeacher(t).subjects.length ? <div className="empty">{t.name} 선생님의 담당 과목·학급이 아직 없습니다. {edit ? '[내 담당 설정]을 눌러 넣어 주세요.' : '전담 선생님이 설정하면 여기에 나타납니다.'}</div>
     : !weeks.length ? <div className="empty">{sem}학기 연간시간표가 아직 하나도 올라오지 않았습니다. 담임시간표 탭에서 학급 파일을 올리면 주차가 만들어집니다.</div>
     : <div className="wrap"><div className="withmemo"><div className="main">
@@ -1518,14 +1519,17 @@ function TeacherEditor({ t: t0, classList, onChange, onDelete, rooms }) {
 }
 
 function TeacherSelfModal({ teachers, teacherId, classList, rooms, onSaved, onClose, toast }) {
-  const base = teachers.find(t=>t.id===teacherId);
+  const isNew = teacherId === '__new';
+  const base = isNew ? { id: 't'+Math.random().toString(36).slice(2,8), name:'', color: ['#fff3b0','#bfe6ff','#d5f5d0','#ffd6e0','#e8dcff','#ffe0b8'][teachers.length%6], type:'normal', subjects:[{ subject:'', coverage:'full', classes:[], semHours1:'', semHours2:'' }] } : teachers.find(t=>t.id===teacherId);
   const [t, setT] = useState(base ? normTeacher(base) : null);
   if (!t) return null;
-  const save = async () => { const all = teachers.map(x=>x.id===teacherId ? t : x); const { list, dups } = normalizeTeachers(all);
+  const save = async () => { if (!t.name?.trim()) { toast('이름을 넣어 주세요.', true); return; }
+    if (isNew && teachers.some(x=>x.name===t.name.trim())) { toast(`이미 같은 이름의 전담(${t.name.trim()})이 있습니다. 목록에서 골라 [내 담당 설정]을 쓰세요.`, true); return; }
+    const all = isNew ? [...teachers, { ...t, name: t.name.trim() }] : teachers.map(x=>x.id===teacherId ? t : x); const { list, dups } = normalizeTeachers(all);
     if (dups.length) { toast(`같은 반 같은 과목이 다른 전담에게 있습니다: ${dups.slice(0,3).join(', ')}`, true); return; }
-    await setDoc(sref('teachers'), { list }); onSaved(); };
-  return <Modal title="내 담당 과목·학급 설정" onClose={onClose} wide>
-    <p className="hint" style={{marginTop:0}}>과목을 고르고 학년 버튼(전체) 또는 반 버튼(반별)으로 담당 학급을 선택하세요. 저장하면 담임이 올린 연간시간표에서 내 수업이 자동으로 잡힙니다.</p>
+    await setDoc(sref('teachers'), { list }); onSaved(t.id); };
+  return <Modal title={isNew ? '새 전담 등록' : '내 담당 과목·학급 설정'} onClose={onClose} wide>
+    <p className="hint" style={{marginTop:0}}>{isNew ? '이름을 넣고 ' : ''}과목을 고르고 학년 버튼(전체) 또는 반 버튼(반별)으로 담당 학급을 선택하세요. 저장하면 담임이 올린 연간시간표에서 그 수업이 자동으로 잡힙니다.{isNew ? ' 담당 과목은 나중에 [내 담당 설정]에서 더 넣거나 고칠 수 있습니다.' : ''}</p>
     <TeacherEditor t={t} classList={classList} rooms={rooms} onChange={setT} />
     <div className="row"><button className="btn" onClick={onClose}>취소</button><button className="btn primary" onClick={save}>저장</button></div>
   </Modal>;
