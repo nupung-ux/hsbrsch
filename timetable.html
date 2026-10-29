@@ -247,7 +247,7 @@ const APP_ID = CFG.timetableAppId || 'school-timetable';
 const SANDBOX = !!CFG.sandbox; // 연습용 페이지: 데이터 저장 공간이 따로이고 월간운영계획과 연동하지 않음
 if (SANDBOX) document.title = `[연습용] ${document.title}`;
 if (SANDBOX) document.body.classList.add('sandbox');
-const VERSION = 'v9.9';
+const VERSION = 'v10.0';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -1142,10 +1142,10 @@ function TeacherView({ year, teachers, ctt, lessons, lectures, canEditTeacher, r
       </select></label>
       <div className="seg"><button className={sem===1?'on':''} onClick={()=>setSem(1)}>1학기</button><button className={sem===2?'on':''} onClick={()=>setSem(2)}>2학기</button></div>
       {edit && t && <button className="btn" onClick={()=>onSelfEdit(tid)}>내 담당 설정</button>}
-      <button className="btn" onClick={()=>onSelfEdit('__new')} title="목록에 없는 전담 선생님을 새로 등록합니다">+ 새 전담 등록</button>
       <PastToggle value={dimPast} onChange={setDimPast} />
       <TodayBtn sem={sem} year={year} setSem={setSem} />
       <div className="spacer"/>
+      <button className="btn" onClick={()=>onSelfEdit('__new')} title="목록에 없는 전담 선생님을 새로 등록합니다">+ 새 전담 등록</button>
     </div>
     {t && hourRows.length>0 && <div style={{padding:'0 18px 10px'}}>
       <table className="ov"><thead><tr><th style={{width:50}}>과목</th>{hourRows.map(r=><th key={r.subject+r.classId} style={{background:gradeColor(r.classId),minWidth:44}}>{classCode(r.classId)}</th>)}<th style={{minWidth:50}}>합계</th></tr></thead>
