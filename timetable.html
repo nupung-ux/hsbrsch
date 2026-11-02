@@ -19,7 +19,7 @@
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-<script>/* 주소에 ?test 가 붙으면 연습용 설정(config.test.js)을 읽습니다 */ document.write('<script src="' + (/[?&]test\b/.test(location.search) ? 'config.test.js' : 'config.js') + '"><\/script>');</script>
+<script>/* 주소에 ?test 가 붙으면 연습용 설정(config.test.js)을 읽습니다 (연습 전용 사이트는 config.js 자체가 연습용) */ document.write('<script src="' + (/[?&]test\b/.test(location.search) ? 'config.test.js' : 'config.js') + '"><\/script>');</script>
 <style>
   :root{
     --ink:#1f2a37; --muted:#6b7280; --paper:#fafaf8; --line:#d6dae0; --line-strong:#9aa3ad;
@@ -245,11 +245,14 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const SANDBOX = !!CFG.sandbox; // 연습용 페이지: 데이터 저장 공간이 따로이고 월간운영계획과 연동하지 않음
 const SANDBOX_BASE = CFG.timetableAppId || 'school-timetable-sandbox';
+const DEMO_ONLY = SANDBOX && !!CFG.demoOnly; // 연습 전용 사이트: 실제 운영 화면이 없음
 const ROOM = SANDBOX ? (new URLSearchParams(location.search).get('room') || '').replace(/[^a-z0-9]/gi,'').slice(0,12) : '';
+const PAGE = location.pathname.replace(/.*\//,'') || 'timetable.html';
+const TEST_Q = DEMO_ONLY ? '' : '?test';
 const APP_ID = SANDBOX ? (ROOM ? `${SANDBOX_BASE}-${ROOM}` : SANDBOX_BASE) : (CFG.timetableAppId || 'school-timetable');
 if (SANDBOX) document.title = `[연습용] ${document.title}`;
 if (SANDBOX) document.body.classList.add('sandbox');
-const VERSION = 'v10.2';
+const VERSION = 'v10.3';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -518,7 +521,7 @@ function RoomPicker() {
   const [rooms, setRooms] = useState(null); const [name, setName] = useState(''); const [busy, setBusy] = useState(false); const [ready, setReady] = useState(false);
   useEffect(() => { onAuthStateChanged(auth, u => { if (!u) signInAnonymously(auth).catch(()=>{}); else setReady(true); }); }, []);
   useEffect(() => { if (!ready) return; return onSnapshot(roomsRef(), s => setRooms(s.exists() ? (s.data().list||[]) : [])); }, [ready]);
-  const go = id => { location.href = `timetable.html?test&room=${id}`; };
+  const go = id => { location.href = `${PAGE}${TEST_Q ? TEST_Q+'&' : '?'}room=${id}`; };
   const create = async () => { const nm = name.trim(); if (!nm) return; setBusy(true); const id = Math.random().toString(36).slice(2,8); await setDoc(roomsRef(), { list: [...(rooms||[]), { id, name: nm, createdAt: nowIso() }] }); go(id); };
   const remove = async r => { if (!confirm(`"${r.name}" 방을 지울까요? 그 방의 연습 자료가 모두 지워집니다.`)) return; setBusy(true);
     const b = ['artifacts', `${SANDBOX_BASE}-${r.id}`, 'public', 'data'];
@@ -526,7 +529,7 @@ function RoomPicker() {
     await setDoc(roomsRef(), { list: (rooms||[]).filter(x=>x.id!==r.id) }); setBusy(false); };
   return <div style={{maxWidth:720,margin:'50px auto',padding:'0 20px',lineHeight:1.7}}>
     <div className="sandbox-tag" style={{display:'inline-block',marginBottom:10}}>연습용</div>
-    <h1 style={{fontSize:24,margin:'0 0 6px'}}>{SCHOOL} 통합 시간 관리 — 연습 방 고르기</h1>
+    <h1 style={{fontSize:24,margin:'0 0 6px'}}>{SCHOOL} 학교 통합 시간 관리 — {DEMO_ONLY ? '체험 방 고르기' : '연습 방 고르기'}</h1>
     <p className="hint">연습 방마다 자료가 따로 있어서 다른 선생님과 섞이지 않습니다. 내 방을 만들면 24학급(학년별 4반), 전담 5명, 외부강의, 특별실 예약, 보결, 개별지도가 미리 들어간 상태로 시작합니다. 관리자 암호와 개별지도 비밀번호는 모두 <b>1234</b> 입니다.</p>
     <div className="card" style={{marginTop:14}}><h3>새 방 만들기</h3>
       <div style={{display:'flex',gap:8}}><input value={name} onChange={e=>setName(e.target.value)} onKeyDown={e=>e.key==='Enter'&&create()} placeholder="방 이름 (예: 홍길동, 4학년 연구실)" style={{flex:1,padding:8,border:'1px solid var(--line-strong)',borderRadius:6}}/><button className="btn primary" disabled={busy||!name.trim()} onClick={create}>{busy?'만드는 중…':'만들고 들어가기'}</button></div>
@@ -534,7 +537,8 @@ function RoomPicker() {
     <div className="card"><h3>있는 방으로 들어가기 {rooms && <span className="hint" style={{fontWeight:400}}>({rooms.length})</span>}</h3>
       {rooms===null ? <p className="hint">불러오는 중…</p> : !rooms.length ? <p className="hint">아직 만든 방이 없습니다.</p>
       : <table className="form"><tbody>{rooms.slice().sort((a,b)=>b.createdAt.localeCompare(a.createdAt)).map(r=><tr key={r.id}><td style={{fontWeight:700}}>{r.name}</td><td className="hint">{r.createdAt.slice(0,16).replace('T',' ')}</td><td style={{textAlign:'right',whiteSpace:'nowrap'}}><button className="btn primary" onClick={()=>go(r.id)}>들어가기</button> <button className="btn danger" disabled={busy} onClick={()=>remove(r)}>방 지우기</button></td></tr>)}</tbody></table>}</div>
-    <p className="hint"><a href="timetable.html">실제 운영 화면으로</a></p>
+    {!DEMO_ONLY && <p className="hint"><a href={PAGE}>실제 운영 화면으로</a></p>}
+    {DEMO_ONLY && <p className="hint">{CFG.demoNote || '연수용 체험 사이트입니다. 실제 학교 데이터와 연결되어 있지 않습니다.'}</p>}
   </div>;
 }
 function App() {
@@ -948,7 +952,7 @@ function App() {
 
   return <>
     <div className="top">
-      {SANDBOX && <a className="sandbox-tag" href="timetable.html?test" style={{textDecoration:'none'}} title="연습용 페이지입니다. 여기서 한 것은 실제 운영 데이터에 영향을 주지 않습니다. 누르면 방 고르기로 돌아갑니다.">연습용{year.roomName ? ` · ${year.roomName}` : ''}</a>}
+      {SANDBOX && <a className="sandbox-tag" href={`${PAGE}${TEST_Q}`} style={{textDecoration:'none'}} title="연습용 페이지입니다. 여기서 한 것은 실제 운영 데이터에 영향을 주지 않습니다. 누르면 방 고르기로 돌아갑니다.">연습용{year.roomName ? ` · ${year.roomName}` : ''}</a>}
       <div className="brand">{(year.logo || CFG.logoUrl) && <img src={year.logo || CFG.logoUrl} alt="" />}<div><h1>학교 통합 시간 관리</h1><div className="sub">{SCHOOL} {year.year}학년도</div></div></div>
       <div className="tabs">
         <button className="btn" style={{marginRight:8,borderRadius:6}} onClick={goHome} title="내 첫 화면으로">⌂</button>
