@@ -252,7 +252,7 @@ const TEST_Q = DEMO_ONLY ? '' : '?test';
 const APP_ID = SANDBOX ? (ROOM ? `${SANDBOX_BASE}-${ROOM}` : SANDBOX_BASE) : (CFG.timetableAppId || 'school-timetable');
 if (SANDBOX) document.title = `[연습용] ${document.title}`;
 if (SANDBOX) document.body.classList.add('sandbox');
-const VERSION = 'v10.3';
+const VERSION = 'v10.4';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -2111,7 +2111,7 @@ function RoleModal({ email, name, initial, classList, teachers, onSave, onClose 
   return <Modal title={device ? '이 컴퓨터의 역할 정하기' : '어떤 역할로 사용하시나요?'} onClose={onClose}>
     <p className="hint" style={{marginTop:0}}>{device ? '로그인 없이 이 컴퓨터(브라우저)에만 저장됩니다. 교실 컴퓨터처럼 주로 한 분이 쓰는 컴퓨터에 알맞습니다. 다른 컴퓨터에서도 내 역할로 쓰려면 학교 계정으로 로그인한 뒤 역할을 연결하세요.' : email}</p>
     <table className="form"><tbody>
-      <tr><th style={{width:90}}>이름</th><td><input value={nm} onChange={e=>setNm(e.target.value)}/></td></tr>
+      <tr><th style={{width:110}}>{device ? '표시 이름' : '이름'}</th><td><input value={nm} onChange={e=>setNm(e.target.value)} placeholder={device ? '예: 4-1 교실, 김샘, 과학실 컴퓨터' : '이름'}/>{device && <div className="hint">수정 기록과 메모에 남는 표시용 이름입니다. 본인 이름이 아니어도 되고, 닉네임이나 "4-1 교실"처럼 컴퓨터 이름을 써도 됩니다. 전담으로 새로 등록할 때는 전담 목록에 보일 이름이니 실제 이름을 권합니다.</div>}</td></tr>
       <tr><th>역할</th><td><select value={type} onChange={e=>setType(e.target.value)}><option>담임</option><option>전담</option><option value="업무담당자">교무실무사 (보결 배정)</option></select>{type==='업무담당자' && <div className="hint">보결 탭에서 보결을 배정할 수 있습니다. 개별학생 교육지원 탭은 역할과 상관없이 별도 비밀번호로 들어갑니다.</div>}</td></tr>
       {type==='담임' && <tr><th>학급</th><td><select value={classId} onChange={e=>setClassId(e.target.value)}>{classList.map(c=><option key={c} value={c}>{classLabel(c)}</option>)}</select></td></tr>}
       {type==='전담' && <tr><th>전담</th><td><select value={teacherId} onChange={e=>setTeacherId(e.target.value)}>{teachers.map(t=><option key={t.id} value={t.id}>{t.name} ({teacherSubjects(t)||'담당 미입력'})</option>)}<option value="__new">+ 목록에 없음 — 내 이름으로 새로 등록</option></select><div className="hint">등록 후 전담시간표 화면의 [내 담당 설정]에서 과목·학급을 넣습니다.</div></td></tr>}
