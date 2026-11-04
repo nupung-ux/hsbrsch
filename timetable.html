@@ -79,9 +79,22 @@
   .sidecard h3{margin:0 0 8px;font-size:15px}
   .memopad{flex:1 1 280px;min-width:260px;max-width:520px;position:sticky;top:calc(var(--fixed, 60px) + 10px);background:#fffbe6;border:1px solid #e8d98a;border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,.06);display:flex;flex-direction:column;height:calc(100vh - var(--fixed, 60px) - 60px);min-height:320px}
   .memopad .mh{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid #eadf9f;font-size:14px}
-  .memopad textarea{flex:1;border:0;background:transparent;resize:none;padding:12px 14px;font:inherit;font-size:15px;line-height:1.6;outline:none;font-family:inherit}
-  .memopad textarea[readonly]{color:#555}
-  @media (max-width:1500px){.withmemo{flex-direction:column}.memopad{position:static;height:220px;max-width:none;width:100%}}
+  .memopad .mtool{display:flex;flex-wrap:wrap;align-items:center;gap:4px;padding:6px 10px;border-bottom:1px solid #eadf9f;background:#fff7d1}
+  .memopad .mtool select{font-size:12px;padding:2px 4px;border:1px solid #d9cc7a;border-radius:4px;background:#fff;max-width:92px}
+  .memopad .mtool button{font-size:12px;padding:2px 7px;border:1px solid #d9cc7a;border-radius:4px;background:#fff;cursor:pointer;line-height:1.4}
+  .memopad .mtool button:hover{border-color:#a89b3f}
+  .memopad .mtool .sw{width:18px;height:18px;padding:0;border-radius:50%;border:1px solid rgba(0,0,0,.25)}
+  .memopad .mtool .sw.mk{border-radius:4px;font-size:12px;line-height:16px}
+  .memopad .mtool .sep{width:1px;height:18px;background:#d9cc7a;margin:0 3px}
+  .memopad .mbody{flex:1;position:relative;min-height:0;overflow:auto}
+  .memopad .med{min-height:100%;padding:12px 14px;font-size:15px;line-height:1.6;outline:none;white-space:pre-wrap;word-break:break-word}
+  .memopad .med[contenteditable="false"]{color:#555}
+  .memopad .ph{position:absolute;left:14px;top:12px;right:14px;color:#9a9a9a;font-size:14px;line-height:1.6;white-space:pre-wrap;pointer-events:none}
+  .memopad .med font[size="1"]{font-size:11px}.memopad .med font[size="2"]{font-size:13px}.memopad .med font[size="3"]{font-size:15px}.memopad .med font[size="4"]{font-size:18px}.memopad .med font[size="5"]{font-size:22px}.memopad .med font[size="6"]{font-size:28px}.memopad .med font[size="7"]{font-size:36px}
+  .memopad .med ul,.memopad .med ol{margin:4px 0;padding-left:22px}
+  .roomside{flex-wrap:wrap}
+  .roomside .memopad{height:calc(100vh - var(--fixed, 60px) - 60px)}
+  @media (max-width:1500px){.withmemo{flex-direction:column}.memopad,.roomside .memopad{position:static;height:260px;max-width:none;width:100%}}
   table.tt thead th{position:sticky;z-index:6;background-clip:padding-box;box-shadow:inset 0 -1px 0 var(--line),inset -1px 0 0 var(--line)}
   table.tt thead tr:first-child th{top:var(--fixed,var(--topbar,53px))}
   table.tt thead tr:nth-child(2) th{top:calc(var(--fixed,var(--topbar,53px)) + 35px)}
@@ -252,7 +265,7 @@ const TEST_Q = DEMO_ONLY ? '' : '?test';
 const APP_ID = SANDBOX ? (ROOM ? `${SANDBOX_BASE}-${ROOM}` : SANDBOX_BASE) : (CFG.timetableAppId || 'school-timetable');
 if (SANDBOX) document.title = `[연습용] ${document.title}`;
 if (SANDBOX) document.body.classList.add('sandbox');
-const VERSION = 'v10.5';
+const VERSION = 'v10.6';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -719,7 +732,7 @@ function App() {
 
   // 전담 메모(칸·비고) / 담임 비고
   const saveTeacherCell = async (tid, sem, key, text) => { const id = `${tid}_${sem}`; const cur = teacherNotes[id] || {}; const cells = { ...(cur.cells||{}) }; if (text) cells[key] = text; else delete cells[key]; await setDoc(dref('teacher_notes', id), { ...cur, cells, updatedAt: nowIso(), updatedBy: editorName() }); log('memo', `전담 메모 ${key} "${text||'(삭제)'}"`); };
-  const saveMemo = async (id, text) => { await setDoc(dref('memos', id), { text, updatedAt: nowIso(), updatedBy: editorName() }); };
+  const saveMemo = async (id, v) => { const d = typeof v === 'string' ? { text: v, html: '' } : { text: v.text || '', html: v.html || '' }; await setDoc(dref('memos', id), { ...d, updatedAt: nowIso(), updatedBy: editorName() }); };
   const saveTeacherWeekNote = async (tid, sem, no, text) => { const id = `${tid}_${sem}`; const cur = teacherNotes[id] || {}; const weekNotes = { ...(cur.weekNotes||{}) }; if (text) weekNotes[no] = text; else delete weekNotes[no]; await setDoc(dref('teacher_notes', id), { ...cur, weekNotes, updatedAt: nowIso(), updatedBy: editorName() }); };
   const saveClassWeekNote = async (classId, sem, no, text) => { const id = `${classId}_${sem}`; const T = ctt[id]; if (!T) return; const weeks = T.weeks.map(w => w.no===no ? { ...w, note: text, noteApp: true } : w); await setDoc(dref('class_timetables', id), { ...T, weeks }); log('memo', `${classLabel(classId)} ${no}주 비고 수정`); };
   const askText = (title, value, onSave, hint) => setModal({ type:'text', title, value: value||'', hint, onSave });
@@ -988,7 +1001,7 @@ function App() {
     {tab==='class' && <ClassView key={'c'+homeKey} defaultCid={myRole?.classId} myTeacherId={myRole?.type==='전담' ? myRole.teacherId : null} memos={memos} saveMemo={saveMemo} requestMoveLecture={requestMoveLecture} {...{ year, classList, teachers, ctt, lessons, lectures, canEditClass, requestMove, onUpload, toast, addLesson, askRepeat, addLessonKeys, deleteLesson, setModal, askText, saveClassWeekNote, markEvent, unmarkEvent, requestMoveEvent, createBlank }} />}
     {tab==='teacher' && <TeacherView key={'t'+homeKey} defaultTid={myRole?.teacherId} memos={memos} saveMemo={saveMemo} myClassId={myRole?.type==='담임' ? myRole.classId : null} onSelfEdit={tid=>setModal({type:'teacherSelf', teacherId:tid})} setModal={setModal} {...{ year, teachers, ctt, lessons, lectures, canEditTeacher, requestMove, addLesson, askRepeat, addLessonKeys, deleteLesson, toast, teacherNotes, saveTeacherCell, saveTeacherWeekNote, askText }} />}
     {tab==='lecture' && <LectureView key={'l'+homeKey} defaultGrade={myRole?.grade || gradeOf(myRole?.classId)} {...{ year, bell, classList, teachers, ctt, lessons, lectures, bookings, canEditLecture, saveLecture, deleteLecture, toast, setModal }} />}
-    {tab==='room' && <RoomView {...{ year, bell, classList, teachers, ctt, lessons, bookings, lectures, canBook, addBooking, deleteBooking, myRole, toast, setModal, goLecture: ()=>setTab('lecture') }} />}
+    {tab==='room' && <RoomView {...{ year, bell, classList, teachers, ctt, lessons, bookings, lectures, canBook, addBooking, deleteBooking, myRole, toast, setModal, memos, saveMemo, goLecture: ()=>setTab('lecture') }} />}
     {tab==='calendar' && <CalendarView {...{ calEvents, calAppId, lectures }} />}
     {tab==='plan' && <PlanFrame />}
     {tab==='sub' && <SubView mode="sub" {...{ year, bell, classList, teachers, ctt, lessons, lectures, subs, seps, canEdit: canSub, setModal, toast, defaultCid: myRole?.classId, saveSub: async (id, data) => { await setDoc(dref('subs', id), { ...data, createdBy: editorName(), createdAt: nowIso() }); log('sub', `${classLabel(data.classId)} ${shortDate(data.date)} ${pLabel(data.p)} 보결 → ${data.label}`); }, deleteSub: async (id) => { const d = subs[id]; await deleteDoc(dref('subs', id)); if (d) log('sub', `${classLabel(d.classId)} ${shortDate(d.date)} ${pLabel(d.p)} 보결 삭제`); } }} />}
@@ -1063,19 +1076,65 @@ function useFixedHead() {
 }
 function TodayBtn({ sem, year, setSem }) { return <button className="btn" style={{padding:'3px 10px'}} title={`오늘 ${fmtDate(TODAY)} 주로 이동`} onClick={()=>{ const s = semOfToday(year); if (s!==sem) { setSem(s); setTimeout(scrollToToday, 150); } else scrollToToday(); }}>오늘</button>; }
 function PastToggle({ value, onChange }) { return <label><input type="checkbox" checked={value} onChange={e=>{ onChange(e.target.checked); writePref('dimPast', e.target.checked); }} /> 지난 날짜 흐리게</label>; }
-// 화면 오른쪽 자유 메모장: 바로 쓰고 지우면 자동 저장 (학급별 / 전담별 하나씩, 학기 공통)
+// 화면 오른쪽 자유 메모장: 바로 쓰고 지우면 자동 저장 (학급별 / 전담별 / 특별실별 하나씩, 학기 공통)
+// 글씨체·크기·색·굵게 등 서식은 html로, 검색·백업용 글은 text로 함께 저장
+const MEMO_FONTS = [['기본',''],['맑은 고딕','Malgun Gothic, 맑은 고딕, sans-serif'],['바탕','Batang, 바탕, serif'],['궁서','Gungsuh, 궁서, serif'],['돋움','Dotum, 돋움, sans-serif'],['나눔고딕','NanumGothic, 나눔고딕, sans-serif'],['고정폭','Consolas, D2Coding, monospace']];
+const MEMO_SIZES = [['작게','2'],['보통','3'],['크게','4'],['더 크게','5'],['아주 크게','6']];
+const MEMO_COLORS = ['#111111','#d32f2f','#1565c0','#2e7d32','#ef6c00','#6a1b9a','#777777'];
+const MEMO_MARKS = [['노랑','#fff176'],['연두','#c5e1a5'],['분홍','#f8bbd0'],['하늘','#b3e5fc']];
+function memoSanitize(html) {
+  if (!html) return '';
+  const doc = new DOMParser().parseFromString('<div>' + html + '</div>', 'text/html');
+  doc.querySelectorAll('script,style,iframe,object,embed,link,meta,img,svg,video,audio,form,input,button').forEach(n => n.remove());
+  doc.querySelectorAll('*').forEach(el => { for (const at of Array.from(el.attributes)) { const n = at.name.toLowerCase(); if (n.startsWith('on') || n === 'href' || n === 'src' || n === 'class' || n === 'id') el.removeAttribute(at.name); } });
+  return doc.body.firstChild ? doc.body.firstChild.innerHTML : '';
+}
+function memoEscape(t) { return String(t || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>'); }
+function memoPlain(el) { return el.innerText !== undefined ? el.innerText : el.textContent; }
+function memoInitial(memo) { return memo?.html ? memoSanitize(memo.html) : memoEscape(memo?.text || ''); }
 function MemoPad({ id, memo, canEdit, saveMemo, title }) {
-  const [text, setText] = useState(memo?.text || '');
+  const ed = useRef(null); const savedRange = useRef(null);
   const [state, setState] = useState('idle'); // idle | dirty | saving | saved
-  const dirty = useRef(false); const timer = useRef(null);
-  useEffect(() => { if (!dirty.current) setText(memo?.text || ''); }, [memo?.text, id]);
-  useEffect(() => () => { if (timer.current) { clearTimeout(timer.current); } }, []);
-  const onChange = v => { setText(v); dirty.current = true; setState('dirty'); if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(async () => { setState('saving'); try { await saveMemo(id, v); dirty.current = false; setState('saved'); setTimeout(()=>setState(s=>s==='saved'?'idle':s), 1500); } catch { setState('dirty'); } }, 700); };
-  const flush = () => { if (!dirty.current) return; if (timer.current) clearTimeout(timer.current); setState('saving'); saveMemo(id, text).then(()=>{ dirty.current=false; setState('saved'); setTimeout(()=>setState(s=>s==='saved'?'idle':s), 1500); }).catch(()=>setState('dirty')); };
+  const [empty, setEmpty] = useState(!memoInitial(memo));
+  const dirty = useRef(false); const timer = useRef(null); const lastHtml = useRef(null);
+  // 서버 내용이 바뀌었고 내가 입력 중이 아니면 화면에 반영
+  useEffect(() => { if (dirty.current || !ed.current) return; const h = memoInitial(memo); if (h !== lastHtml.current) { ed.current.innerHTML = h; lastHtml.current = h; setEmpty(!h); } }, [memo?.html, memo?.text, id]);
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+  const snapshot = () => ({ html: ed.current.innerHTML, text: memoPlain(ed.current) });
+  const finish = (v) => { dirty.current = false; lastHtml.current = v.html; setState('saved'); setTimeout(() => setState(s => s==='saved' ? 'idle' : s), 1500); };
+  const schedule = () => { dirty.current = true; setState('dirty'); setEmpty(!memoPlain(ed.current).trim());
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(async () => { const v = snapshot(); setState('saving'); try { await saveMemo(id, v); finish(v); } catch { setState('dirty'); } }, 700); };
+  const flush = () => { if (!dirty.current) return; if (timer.current) clearTimeout(timer.current); const v = snapshot(); setState('saving'); saveMemo(id, v).then(() => finish(v)).catch(() => setState('dirty')); };
+  // 선택 영역 기억: 글꼴/크기 고르는 목록을 눌러도 서식이 원래 자리에 적용되도록
+  const remember = () => { const sel = window.getSelection(); if (sel && sel.rangeCount && ed.current && ed.current.contains(sel.anchorNode)) savedRange.current = sel.getRangeAt(0).cloneRange(); };
+  const restore = () => { ed.current.focus(); const r = savedRange.current; if (r) { const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r); } };
+  const cmd = (name, val) => { if (!canEdit) return; restore(); document.execCommand(name, false, val); remember(); schedule(); };
+  const onPaste = e => { e.preventDefault(); const t = (e.clipboardData || window.clipboardData).getData('text/plain'); document.execCommand('insertText', false, t); };
+  const keep = e => e.preventDefault(); // 버튼을 눌러도 글 선택이 풀리지 않게
+  const status = state==='dirty' ? '입력 중…' : state==='saving' ? '저장 중…' : state==='saved' ? '저장됨' : memo?.updatedAt ? `${memo.updatedAt.slice(5,16).replace('T',' ')} ${memo.updatedBy||''}` : (canEdit ? '바로 쓰면 자동 저장' : '');
   return <div className="memopad">
-    <div className="mh"><b>{title}</b><span className="hint">{state==='dirty'?'입력 중…':state==='saving'?'저장 중…':state==='saved'?'저장됨':memo?.updatedAt?`${memo.updatedAt.slice(5,16).replace('T',' ')} ${memo.updatedBy||''}`:(canEdit?'바로 쓰면 자동 저장':'')}</span></div>
-    <textarea value={text} readOnly={!canEdit} onChange={e=>onChange(e.target.value)} onBlur={flush} placeholder={canEdit ? '자유롭게 적는 메모장입니다. 전담 선생님께 부탁할 것, 바뀐 일정, 확인할 것 등.\n쓰는 대로 저장되고 같은 화면을 보는 모두에게 보입니다.' : '메모가 없습니다.'} spellCheck={false}/>
+    <div className="mh"><b>{title}</b><span className="hint">{status}</span></div>
+    {canEdit && <div className="mtool" onMouseDown={e => { if (e.target.tagName !== 'SELECT') e.preventDefault(); }}>
+      <select title="글씨체" defaultValue="" onMouseDown={remember} onChange={e => { cmd('fontName', e.target.value || 'inherit'); e.target.value=''; }}>{MEMO_FONTS.map(([n,v]) => <option key={n} value={v}>{n}</option>)}</select>
+      <select title="글씨 크기" defaultValue="3" onMouseDown={remember} onChange={e => { cmd('fontSize', e.target.value); e.target.value='3'; }}>{MEMO_SIZES.map(([n,v]) => <option key={v} value={v}>{n}</option>)}</select>
+      <button type="button" title="굵게" onMouseDown={keep} onClick={() => cmd('bold')}><b>가</b></button>
+      <button type="button" title="밑줄" onMouseDown={keep} onClick={() => cmd('underline')}><u>가</u></button>
+      <button type="button" title="취소선" onMouseDown={keep} onClick={() => cmd('strikeThrough')}><s>가</s></button>
+      <span className="sep"/>
+      {MEMO_COLORS.map(c => <button key={c} type="button" className="sw" title="글자색" style={{background:c}} onMouseDown={keep} onClick={() => cmd('foreColor', c)}/>)}
+      <span className="sep"/>
+      {MEMO_MARKS.map(([n,c]) => <button key={c} type="button" className="sw mk" title={`형광펜 ${n}`} style={{background:c}} onMouseDown={keep} onClick={() => cmd('hiliteColor', c)}/>)}
+      <button type="button" className="sw mk" title="형광펜 지우기" style={{background:'#fff'}} onMouseDown={keep} onClick={() => cmd('hiliteColor', 'transparent')}>×</button>
+      <span className="sep"/>
+      <button type="button" title="목록" onMouseDown={keep} onClick={() => cmd('insertUnorderedList')}>•≡</button>
+      <button type="button" title="서식 지우기 (선택한 글을 기본 모양으로)" onMouseDown={keep} onClick={() => cmd('removeFormat')}>지우기</button>
+    </div>}
+    <div className="mbody">
+      {empty && <div className="ph">{canEdit ? '자유롭게 적는 메모장입니다. 전담 선생님께 부탁할 것, 바뀐 일정, 확인할 것 등.\n쓰는 대로 저장되고 같은 화면을 보는 모두에게 보입니다.\n글을 끌어 선택한 뒤 위 단추로 글씨체·크기·색을 바꿀 수 있습니다.' : '메모가 없습니다.'}</div>}
+      <div className="med" ref={ed} contentEditable={canEdit} suppressContentEditableWarning spellCheck={false}
+        onInput={schedule} onBlur={() => { remember(); flush(); }} onKeyUp={remember} onMouseUp={remember} onPaste={onPaste} />
+    </div>
   </div>;
 }
 // 연간시간표 올리는 방법 안내
@@ -1949,7 +2008,7 @@ function LectureEditor({ year, bell, classList, teachers, ctt, lessons, lectures
 }
 
 // ---------- 특별실 시간표 ----------
-function RoomView({ year, bell, classList, teachers, ctt, lessons, bookings, lectures, canBook, addBooking, deleteBooking, myRole, toast, setModal, goLecture }) {
+function RoomView({ year, bell, classList, teachers, ctt, lessons, bookings, lectures, canBook, addBooking, deleteBooking, myRole, toast, setModal, goLecture, memos, saveMemo }) {
   const rooms = year.rooms || [];
   const [room, setRoom] = useState(decodeURIComponent(location.hash.match(/#\/room\/([^/]+)/)?.[1]||'') || rooms[0]?.name || '');
   const [sem, setSem] = useState(() => semOfToday(year));
@@ -1996,8 +2055,9 @@ function RoomView({ year, bell, classList, teachers, ctt, lessons, bookings, lec
         <tbody>{weeks.map(w=><tr key={w.no} className={weekHas(w,TODAY)?'thisweek':''}><td className="wk">{w.no}</td><td className="period">{w.label}</td>
           {DAYS.map((d,di)=>cols.map((c,i)=>{ const date=addDays(w.start,di); const cell=cellOf(date,c); return <td key={date+c.key} className={['slot',i===0?'first':'',cell.cls||'',dimPast&&isPast(date)?'past':'',date===TODAY?'today':''].join(' ')} title={`${fmtDate(date)} ${c.p}교시 ${c.s}~${c.e}${cell.title?' · '+cell.title:''}`} onClick={()=>onClick(date,c)}>{cell.text||''}</td>; }))}
         </tr>)}</tbody></table>
-      <p className="hint">시정표에 따라 시간이 다른 교시(예: 5교시)는 열이 나뉩니다. 열 머리글에 마우스를 올리면 시간과 학년군이 보입니다. 빈 칸을 누르면 예약(학년반 또는 자유 글, 매주 반복 가능), 예약 칸을 누르면 삭제.</p>
+      <p className="hint" style={{marginBottom:0}}>시정표에 따라 시간이 다른 교시(예: 5교시)는 열이 나뉩니다. 열 머리글에 마우스를 올리면 시간과 학년군이 보입니다. 빈 칸을 누르면 예약(학년반 또는 자유 글, 매주 반복 가능), 예약 칸을 누르면 삭제.</p>
       </div>
+      <MemoPad id={`room_${room}`} memo={memos?.[`room_${room}`]} canEdit={canBook} saveMemo={saveMemo} title={`${room} 메모`} />
     </div>}
   </div>;
 }
