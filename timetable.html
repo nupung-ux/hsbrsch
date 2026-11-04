@@ -77,15 +77,19 @@
   @media (max-width:1720px){.subwrap{flex-direction:column}.sidecol{position:static;max-height:none;max-width:none;min-width:0;width:100%;flex-direction:row;flex-wrap:wrap;align-items:flex-start}.sidecol .card{flex:1 1 380px}}
   .sidecard{flex:1 1 300px;min-width:280px;max-width:560px;position:sticky;top:calc(var(--fixed, 60px) + 10px);background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 14px;max-height:calc(100vh - var(--fixed, 60px) - 60px);overflow:auto}
   .sidecard h3{margin:0 0 8px;font-size:15px}
-  .memopad{flex:1 1 280px;min-width:260px;max-width:520px;position:sticky;top:calc(var(--fixed, 60px) + 10px);background:#fffbe6;border:1px solid #e8d98a;border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,.06);display:flex;flex-direction:column;height:calc(100vh - var(--fixed, 60px) - 60px);min-height:320px}
-  .memopad .mh{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid #eadf9f;font-size:14px}
-  .memopad .mtool{display:flex;flex-wrap:wrap;align-items:center;gap:4px;padding:6px 10px;border-bottom:1px solid #eadf9f;background:#fff7d1}
-  .memopad .mtool select{font-size:12px;padding:2px 4px;border:1px solid #d9cc7a;border-radius:4px;background:#fff;max-width:92px}
-  .memopad .mtool button{font-size:12px;padding:2px 7px;border:1px solid #d9cc7a;border-radius:4px;background:#fff;cursor:pointer;line-height:1.4}
-  .memopad .mtool button:hover{border-color:#a89b3f}
+  .memopad{--mbg:#fffbe6;flex:1 1 280px;min-width:260px;max-width:520px;position:sticky;top:calc(var(--fixed, 60px) + 10px);background:var(--mbg);border:1px solid color-mix(in srgb, var(--mbg), #6b5c10 22%);border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,.06);display:flex;flex-direction:column;height:calc(100vh - var(--fixed, 60px) - 60px);min-height:320px}
+  .memopad .mh{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid color-mix(in srgb, var(--mbg), #6b5c10 16%);font-size:14px}
+  .memopad .mh .hint{flex:1;text-align:right}
+  .memopad .mh .bgs{display:flex;gap:3px}
+  .memopad .mh .bgs .sw{width:14px;height:14px;padding:0;border-radius:50%;border:1px solid rgba(0,0,0,.3);cursor:pointer}
+  .memopad .mh .bgs .sw.on{outline:2px solid var(--ink);outline-offset:1px}
+  .memopad .mtool{display:flex;flex-wrap:wrap;align-items:center;gap:4px;padding:6px 10px;border-bottom:1px solid color-mix(in srgb, var(--mbg), #6b5c10 16%);background:color-mix(in srgb, var(--mbg), #000 3%)}
+  .memopad .mtool select{font-size:12px;padding:2px 4px;border:1px solid rgba(0,0,0,.22);border-radius:4px;background:#fff;max-width:92px}
+  .memopad .mtool button{font-size:12px;padding:2px 7px;border:1px solid rgba(0,0,0,.22);border-radius:4px;background:#fff;cursor:pointer;line-height:1.4}
+  .memopad .mtool button:hover{border-color:rgba(0,0,0,.5)}
   .memopad .mtool .sw{width:18px;height:18px;padding:0;border-radius:50%;border:1px solid rgba(0,0,0,.25)}
   .memopad .mtool .sw.mk{border-radius:4px;font-size:12px;line-height:16px}
-  .memopad .mtool .sep{width:1px;height:18px;background:#d9cc7a;margin:0 3px}
+  .memopad .mtool .sep{width:1px;height:18px;background:rgba(0,0,0,.18);margin:0 3px}
   .memopad .mbody{flex:1;position:relative;min-height:0;overflow:auto}
   .memopad .med{min-height:100%;padding:12px 14px;font-size:15px;line-height:1.6;outline:none;white-space:pre-wrap;word-break:break-word}
   .memopad .med[contenteditable="false"]{color:#555}
@@ -265,7 +269,7 @@ const TEST_Q = DEMO_ONLY ? '' : '?test';
 const APP_ID = SANDBOX ? (ROOM ? `${SANDBOX_BASE}-${ROOM}` : SANDBOX_BASE) : (CFG.timetableAppId || 'school-timetable');
 if (SANDBOX) document.title = `[연습용] ${document.title}`;
 if (SANDBOX) document.body.classList.add('sandbox');
-const VERSION = 'v10.6';
+const VERSION = 'v10.7';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -732,7 +736,7 @@ function App() {
 
   // 전담 메모(칸·비고) / 담임 비고
   const saveTeacherCell = async (tid, sem, key, text) => { const id = `${tid}_${sem}`; const cur = teacherNotes[id] || {}; const cells = { ...(cur.cells||{}) }; if (text) cells[key] = text; else delete cells[key]; await setDoc(dref('teacher_notes', id), { ...cur, cells, updatedAt: nowIso(), updatedBy: editorName() }); log('memo', `전담 메모 ${key} "${text||'(삭제)'}"`); };
-  const saveMemo = async (id, v) => { const d = typeof v === 'string' ? { text: v, html: '' } : { text: v.text || '', html: v.html || '' }; await setDoc(dref('memos', id), { ...d, updatedAt: nowIso(), updatedBy: editorName() }); };
+  const saveMemo = async (id, v) => { const d = typeof v === 'string' ? { text: v, html: '' } : v.bg !== undefined ? { bg: v.bg } : { text: v.text || '', html: v.html || '' }; await setDoc(dref('memos', id), { ...d, updatedAt: nowIso(), updatedBy: editorName() }, { merge: true }); };
   const saveTeacherWeekNote = async (tid, sem, no, text) => { const id = `${tid}_${sem}`; const cur = teacherNotes[id] || {}; const weekNotes = { ...(cur.weekNotes||{}) }; if (text) weekNotes[no] = text; else delete weekNotes[no]; await setDoc(dref('teacher_notes', id), { ...cur, weekNotes, updatedAt: nowIso(), updatedBy: editorName() }); };
   const saveClassWeekNote = async (classId, sem, no, text) => { const id = `${classId}_${sem}`; const T = ctt[id]; if (!T) return; const weeks = T.weeks.map(w => w.no===no ? { ...w, note: text, noteApp: true } : w); await setDoc(dref('class_timetables', id), { ...T, weeks }); log('memo', `${classLabel(classId)} ${no}주 비고 수정`); };
   const askText = (title, value, onSave, hint) => setModal({ type:'text', title, value: value||'', hint, onSave });
@@ -1082,6 +1086,7 @@ const MEMO_FONTS = [['기본',''],['맑은 고딕','Malgun Gothic, 맑은 고딕
 const MEMO_SIZES = [['작게','2'],['보통','3'],['크게','4'],['더 크게','5'],['아주 크게','6']];
 const MEMO_COLORS = ['#111111','#d32f2f','#1565c0','#2e7d32','#ef6c00','#6a1b9a','#777777'];
 const MEMO_MARKS = [['노랑','#fff176'],['연두','#c5e1a5'],['분홍','#f8bbd0'],['하늘','#b3e5fc']];
+const MEMO_BGS = [['노랑','#fffbe6'],['하양','#ffffff'],['연두','#f1f8e9'],['하늘','#e3f2fd'],['분홍','#fce4ec'],['연보라','#f3e5f5'],['살구','#fff3e0'],['회색','#f0f0f0']];
 function memoSanitize(html) {
   if (!html) return '';
   const doc = new DOMParser().parseFromString('<div>' + html + '</div>', 'text/html');
@@ -1100,6 +1105,8 @@ function MemoPad({ id, memo, canEdit, saveMemo, title }) {
   // 서버 내용이 바뀌었고 내가 입력 중이 아니면 화면에 반영
   useEffect(() => { if (dirty.current || !ed.current) return; const h = memoInitial(memo); if (h !== lastHtml.current) { ed.current.innerHTML = h; lastHtml.current = h; setEmpty(!h); } }, [memo?.html, memo?.text, id]);
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+  useEffect(() => { const f = () => { const sel = window.getSelection(); if (sel && sel.rangeCount && ed.current && ed.current.contains(sel.anchorNode)) savedRange.current = sel.getRangeAt(0).cloneRange(); }; document.addEventListener('selectionchange', f); return () => document.removeEventListener('selectionchange', f); }, []);
+  const bg = memo?.bg || MEMO_BGS[0][1];
   const snapshot = () => ({ html: ed.current.innerHTML, text: memoPlain(ed.current) });
   const finish = (v) => { dirty.current = false; lastHtml.current = v.html; setState('saved'); setTimeout(() => setState(s => s==='saved' ? 'idle' : s), 1500); };
   const schedule = () => { dirty.current = true; setState('dirty'); setEmpty(!memoPlain(ed.current).trim());
@@ -1113,8 +1120,8 @@ function MemoPad({ id, memo, canEdit, saveMemo, title }) {
   const onPaste = e => { e.preventDefault(); const t = (e.clipboardData || window.clipboardData).getData('text/plain'); document.execCommand('insertText', false, t); };
   const keep = e => e.preventDefault(); // 버튼을 눌러도 글 선택이 풀리지 않게
   const status = state==='dirty' ? '입력 중…' : state==='saving' ? '저장 중…' : state==='saved' ? '저장됨' : memo?.updatedAt ? `${memo.updatedAt.slice(5,16).replace('T',' ')} ${memo.updatedBy||''}` : (canEdit ? '바로 쓰면 자동 저장' : '');
-  return <div className="memopad">
-    <div className="mh"><b>{title}</b><span className="hint">{status}</span></div>
+  return <div className="memopad" style={{'--mbg': bg}}>
+    <div className="mh"><b>{title}</b><span className="hint">{status}</span>{canEdit && <span className="bgs" title="메모장 색">{MEMO_BGS.map(([n,c]) => <button key={c} type="button" className={'sw'+(c===bg?' on':'')} title={`메모장 색: ${n}`} style={{background:c}} onClick={() => saveMemo(id, { bg: c })}/>)}</span>}</div>
     {canEdit && <div className="mtool" onMouseDown={e => { if (e.target.tagName !== 'SELECT') e.preventDefault(); }}>
       <select title="글씨체" defaultValue="" onMouseDown={remember} onChange={e => { cmd('fontName', e.target.value || 'inherit'); e.target.value=''; }}>{MEMO_FONTS.map(([n,v]) => <option key={n} value={v}>{n}</option>)}</select>
       <select title="글씨 크기" defaultValue="3" onMouseDown={remember} onChange={e => { cmd('fontSize', e.target.value); e.target.value='3'; }}>{MEMO_SIZES.map(([n,v]) => <option key={v} value={v}>{n}</option>)}</select>
