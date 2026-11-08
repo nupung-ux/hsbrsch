@@ -37,7 +37,7 @@
     // --- 1. 라이브러리 및 아이콘 불러오기 ---
     import React, { useState, useEffect, useMemo, useRef } from 'react';
     import { createRoot } from 'react-dom/client';
-    import { Calendar, Clock, MapPin, User, FileText, Download, Star, Edit2, Trash2, ChevronLeft, ChevronRight, AlertCircle, CheckCircle2, Plus, X, Settings, ArrowUp, ArrowDown, RotateCcw, Lock, KeyRound, Printer, ZoomIn, ZoomOut, Search, Upload, Database, ChevronUp, ChevronDown, RefreshCw, Sheet } from 'lucide-react';
+    import { Calendar, Clock, MapPin, User, FileText, Download, Star, Edit2, Trash2, ChevronLeft, ChevronRight, AlertCircle, CheckCircle2, Plus, X, Settings, ArrowUp, ArrowDown, RotateCcw, Lock, KeyRound, Printer, ZoomIn, ZoomOut, Search, Upload, Database, ChevronUp, ChevronDown, RefreshCw, Sheet, Link2 } from 'lucide-react';
     import { initializeApp } from 'firebase/app';
     import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
     import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, writeBatch, query } from 'firebase/firestore';
@@ -265,6 +265,7 @@
         manager: '',
         location: '',
         note: '',
+        link: '',
         isImportant: false,
         groupId: null,
       };
@@ -502,6 +503,7 @@
             manager: ev.manager || '',
             location: ev.location || '',
             note: ev.note || '',
+            link: ev.link || '',
             isImportant: !!ev.isImportant,
             groupId: ev.groupId || '',
             holiday: holidays[ev.date] || ''
@@ -609,6 +611,7 @@
           manager: ev.manager || '',
           location: ev.location || '',
           note: ev.note || '',
+          link: ev.link || '',
           isImportant: !!ev.isImportant,
           groupId: ev.groupId || ''
         }));
@@ -619,10 +622,10 @@
 
       const exportAllCSV = () => {
         const q = (v) => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
-        let csv = '날짜,시간,부서,교육활동내용,담당자,장소,비고,중요\n';
+        let csv = '날짜,시간,부서,교육활동내용,담당자,장소,비고,링크,중요\n';
         const list = sortedAllEvents();
         list.forEach(ev => {
-          csv += [ev.date, ev.time, ev.department, ev.activity, ev.manager, ev.location, ev.note, ev.isImportant ? 'Y' : 'N'].map(q).join(',') + '\n';
+          csv += [ev.date, ev.time, ev.department, ev.activity, ev.manager, ev.location, ev.note, ev.link || '', ev.isImportant ? 'Y' : 'N'].map(q).join(',') + '\n';
         });
         const stamp = formatDate(new Date());
         downloadFile(csv, `전체일정_${stamp}.csv`, 'text/csv;charset=utf-8;');
@@ -688,6 +691,7 @@
           manager: str(pick('manager', '담당자', '담당')),
           location: str(pick('location', '장소')),
           note: str(pick('note', '비고', '메모')),
+          link: str(pick('link', '링크', 'url', 'URL', '주소')),
           isImportant: ['y', 'true', '1', 'o', '○', '예', '중요', '★', '*', 'v'].includes(important)
         };
       };
@@ -754,11 +758,11 @@
       };
 
       // 일정 가져오기 양식 파일 다운로드
-      const TEMPLATE_HEADER = ['날짜', '시간', '부서', '교육활동내용', '담당자', '장소', '비고', '중요'];
+      const TEMPLATE_HEADER = ['날짜', '시간', '부서', '교육활동내용', '담당자', '장소', '비고', '링크', '중요'];
       const TEMPLATE_ROWS = [
-        ['2026-09-01', '09:00', '교무부', '2학기 개학식', '교무부장', '강당', '', 'Y'],
-        ['2026-09-03', '', '연구부', '교직원 연수', '연구부장', '시청각실', '14:30 시작', 'N'],
-        ['2026-09-10', '10:00', '학생부', '학교폭력 예방 교육', '학생부장', '각 교실', '', ''],
+        ['2026-09-01', '09:00', '교무부', '2학기 개학식', '교무부장', '강당', '', '', 'Y'],
+        ['2026-09-03', '', '연구부', '교직원 연수', '연구부장', '시청각실', '14:30 시작', 'https://forms.gle/예시', 'N'],
+        ['2026-09-10', '10:00', '학생부', '학교폭력 예방 교육', '학생부장', '각 교실', '', '', ''],
       ];
 
       const downloadTemplateCSV = () => {
@@ -783,6 +787,7 @@
           ['담당자', '선택'],
           ['장소', '선택'],
           ['비고', '선택'],
+          ['링크', '선택. 안내문, 신청 폼 등 인터넷 주소'],
           ['중요', '선택. 중요 일정이면 Y, 아니면 비워두기'],
           ['', ''],
           ['※ "일정" 시트의 예시 3줄은 지우고 실제 일정을 입력한 뒤, 관리자 모드 > 내보내기·가져오기 에서 파일을 올리세요.', ''],
@@ -1049,6 +1054,9 @@
         setIsFormOpen(true);
       };
 
+      // 링크: 주소 앞에 http(s):// 가 없으면 붙여서 연다
+      const normLink = (u) => { const t = String(u || '').trim(); if (!t) return ''; return /^[a-z][a-z0-9+.-]*:\/\//i.test(t) || /^mailto:/i.test(t) ? t : 'https://' + t; };
+      const LinkMark = ({ link, size = 15 }) => link ? <a href={normLink(link)} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} title={`링크 열기: ${link}`} className="text-blue-600 hover:text-blue-800 inline-flex align-middle"><Link2 size={size} /></a> : null;
       const generateUUID = () => {
         return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
           const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
@@ -1253,7 +1261,7 @@
               `<td class="${ev.isImportant ? 'imp' : ''}">${ev.isImportant ? '★ ' : ''}${holidayName && idx === 0 ? `[${esc(holidayName)}] ` : ''}${esc(ev.activity)}</td>` +
               `<td class="c">${esc(ev.manager)}</td>` +
               `<td class="c">${esc(ev.location)}</td>` +
-              `<td class="note">${esc(ev.note)}</td></tr>`;
+              `<td class="note">${esc(ev.note)}${ev.link ? ` <a class="lk" href="${esc(normLink(ev.link))}" title="${esc(ev.link)}">🔗</a>` : ''}</td></tr>`;
           });
         });
 
@@ -1272,6 +1280,7 @@
   th { background: #EDEDED; text-align: center; font-size: 7.5pt; padding: 1mm 0.8mm; }
   td.c { text-align: center; }
   td.note { font-size: 6.5pt; color: #444; }
+  td.note a.lk { text-decoration: none; font-size: 7pt; }
   tr.holi td { background: #FFF4F7; }
   tr.dayend td { border-bottom: 1pt solid #555; }
   .sun { color: #C00; } .sat { color: #06C; }
@@ -1320,7 +1329,7 @@
 
       const exportToCSV = () => {
         let csvContent = "\uFEFF"; 
-        csvContent += "날짜,요일,시간,부서,교육활동내용,담당자,장소,비고,중요여부\n";
+        csvContent += "날짜,요일,시간,부서,교육활동내용,담당자,장소,비고,링크,중요여부\n";
         
         daysInViewMonth.forEach(dateStr => {
           const dayEvents = visibleMonthEvents.filter(e => e.date === dateStr);
@@ -1329,11 +1338,11 @@
           
           if (dayEvents.length === 0) {
             const activityText = isHoliday ? isHoliday : '';
-            csvContent += `${dateStr},${dayName},,,${activityText},,,,\n`;
+            csvContent += `${dateStr},${dayName},,,${activityText},,,,,\n`;
           } else {
             dayEvents.forEach(e => {
               const escapeCsv = (str) => `"${(str || '').replace(/"/g, '""')}"`;
-              csvContent += `${dateStr},${dayName},${escapeCsv(e.time)},${escapeCsv(e.department)},${escapeCsv(e.activity)},${escapeCsv(e.manager)},${escapeCsv(e.location)},${escapeCsv(e.note)},${e.isImportant ? 'O' : ''}\n`;
+              csvContent += `${dateStr},${dayName},${escapeCsv(e.time)},${escapeCsv(e.department)},${escapeCsv(e.activity)},${escapeCsv(e.manager)},${escapeCsv(e.location)},${escapeCsv(e.note)},${escapeCsv(e.link)},${e.isImportant ? 'O' : ''}\n`;
             });
           }
         });
@@ -1917,12 +1926,13 @@
                     <th className="py-2 px-3 border-b border-gray-300 w-24 text-center whitespace-nowrap">담당자</th>
                     <th className="py-2 px-3 border-b border-gray-300 w-[12%] min-w-[90px] text-center">장소</th>
                     <th className="py-2 px-3 border-b border-gray-300 w-[26%] min-w-[220px] text-center">비고</th>
+                    <th className="py-2 px-1 border-b border-gray-300 w-8 text-center" title="링크"><Link2 size={14} className="inline text-gray-400"/></th>
                     <th className="py-2 px-2 border-b border-gray-300 w-20 text-center whitespace-nowrap">관리</th>
                   </tr>
                 </thead>
                 <tbody className="text-sm leading-snug">
                   {isSearching && searchResults.length === 0 && (
-                    <tr><td colSpan={9} className="py-10 text-center text-gray-400 italic">검색 결과가 없습니다.</td></tr>
+                    <tr><td colSpan={10} className="py-10 text-center text-gray-400 italic">검색 결과가 없습니다.</td></tr>
                   )}
 
                   {isSearching && searchResults.map((ev) => {
@@ -1946,6 +1956,7 @@
                         <td className="py-1.5 px-3 text-gray-600 whitespace-nowrap text-center">{ev.manager}</td>
                         <td className="py-1.5 px-3 text-gray-600 text-center break-words leading-snug">{ev.location}</td>
                         <td className="py-1.5 px-3 text-gray-500 text-[11px] text-center break-words leading-snug">{ev.note}</td>
+                        <td className="py-1.5 px-1 text-center"><LinkMark link={ev.link} /></td>
                         <td className="py-1.5 px-2 text-center whitespace-nowrap">
                           <div className="flex justify-center space-x-2 action-btn">
                             <button onClick={(e) => { e.stopPropagation(); startEdit(ev); }} className="text-gray-400 hover:text-blue-600" title="수정"><Edit2 size={16}/></button>
@@ -1979,7 +1990,7 @@
                           <td className="py-1.5 px-4 text-gray-500">
                             {holidayName ? <span className="text-red-500 font-semibold">{holidayName}</span> : <span className="opacity-0 group-hover:opacity-100 text-xs text-blue-400">+ 클릭하여 일정 추가</span>}
                           </td>
-                          <td className="py-1.5 px-3 whitespace-nowrap"></td><td className="py-1.5 px-3"></td><td className="py-1.5 px-3"></td><td className="py-1.5 px-2 whitespace-nowrap"></td>
+                          <td className="py-1.5 px-3 whitespace-nowrap"></td><td className="py-1.5 px-3"></td><td className="py-1.5 px-3"></td><td className="py-1.5 px-1"></td><td className="py-1.5 px-2 whitespace-nowrap"></td>
                         </tr>
                       );
                     }
@@ -2012,6 +2023,7 @@
                           <td className="py-1.5 px-3 text-gray-600 whitespace-nowrap text-center">{ev.manager}</td>
                           <td className="py-1.5 px-3 text-gray-600 text-center break-words leading-snug">{ev.location}</td>
                           <td className="py-1.5 px-3 text-gray-500 text-[11px] text-center break-words leading-snug">{ev.note}</td>
+                        <td className="py-1.5 px-1 text-center"><LinkMark link={ev.link} /></td>
                           <td className="py-1.5 px-2 text-center whitespace-nowrap">
                             <div className="flex justify-center space-x-2 action-btn">
                               <button onClick={(e) => { e.stopPropagation(); startEdit(ev); }} className="text-gray-400 hover:text-blue-600" title="수정"><Edit2 size={16}/></button>
@@ -2159,6 +2171,12 @@
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">비고</label>
                   <textarea name="note" value={formData.note} onChange={handleInputChange} rows="2" placeholder="추가 전달사항" className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm resize-none"></textarea>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center"><Link2 size={14} className="mr-1"/> 링크 <span className="ml-1 text-xs font-normal text-gray-400">(선택)</span></label>
+                  <input type="text" name="link" value={formData.link || ''} onChange={handleInputChange} placeholder="예: https://docs.google.com/... (안내문, 신청 폼, 자료 주소)" className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm" />
+                  <p className="text-[11px] text-gray-400 mt-1">링크가 있으면 일정표의 비고 오른쪽에 <Link2 size={11} className="inline"/> 표시가 나오고, 누르면 새 창으로 열립니다.</p>
                 </div>
 
                 <div className="bg-yellow-50 p-3 rounded border border-yellow-200">
