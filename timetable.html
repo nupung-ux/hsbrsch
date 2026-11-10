@@ -382,7 +382,7 @@ const TEST_Q = DEMO_ONLY ? '' : '?test';
 const APP_ID = SANDBOX ? (ROOM ? `${SANDBOX_BASE}-${ROOM}` : SANDBOX_BASE) : (CFG.timetableAppId || 'school-timetable');
 if (SANDBOX) document.title = `[연습용] ${document.title}`;
 if (SANDBOX) document.body.classList.add('sandbox');
-const VERSION = 'v11.4';
+const VERSION = 'v11.5';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -1130,7 +1130,7 @@ function App() {
 
     {tab==='class' && <ClassView key={'c'+homeKey} aiOn={aiOn} aiCall={aiCall} log={log} isAdmin={isAdmin} defaultCid={myRole?.classId} myTeacherId={myRole?.type==='전담' ? myRole.teacherId : null} memos={memos} saveMemo={saveMemo} requestMoveLecture={requestMoveLecture} {...{ year, classList, teachers, ctt, lessons, lectures, canEditClass, requestMove, onUpload, toast, addLesson, askRepeat, addLessonKeys, deleteLesson, setModal, askText, saveClassWeekNote, markEvent, unmarkEvent, requestMoveEvent, createBlank }} />}
     {tab==='teacher' && <TeacherView key={'t'+homeKey} aiOn={aiOn} aiCall={aiCall} log={log} isAdmin={isAdmin} defaultTid={myRole?.teacherId} memos={memos} saveMemo={saveMemo} myClassId={myRole?.type==='담임' ? myRole.classId : null} onSelfEdit={tid=>setModal({type:'teacherSelf', teacherId:tid})} setModal={setModal} {...{ year, teachers, ctt, lessons, lectures, canEditTeacher, requestMove, addLesson, askRepeat, addLessonKeys, deleteLesson, toast, teacherNotes, saveTeacherCell, saveTeacherWeekNote, askText }} />}
-    {tab==='lecture' && <LectureView key={'l'+homeKey} defaultGrade={myRole?.grade || gradeOf(myRole?.classId)} {...{ year, bell, classList, teachers, ctt, lessons, lectures, bookings, canEditLecture, saveLecture, deleteLecture, toast, setModal }} />}
+    {tab==='lecture' && <LectureView key={'l'+homeKey} aiOn={aiOn} aiCall={aiCall} log={log} defaultGrade={myRole?.grade || gradeOf(myRole?.classId)} {...{ year, bell, classList, teachers, ctt, lessons, lectures, bookings, canEditLecture, saveLecture, deleteLecture, toast, setModal }} />}
     {tab==='room' && <RoomView {...{ year, bell, classList, teachers, ctt, lessons, bookings, lectures, canBook, addBooking, deleteBooking, myRole, toast, setModal, memos, saveMemo, goLecture: ()=>setTab('lecture') }} />}
     {tab==='calendar' && <CalendarView {...{ calEvents, calAppId, lectures }} />}
     {tab==='plan' && <PlanFrame />}
@@ -1295,6 +1295,18 @@ function AiBox({ aiOn, isAdmin, scope, examples, run }) {
     </div>}
   </div>;
 }
+const AI_LEC_SYSTEM = `당신은 초등학교 시간표 도우미 "너펑"입니다. 외부강의(또는 영양·보건·상담 수업) 배정 조건을 말로 들으면 입력 칸에 넣을 값을 JSON 한 개로 출력합니다 (설명 문장 금지). 배치 계산은 프로그램이 합니다.
+{"kind":"외부강의|영양|보건|상담","name":"강의명","subject":"과목 코드 한 글자 또는 빈칸","instructor":"강사·담당 또는 빈칸","room":"특별실 목록 중 하나 또는 빈칸(각 교실)","session":1,"classes":["4-1","4-2"],"count":4,"startWeek":12,"all":{"d":2,"p":3},"per":{"4-1":{"d":2,"p":3}},"ev":"skip|use","les":"skip|use","reply":"알아들은 내용 한두 문장"}
+규칙:
+1. classes는 주어진 이 학년 학급 중에서만. "전 반", "모든 반", "4학년 전체"면 학급 전부. 말이 없으면 전부.
+2. session은 한 번에 연속으로 하는 교시 수(1~4). "2차시 연속", "블록 수업"이면 2. 말이 없으면 1.
+3. count는 반마다 몇 번 하는지. "4회", "4차시(연속 아님)"면 4. 총 차시와 연속 차시가 함께 있으면 count = 총 차시 ÷ session (예: 8차시를 2차시 연속 → count 4).
+4. startWeek는 주차 목록의 번호. "11월 셋째 주"는 11월의 세 번째 월요일이 있는 주, "다음 주"는 오늘 다음 주, "11/17부터"는 그 날짜가 들어 있는 주. 말이 없으면 오늘이 들어 있는 주(지났으면 다음 주).
+5. 요일·교시: d는 월=0 화=1 수=2 목=3 금=4, p는 1~6. 모든 반이 같은 시간이면 all에, 반마다 다르면 per에 반별로. 요일이나 교시가 없으면 all과 per 모두 생략.
+6. room은 특별실 목록에 있는 이름만. 목록에 없으면 빈칸. "각 교실", "교실에서"면 빈칸.
+7. subject는 과목 코드 목록 중 한 글자. 강의와 관련된 과목이 분명할 때만 (예: 소프트웨어 교육→실, 안전교육→없음).
+8. ev: "행사 시간에도 넣어"면 use, 아니면 skip. les: "전담 시간에 겹쳐도 돼"면 use, 아니면 skip.
+9. 전화번호, 이메일은 넣지 않는다. 모르는 값은 키를 생략한다.`;
 const AI_MOVE_SYSTEM = `당신은 초등학교 시간표 도우미입니다. 사용자의 말을 읽고 아래 JSON 한 개만 출력합니다 (설명 문장 금지).
 {"intent":"move"|"answer"|"clarify","reply":"존댓말 한두 문장","moves":[{"classId":"4-1","from":"2026-11-17_3","to":"2026-11-19_5"}]}
 규칙:
@@ -2049,7 +2061,7 @@ function Settings({ year, teachers, roles, isAdmin, classList, toast, log, onBla
 
 
 // ---------- 외부강의 · 비교과 배정 ----------
-function LectureView({ year, bell, classList, teachers, ctt, lessons, lectures, bookings, canEditLecture, saveLecture, deleteLecture, toast, setModal, defaultGrade }) {
+function LectureView({ aiOn, aiCall, log, year, bell, classList, teachers, ctt, lessons, lectures, bookings, canEditLecture, saveLecture, deleteLecture, toast, setModal, defaultGrade }) {
   const [grade, setGrade] = useState(defaultGrade ? String(defaultGrade) : '6');
   const [editing, setEditing] = useState(null);
   const grades = ['1','2','3','4','5','6','유'];
@@ -2058,7 +2070,7 @@ function LectureView({ year, bell, classList, teachers, ctt, lessons, lectures, 
   const edit = canEditLecture(grade);
   const curSem = (new Date().getMonth()+1)>=8 || (new Date().getMonth()+1)<=1 ? 2 : 1;
   const blank = () => ({ kind:'외부강의', name:'', subject:'', grade, instructor:'', room:'', session:1, classes: classList.filter(c=>gradeOf(c)===grade), slots:[] });
-  if (editing) return <LectureEditor {...{ year, bell, classList, teachers, ctt, lessons, lectures, bookings, lec: editing, onClose: ()=>setEditing(null), saveLecture, deleteLecture, toast, setModal }} />;
+  if (editing) return <LectureEditor {...{ aiOn, aiCall, log, year, bell, classList, teachers, ctt, lessons, lectures, bookings, lec: editing, onClose: ()=>setEditing(null), saveLecture, deleteLecture, toast, setModal }} />;
   return <>
     <div className="bar">
       <div className="seg">{grades.map(g=><button key={g} className={grade===g?'on':''} onClick={()=>setGrade(g)}>{g==='유'?'유치원':g+'학년'}</button>)}</div>
@@ -2083,7 +2095,7 @@ function LectureView({ year, bell, classList, teachers, ctt, lessons, lectures, 
   </>;
 }
 
-function LectureEditor({ year, bell, classList, teachers, ctt, lessons, lectures, bookings, lec, onClose, saveLecture, deleteLecture, toast, setModal }) {
+function LectureEditor({ aiOn, aiCall, log, year, bell, classList, teachers, ctt, lessons, lectures, bookings, lec, onClose, saveLecture, deleteLecture, toast, setModal }) {
   const [f, setF] = useState({ ...lec, classes: lec.classes||[], subject: lec.subject||'' });
   const [slots, setSlots] = useState(lec.slots||[]);
   const [wi, setWi] = useState(() => { const all = [ ...(year.semesters?.[1]?.weeks||[]), ...(year.semesters?.[2]?.weeks||[]) ]; const i = all.findIndex(x => TODAY>=x.start && TODAY<addDays(x.start,7)); return i<0 ? 0 : i; });
@@ -2130,30 +2142,30 @@ function LectureEditor({ year, bell, classList, teachers, ctt, lessons, lectures
     setModal({ type:'confirm', title:'이 시간에 넣을까요?', body:<div><p style={{margin:'4px 0 8px'}}><b>{classLabel(cid)}</b> {fmtDate(date)} {periodsText(ps)}</p>{Array.from(new Set(soft)).map((r,i)=><div key={i} className="warn">· {r}</div>)}</div>,
       actions:[{label:'취소',on:()=>setModal(null)},{label:'그래도 넣기',primary:true,on:()=>{ add(); setModal(null); }}] });
   };
-  const generate = () => {
-    if (!weeks.length) return; if (!f.classes.length) { toast('대상 학급을 골라 주세요.', true); return; }
+  const generate = (f0 = f, pl = plan) => {
+    if (!weeks.length) return; if (!f0.classes.length) { toast('대상 학급을 골라 주세요.', true); return; }
     const made = []; const skipped = []; const softs = [];
-    for (const cid of f.classes) {
-      const pp = plan.same ? plan.per[f.classes[0]] : plan.per[cid]; if (!pp) continue; let n = 0;
-      for (let i = plan.startWeek; i < weeks.length && n < plan.count; i++) {
-        const date = addDays(weeks[i].start, Number(pp.d)); const ps = sessPs(f, Number(pp.p));
+    for (const cid of f0.classes) {
+      const pp = pl.same ? pl.per[f0.classes[0]] : pl.per[cid]; if (!pp) continue; let n = 0;
+      for (let i = pl.startWeek; i < weeks.length && n < pl.count; i++) {
+        const date = addDays(weeks[i].start, Number(pp.d)); const ps = sessPs(f0, Number(pp.p));
         if (ps.some(x=>x>6)) break;
         const rs = ps.map(x=>check(cid, date, x, true)); const hard = rs.find(r=>r.hard);
         if (hard) { skipped.push(`${classCode(cid)} ${shortDate(date)} — ${hard.hard}`); continue; }
         const soft = rs.flatMap(r=>r.soft||[]);
         const evHit = soft.find(x=>x.startsWith('행사'));
-        if (evHit && plan.ev==='skip') { skipped.push(`${classCode(cid)} ${shortDate(date)} — ${evHit} (건너뜀)`); continue; }
+        if (evHit && pl.ev==='skip') { skipped.push(`${classCode(cid)} ${shortDate(date)} — ${evHit} (건너뜀)`); continue; }
         const lesHit = soft.find(x=>x.startsWith('전담'));
-        if (lesHit && plan.les!=='use') { skipped.push(`${classCode(cid)} ${shortDate(date)} — ${lesHit.split(' 수업과')[0]} (건너뜀)`); continue; }
+        if (lesHit && pl.les!=='use') { skipped.push(`${classCode(cid)} ${shortDate(date)} — ${lesHit.split(' 수업과')[0]} (건너뜀)`); continue; }
         if (soft.length) softs.push(`${classCode(cid)} ${shortDate(date)} — ${Array.from(new Set(soft)).join(', ')}`);
         for (const x of ps) made.push({ classId:cid, date, p:x }); n++;
       }
-      if (n < plan.count) skipped.push(`${classCode(cid)}: ${plan.count}회 중 ${n}회만 배정됨 (학기 주차 부족)`);
+      if (n < pl.count) skipped.push(`${classCode(cid)}: ${pl.count}회 중 ${n}회만 배정됨 (학기 주차 부족)`);
     }
-    const apply = () => { setSlots(made); setF(x=>({ ...x, count: plan.count })); setModal(null); setRange('sem'); toast(`${made.length}칸 배정했습니다. 학기 전체 시간표에서 확인하고 필요하면 칸을 눌러 수정하세요.`); };
+    const apply = () => { setSlots(made); setF(x=>({ ...x, count: pl.count })); setModal(null); setRange('sem'); toast(`${made.length}칸 배정했습니다. 학기 전체 시간표에서 확인하고 필요하면 칸을 눌러 수정하세요.`); };
     setModal({ type:'confirm', title:'반복 일정 미리보기', body:<div style={{maxHeight:'55vh',overflow:'auto'}}>
-      <p style={{margin:'0 0 8px'}}>{f.classes.map(c=>classCode(c)).join(', ')} 각 <b>{plan.count}회</b>, {weeks[plan.startWeek]?.sem}학기 {weeks[plan.startWeek]?.label}부터 → 총 <b>{made.length}</b>칸{f.session===2?' (2차시 연속 포함)':''}</p>
-      {skipped.length>0 && <div style={{marginBottom:8}}><b className="warn">건너뛴 주 ({skipped.length})</b> — 휴업·다른 강의{plan.les!=='use'?'·전담':''}{plan.ev==='skip'?'·행사':''}와 겹쳐 다음 주로 밀었습니다{skipped.slice(0,12).map((x,i)=><div key={i} className="hint">· {x}</div>)}{skipped.length>12 && <div className="hint">… 외 {skipped.length-12}건</div>}</div>}
+      <p style={{margin:'0 0 8px'}}>{f0.classes.map(c=>classCode(c)).join(', ')} 각 <b>{pl.count}회</b>, {weeks[pl.startWeek]?.sem}학기 {weeks[pl.startWeek]?.label}부터 → 총 <b>{made.length}</b>칸{f0.session===2?' (2차시 연속 포함)':''}</p>
+      {skipped.length>0 && <div style={{marginBottom:8}}><b className="warn">건너뛴 주 ({skipped.length})</b> — 휴업·다른 강의{pl.les!=='use'?'·전담':''}{pl.ev==='skip'?'·행사':''}와 겹쳐 다음 주로 밀었습니다{skipped.slice(0,12).map((x,i)=><div key={i} className="hint">· {x}</div>)}{skipped.length>12 && <div className="hint">… 외 {skipped.length-12}건</div>}</div>}
       {softs.length>0 && <div style={{marginBottom:8}}><b className="warn">확인 필요 ({softs.length})</b> — 행사 시간이거나 특별실이 겹치지만 배정에 포함했습니다{softs.slice(0,12).map((x,i)=><div key={i} className="hint">· {x}</div>)}{softs.length>12 && <div className="hint">… 외 {softs.length-12}건</div>}</div>}
       {slots.length>0 && <p className="warn">기존에 배정된 {slots.length}칸은 새 일정으로 바뀝니다.</p>}
     </div>, actions:[{label:'취소',on:()=>setModal(null)},{label:'이대로 배정',primary:true,on:apply}] });
@@ -2167,6 +2179,49 @@ function LectureEditor({ year, bell, classList, teachers, ctt, lessons, lectures
   const del = () => setModal({ type:'confirm', title:'이 강의를 삭제할까요?', body:<p>{isNoncurr(f) ? '특별실 예약도 함께 지워집니다.' : '특별실 예약과 일정표 항목도 함께 지워집니다.'}</p>, actions:[{label:'취소',on:()=>setModal(null)},{label:'삭제',primary:true,on:async()=>{ await deleteLecture(f.id); setModal(null); toast('삭제했습니다.'); onClose(); }}] });
   const counts = {}; for (const sl of slots) counts[sl.classId]=(counts[sl.classId]||0)+1;
   const field = (label, el) => <div className="field">{label}{el}</div>;
+  // ----- 너펑(AI): 조건 문장 → 강의 정보·반복 일정 칸 채우기. 배치 계산은 기존 generate 가 하고, 미리보기 창에서 확인 후 배정 -----
+  const [aiText, setAiText] = useState(''); const [aiBusy, setAiBusy] = useState(false); const [aiReply, setAiReply] = useState(''); const [aiErr, setAiErr] = useState(false);
+  const aiRun = async () => {
+    const text = aiText.trim(); if (!text || aiBusy) return; setAiBusy(true); setAiErr(false); setAiReply('');
+    try {
+      const dow = iso => ['일','월','화','수','목','금','토'][new Date(iso+'T00:00:00').getDay()];
+      const user = `오늘: ${TODAY}(${dow(TODAY)})
+학년: ${f.grade==='유'?'유치원':f.grade+'학년'} · 이 학년 학급: ${gradeClasses.join(', ')}
+특별실 목록: ${rooms.map(r=>r.name).join(', ') || '(없음)'}
+과목 코드: ${SUBJECTS.map(([l,n])=>l+'='+n).join(', ')}
+주차 목록 (번호 = 학기-주, 월요일 날짜):
+${weeks.map((w,i)=>`${i}: ${w.sem}학기 ${w.no}주 ${w.start}(월)~${addDays(w.start,4)}(금)`).join('\n')}
+
+사용자의 말: ${text}`;
+      const res = await aiCall({ system: AI_LEC_SYSTEM, user, json: true });
+      let out; try { out = JSON.parse(String(res.text||'').replace(/^\s*```(json)?/i,'').replace(/```\s*$/,'')); } catch { throw new Error('너펑의 답을 해석하지 못했습니다. 다시 말해 주세요.'); }
+      log('AI 요청', `외부강의 조건: ${text}`);
+      const nf = { ...f };
+      if (['외부강의','영양','보건','상담'].includes(out.kind)) nf.kind = out.kind;
+      if (typeof out.name === 'string' && out.name.trim()) nf.name = out.name.trim();
+      if (typeof out.subject === 'string') nf.subject = SUBJECTS.some(([l])=>l===out.subject) ? out.subject : '';
+      if (typeof out.instructor === 'string' && out.instructor.trim()) nf.instructor = out.instructor.trim();
+      if (typeof out.room === 'string') nf.room = rooms.some(r=>r.name===out.room) ? out.room : (out.room ? nf.room : '');
+      if ([1,2,3,4].includes(Number(out.session))) nf.session = Number(out.session);
+      if (Array.isArray(out.classes) && out.classes.length) { const cs = out.classes.map(String).filter(c=>gradeClasses.includes(c)); if (cs.length) nf.classes = cs; }
+      const np = { ...plan, per: { ...plan.per } };
+      if (Number(out.count) >= 1) np.count = Math.min(40, Number(out.count));
+      if (Number.isInteger(Number(out.startWeek)) && weeks[Number(out.startWeek)]) np.startWeek = Number(out.startWeek);
+      if (typeof out.ev === 'string') np.ev = out.ev === 'use' ? 'use' : 'skip';
+      if (typeof out.les === 'string') np.les = out.les === 'use' ? 'use' : 'skip';
+      let timed = false;
+      const okDP = x => x && Number.isInteger(Number(x.d)) && Number(x.d)>=0 && Number(x.d)<=4 && Number.isInteger(Number(x.p)) && Number(x.p)>=1 && Number(x.p)<=6;
+      if (okDP(out.all)) { np.same = true; for (const c of nf.classes) np.per[c] = { d: Number(out.all.d), p: Number(out.all.p) }; timed = true; }
+      else if (out.per && typeof out.per === 'object') { const ent = Object.entries(out.per).filter(([c,x])=>nf.classes.includes(c) && okDP(x)); if (ent.length) { np.same = false; for (const c of nf.classes) np.per[c] = np.per[c] || { d:0, p:1 }; for (const [c,x] of ent) np.per[c] = { d: Number(x.d), p: Number(x.p) }; timed = ent.length === nf.classes.length; } }
+      setF(nf); setPlan(np);
+      const missing = [];
+      if (!isNoncurr(nf) && !nf.name) missing.push('강의명');
+      if (!timed) missing.push('요일·교시');
+      setAiReply((out.reply ? out.reply + '\n' : '') + (missing.length ? `${missing.join(', ')}은(는) 알 수 없어 비워 두었습니다. 아래 칸에서 채운 뒤 [반복 일정 만들기]를 누르세요.` : '칸을 채웠습니다. 미리보기에서 확인 후 [이대로 배정]을 누르면 배정됩니다.'));
+      if (timed && nf.classes.length) setTimeout(() => generate(nf, np), 50);
+    } catch (e) { setAiErr(true); setAiReply(e.message || String(e)); }
+    finally { setAiBusy(false); }
+  };
   const [headRef, fixedStyle] = useFixedHead();
   const months = Array.from(new Set(weeks.map(x=>Number(x.start.slice(5,7)))));
   useEffect(()=>{ if (range==='month' && month==null && months.length) { const cur = months.find(m => weeks.some(x=>Number(x.start.slice(5,7))===m && TODAY>=x.start && TODAY<addDays(x.start,7))); setMonth(cur ?? months[0]); } }, [range]);
@@ -2185,6 +2240,14 @@ function LectureEditor({ year, bell, classList, teachers, ctt, lessons, lectures
       <span className="hint" style={{textAlign:'right',lineHeight:1.3}}>저장하면 담임시간표, 특별실 시간표{isNoncurr(f)?'':', 일정표'}에<br/>자동으로 입력됩니다</span>
       <button className="btn save" disabled={busy} onClick={save}>저장</button>
     </div>
+    {aiOn && <div className="sec compact" style={{margin:'8px 18px 0',background:'#f3f7ff',borderColor:'#c7d7f5'}}>
+      <form style={{display:'flex',gap:8,alignItems:'center'}} onSubmit={e=>{ e.preventDefault(); aiRun(); }}>
+        <b style={{color:'#1e4fb8',whiteSpace:'nowrap'}}>너펑</b>
+        <input value={aiText} onChange={e=>setAiText(e.target.value)} disabled={aiBusy} placeholder={aiBusy ? '너펑이 생각하는 중…' : '조건을 말로 적으면 아래 칸을 채웁니다. 예) 소프트웨어 교육, 4학년 전 반 2차시 연속, 11월 셋째 주부터 4회, 컴퓨터실, 수요일 3교시'} style={{flex:1,padding:'7px 10px',border:'1px solid var(--line-strong)',borderRadius:6,fontSize:14}}/>
+        <button className="btn primary" type="submit" disabled={aiBusy || !aiText.trim()} style={{padding:'6px 12px'}}>{aiBusy ? '…' : '보내기'}</button>
+      </form>
+      {aiReply && <div className={aiErr ? 'warn' : 'hint'} style={{marginTop:6,whiteSpace:'pre-wrap'}}>{aiReply}</div>}
+    </div>}
     <div className="sec compact" style={{margin:'8px 18px 10px'}}>
       <h3><span className="num">1</span>강의 정보 <span className="desc">무엇을, 누가, 어디서, 어느 반에{isNoncurr(f) ? ' · 영양·보건·상담은 일정표에 넣지 않습니다' : ''}</span></h3>
       <div className="formgrid">
