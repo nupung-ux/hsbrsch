@@ -1,0 +1,46 @@
+// ====== 학교 통합 시간 관리 · AI 중계 (Gemini) ======
+// 이 파일 전체를 구글 앱스스크립트 새 프로젝트의 Code.gs에 붙여 넣고,
+// 프로젝트 설정 > 스크립트 속성에 GEMINI_KEY 를 추가한 뒤, 배포 > 새 배포 > 웹 앱 (액세스: 모든 사용자) 으로 배포합니다.
+// 선택 속성: MODEL (기본 gemini-2.5-flash), DAILY_LIMIT (기본 300, 하루 요청 상한)
+
+var PROPS = PropertiesService.getScriptProperties();
+
+function doGet() { return out({ ok: true, service: 'school-time-ai', model: model(), used: used(), limit: limit() }); }
+
+function doPost(e) {
+  try {
+    var body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
+    var key = PROPS.getProperty('GEMINI_KEY');
+    if (!key) return out({ error: '스크립트 속성에 GEMINI_KEY가 없습니다.' });
+    if (body.ping) return out({ ok: true, model: model(), used: used(), limit: limit() });
+    if (used() >= limit()) return out({ error: '오늘 AI 사용 한도(' + limit() + '회)에 도달했습니다. 내일 다시 쓸 수 있습니다.' });
+    var req = {
+      contents: [{ role: 'user', parts: [{ text: String(body.user || '') }] }],
+      generationConfig: { temperature: 0.2, responseMimeType: body.json ? 'application/json' : 'text/plain' }
+    };
+    if (body.system) req.systemInstruction = { parts: [{ text: String(body.system) }] };
+    var res = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model() + ':generateContent?key=' + key,
+      { method: 'post', contentType: 'application/json', payload: JSON.stringify(req), muteHttpExceptions: true });
+    var code = res.getResponseCode();
+    var data = {};
+    try { data = JSON.parse(res.getContentText() || '{}'); } catch (err) {}
+    if (code !== 200) return out({ error: 'Gemini 오류 ' + code + ': ' + ((data.error && data.error.message) || '') });
+    bump();
+    var cand = (data.candidates || [])[0] || {};
+    var parts = (cand.content && cand.content.parts) || [];
+    var text = parts.map(function (p) { return p.text || ''; }).join('');
+    if (!text) return out({ error: '응답이 비어 있습니다' + (cand.finishReason ? ' (' + cand.finishReason + ')' : '') + '.' });
+    return out({ text: text, used: used(), limit: limit() });
+  } catch (err) { return out({ error: String(err) }); }
+}
+
+function model() { return PROPS.getProperty('MODEL') || 'gemini-2.5-flash'; }
+function limit() { return Number(PROPS.getProperty('DAILY_LIMIT') || 300); }
+function todayKey() { return 'USED_' + Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd'); }
+function used() { return Number(PROPS.getProperty(todayKey()) || 0); }
+function bump() {
+  var k = todayKey(); var all = PROPS.getProperties();
+  for (var p in all) if (p.indexOf('USED_') === 0 && p !== k) PROPS.deleteProperty(p);
+  PROPS.setProperty(k, String(used() + 1));
+}
+function out(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
