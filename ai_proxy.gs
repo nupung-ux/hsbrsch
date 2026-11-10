@@ -12,7 +12,7 @@ function doPost(e) {
     var body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
     var key = PROPS.getProperty('GEMINI_KEY');
     if (!key) return out({ error: '스크립트 속성에 GEMINI_KEY가 없습니다.' });
-    if (body.ping) return out({ ok: true, model: model(), used: used(), limit: limit() });
+    if (body.ping) return out({ ok: true, model: model(), used: used(), limit: limit(), models: altModels(key, '').slice(0, 8) });
     if (used() >= limit()) return out({ error: '오늘 AI 사용 한도(' + limit() + '회)에 도달했습니다. 내일 다시 쓸 수 있습니다.' });
     var req = {
       contents: [{ role: 'user', parts: [{ text: String(body.user || '') }] }],
@@ -25,11 +25,15 @@ function doPost(e) {
       m = pickModel(key, true) || m;
       res = callGemini(m, key, req);
     }
-    // 혼잡(503) 또는 잠시 제한(429)이면 잠깐 기다렸다 다시, 그래도 안 되면 예비 모델(lite)로
-    for (var i = 0; i < 2 && (res.code === 503 || res.code === 429); i++) { Utilities.sleep(1500 * (i + 1)); res = callGemini(m, key, req); }
-    if (res.code === 503 || res.code === 429) { var alt = altModel(key, m); if (alt) res = callGemini(alt, key, req); }
+    // 혼잡(503) 또는 잠시 제한(429)이면 한 번 더 시도하고, 그래도 안 되면 다른 flash 모델들(lite, 이전 세대)로 차례로 넘어간다
+    var tried = [m];
+    if (res.code === 503 || res.code === 429) { Utilities.sleep(1200); res = callGemini(m, key, req); }
+    if (res.code === 503 || res.code === 429) {
+      var alts = altModels(key, m);
+      for (var i = 0; i < alts.length && i < 4 && (res.code === 503 || res.code === 429); i++) { tried.push(alts[i]); res = callGemini(alts[i], key, req); if (res.code === 200) PROPS.setProperty('LAST_OK', alts[i]); }
+    }
     var code = res.code, data = res.data;
-    if (code === 503 || code === 429) return out({ error: 'AI 서버가 지금 혼잡합니다. 잠시 후 다시 보내 주세요.' });
+    if (code === 503 || code === 429) return out({ error: 'AI 서버가 지금 혼잡합니다 (시도한 모델: ' + tried.join(', ') + '). 잠시 후 다시 보내 주세요.' });
     if (code !== 200) return out({ error: 'Gemini 오류 ' + code + ': ' + ((data.error && data.error.message) || '') });
     bump();
     var cand = (data.candidates || [])[0] || {};
@@ -63,16 +67,18 @@ function pickModel(key, force) {
     return list[0];
   } catch (err) { return null; }
 }
-// 예비 모델: 같은 세대의 flash-lite (없으면 다른 flash)
-function altModel(key, cur) {
+// 예비 모델들: 현재 모델을 뺀 flash 계열을 lite 우선, 최신 세대 우선으로
+function altModels(key, cur) {
   try {
     var res = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models?key=' + key + '&pageSize=200', { muteHttpExceptions: true });
-    if (res.getResponseCode() !== 200) return null;
-    var names = (JSON.parse(res.getContentText()).models || []).map(function (m) { return m.name.replace('models/', ''); })
+    if (res.getResponseCode() !== 200) return [];
+    var names = (JSON.parse(res.getContentText()).models || []).filter(function (m) { return (m.supportedGenerationMethods || []).indexOf('generateContent') >= 0; })
+      .map(function (m) { return m.name.replace('models/', ''); })
       .filter(function (n) { return n !== cur && /^gemini-\d/.test(n) && /flash/.test(n) && !/preview|exp|image|tts|audio|live|thinking/.test(n); });
-    names.sort(function (a, b) { return (ver(b) - ver(a)) || ((/lite/.test(a) ? 0 : 1) - (/lite/.test(b) ? 0 : 1)); });
-    return names[0] || null;
-  } catch (err) { return null; }
+    var last = PROPS.getProperty('LAST_OK');
+    names.sort(function (a, b) { return ((b === last) - (a === last)) || (ver(b) - ver(a)) || ((/lite/.test(b) ? 1 : 0) - (/lite/.test(a) ? 1 : 0)) || (a.length - b.length); });
+    return names;
+  } catch (err) { return []; }
 }
 function ver(n) { var m = n.match(/gemini-(\d+(?:\.\d+)?)/); return m ? parseFloat(m[1]) : 0; }
 function limit() { return Number(PROPS.getProperty('DAILY_LIMIT') || 300); }
