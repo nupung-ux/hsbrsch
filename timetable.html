@@ -382,7 +382,7 @@ const TEST_Q = DEMO_ONLY ? '' : '?test';
 const APP_ID = SANDBOX ? (ROOM ? `${SANDBOX_BASE}-${ROOM}` : SANDBOX_BASE) : (CFG.timetableAppId || 'school-timetable');
 if (SANDBOX) document.title = `[연습용] ${document.title}`;
 if (SANDBOX) document.body.classList.add('sandbox');
-const VERSION = 'v11.6';
+const VERSION = 'v11.7';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -1272,15 +1272,17 @@ function MemoPad({ id, memo, canEdit, saveMemo, title }) {
 }
 // ===== AI 도우미 =====
 // AI는 말을 해석해 "어느 칸을 어디로"만 뽑고, 겹침 검사·권한 확인·실제 이동은 기존 코드(requestMove)가 한다.
+// AI 표시 (반짝이 모양)
+const AiMark = ({ size = 15 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{verticalAlign:'-2px',marginRight:4}} aria-label="AI"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 17l.7 1.8 1.8.7-1.8.7L19 22l-.7-1.8-1.8-.7 1.8-.7z"/><path d="M4.5 3l.5 1.3 1.3.5-1.3.5L4.5 6.6 4 5.3 2.7 4.8 4 4.3z"/></svg>;
 function AiBox({ aiOn, isAdmin, scope, examples, run }) {
   const [text, setText] = useState(''); const [busy, setBusy] = useState(false); const [items, setItems] = useState([]);
-  if (!aiOn) return isAdmin ? <div className="aibox"><div className="ah"><b>너펑</b><span className="hint">꺼져 있음</span></div><div className="ex">학년도 설정 › 너펑(AI)에서 켤 수 있습니다. 말로 전담 시간을 옮기고 시간표에 대해 물어볼 수 있습니다.</div></div> : null;
+  if (!aiOn) return isAdmin ? <div className="aibox"><div className="ah"><b><AiMark/>너펑</b><span className="hint">꺼져 있음</span></div><div className="ex">학년도 설정 › 너펑(AI)에서 켤 수 있습니다. 말로 전담 시간을 옮기고 시간표에 대해 물어볼 수 있습니다.</div></div> : null;
   const submit = async (q) => { const t = (q ?? text).trim(); if (!t || busy) return; setBusy(true); setText('');
     try { const res = await run(t); setItems(cur => [{ q: t, ...res }, ...cur].slice(0, 6)); }
     catch (e) { setItems(cur => [{ q: t, error: e.message || String(e) }, ...cur].slice(0, 6)); }
     finally { setBusy(false); } };
   return <div className="aibox">
-    <div className="ah"><b>너펑</b><span className="hint">{scope}</span></div>
+    <div className="ah"><b><AiMark/>너펑</b><span className="hint">{scope}</span></div>
     <form onSubmit={e=>{ e.preventDefault(); submit(); }}><input type="text" value={text} onChange={e=>setText(e.target.value)} placeholder={busy ? '너펑이 생각하는 중…' : '너펑에게 말로 적어 보세요'} disabled={busy} /><button className="btn primary" type="submit" disabled={busy} style={{padding:'6px 12px'}}>{busy ? '…' : '보내기'}</button></form>
     {items.length>0 && <div className="out">{items.map((it, i) => <div key={i} className={'aicard'+(it.error?' err':'')}>
       <div className="src">▶ {it.q}</div>
@@ -1954,7 +1956,7 @@ function Settings({ year, teachers, roles, isAdmin, classList, toast, log, onBla
     await setDoc(sref('teachers'), { list }); toast('전담 교사를 저장했습니다.'); log('settings','전담 교사 저장'); };
   const upd = (i, k, v) => setTs(a => a.map((t,j)=> j===i ? { ...t, [k]: v } : t));
   const pick = k => { setSt(k); writePref('settingsTab', k); };
-  const TABS = [['year','학년도 · 학급'],['bell','시정표 · 점심'],['teachers','전담 교사'],['roles','역할 · 관리자'],['ai','너펑 (AI)'],['backup','백업 · 마감']];
+  const TABS = [['year','학년도 · 학급'],['bell','시정표 · 점심'],['teachers','전담 교사'],['roles','역할 · 관리자'],['ai','✦ 너펑 (AI)'],['backup','백업 · 마감']];
   return <div style={{paddingTop:16}}>
     <div className="seg" style={{marginBottom:14,background:'#fff'}}>{TABS.map(([k,n])=><button key={k} className={st===k?'on':''} style={{padding:'7px 16px',fontSize:15}} onClick={()=>pick(k)}>{n}</button>)}</div>
     {st==='year' && <div className="card"><h3>학년도 · 학급</h3>
@@ -2003,7 +2005,7 @@ function Settings({ year, teachers, roles, isAdmin, classList, toast, log, onBla
         <button className="btn primary" onClick={saveTeachers}>전담 교사 저장</button>
       </div>
     </div>}
-    {st==='ai' && <div className="card"><h3>너펑 (AI 도우미, Gemini)</h3>
+    {st==='ai' && <div className="card"><h3><AiMark size={17}/>너펑 (AI 도우미, Gemini)</h3>
       <p style={{margin:'0 0 10px',lineHeight:1.6}}>담임·전담 화면 오른쪽에 「너펑」 칸이 생깁니다. "17일 3교시 과학을 19일 5교시로"처럼 말로 적으면 AI가 어느 칸을 어디로인지 알아듣고, 겹침 검사와 실제 이동은 지금과 똑같이 프로그램이 합니다. 저장은 항상 확인 창을 거칩니다. 학생 이름은 AI에 보내지 않습니다.</p>
       <table className="form"><tbody>
         <tr><th style={{width:150}}>중계 주소</th><td><input value={aiUrl} onChange={e=>setAiUrl(e.target.value)} placeholder="https://script.google.com/macros/s/…/exec" style={{width:'100%',maxWidth:620}}/><div className="hint">아래 순서대로 만든 앱스스크립트 웹 앱 주소 (끝이 /exec)</div></td></tr>
@@ -2278,7 +2280,7 @@ ${weeks.map((w,i)=>`${i}: ${w.sem}학기 ${w.no}주 ${w.start}(월)~${addDays(w.
     </div>
     {aiOn && <div className="sec compact" style={{margin:'8px 18px 0',background:'#f3f7ff',borderColor:'#c7d7f5'}}>
       <form style={{display:'flex',gap:8,alignItems:'center'}} onSubmit={e=>{ e.preventDefault(); aiRun(); }}>
-        <b style={{color:'#1e4fb8',whiteSpace:'nowrap'}}>너펑</b>
+        <b style={{color:'#1e4fb8',whiteSpace:'nowrap'}}><AiMark/>너펑</b>
         <input value={aiText} onChange={e=>setAiText(e.target.value)} disabled={aiBusy} placeholder={aiBusy ? '너펑이 생각하는 중…' : '조건을 말로 적으면 아래 칸을 채웁니다. 예) 소프트웨어 교육, 4학년 전 반 2차시 연속, 11월 셋째 주부터 4회, 컴퓨터실, 수요일 3교시'} style={{flex:1,padding:'7px 10px',border:'1px solid var(--line-strong)',borderRadius:6,fontSize:14}}/>
         <button className="btn primary" type="submit" disabled={aiBusy || !aiText.trim()} style={{padding:'6px 12px'}}>{aiBusy ? '…' : '보내기'}</button>
       </form>
