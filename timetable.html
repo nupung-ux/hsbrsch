@@ -382,7 +382,7 @@ const TEST_Q = DEMO_ONLY ? '' : '?test';
 const APP_ID = SANDBOX ? (ROOM ? `${SANDBOX_BASE}-${ROOM}` : SANDBOX_BASE) : (CFG.timetableAppId || 'school-timetable');
 if (SANDBOX) document.title = `[연습용] ${document.title}`;
 if (SANDBOX) document.body.classList.add('sandbox');
-const VERSION = 'v11.5';
+const VERSION = 'v11.6';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -1296,13 +1296,13 @@ function AiBox({ aiOn, isAdmin, scope, examples, run }) {
   </div>;
 }
 const AI_LEC_SYSTEM = `당신은 초등학교 시간표 도우미 "너펑"입니다. 외부강의(또는 영양·보건·상담 수업) 배정 조건을 말로 들으면 입력 칸에 넣을 값을 JSON 한 개로 출력합니다 (설명 문장 금지). 배치 계산은 프로그램이 합니다.
-{"kind":"외부강의|영양|보건|상담","name":"강의명","subject":"과목 코드 한 글자 또는 빈칸","instructor":"강사·담당 또는 빈칸","room":"특별실 목록 중 하나 또는 빈칸(각 교실)","session":1,"classes":["4-1","4-2"],"count":4,"startWeek":12,"all":{"d":2,"p":3},"per":{"4-1":{"d":2,"p":3}},"ev":"skip|use","les":"skip|use","reply":"알아들은 내용 한두 문장"}
+{"kind":"외부강의|영양|보건|상담","name":"강의명","subject":"과목 코드 한 글자 또는 빈칸","instructor":"강사·담당 또는 빈칸","room":"특별실 목록 중 하나 또는 빈칸(각 교실)","session":1,"classes":["4-1","4-2"],"count":4,"startWeek":12,"all":{"d":2,"p":3},"per":{"4-1":{"d":2,"p":3}},"distinct":false,"ev":"skip|use","les":"skip|use","reply":"알아들은 내용 한두 문장"}
 규칙:
 1. classes는 주어진 이 학년 학급 중에서만. "전 반", "모든 반", "4학년 전체"면 학급 전부. 말이 없으면 전부.
 2. session은 한 번에 연속으로 하는 교시 수(1~4). "2차시 연속", "블록 수업"이면 2. 말이 없으면 1.
 3. count는 반마다 몇 번 하는지. "4회", "4차시(연속 아님)"면 4. 총 차시와 연속 차시가 함께 있으면 count = 총 차시 ÷ session (예: 8차시를 2차시 연속 → count 4).
 4. startWeek는 주차 목록의 번호. "11월 셋째 주"는 11월의 세 번째 월요일이 있는 주, "다음 주"는 오늘 다음 주, "11/17부터"는 그 날짜가 들어 있는 주. 말이 없으면 오늘이 들어 있는 주(지났으면 다음 주).
-5. 요일·교시: d는 월=0 화=1 수=2 목=3 금=4, p는 1~6. 모든 반이 같은 시간이면 all에, 반마다 다르면 per에 반별로. 요일이나 교시가 없으면 all과 per 모두 생략.
+5. 요일·교시: d는 월=0 화=1 수=2 목=3 금=4, p는 1~6. 모든 반이 같은 시간이면 all에, 반마다 시간을 말했으면 per에 반별로. "반마다 다른 시간", "학급별로 다르게", "전체 학급 다른 시간"이라고 했는데 반별 교시를 말하지 않았으면 distinct를 true로 하고(프로그램이 반별 시간을 추천함), 요일만 말했으면 all에 d만 넣는다 (예: "화요일" → "all":{"d":1}). 요일도 교시도 없으면 all, per 생략.
 6. room은 특별실 목록에 있는 이름만. 목록에 없으면 빈칸. "각 교실", "교실에서"면 빈칸.
 7. subject는 과목 코드 목록 중 한 글자. 강의와 관련된 과목이 분명할 때만 (예: 소프트웨어 교육→실, 안전교육→없음).
 8. ev: "행사 시간에도 넣어"면 use, 아니면 skip. les: "전담 시간에 겹쳐도 돼"면 use, 아니면 skip.
@@ -2142,6 +2142,35 @@ function LectureEditor({ aiOn, aiCall, log, year, bell, classList, teachers, ctt
     setModal({ type:'confirm', title:'이 시간에 넣을까요?', body:<div><p style={{margin:'4px 0 8px'}}><b>{classLabel(cid)}</b> {fmtDate(date)} {periodsText(ps)}</p>{Array.from(new Set(soft)).map((r,i)=><div key={i} className="warn">· {r}</div>)}</div>,
       actions:[{label:'취소',on:()=>setModal(null)},{label:'그래도 넣기',primary:true,on:()=>{ add(); setModal(null); }}] });
   };
+  // 반마다 시간 추천: 주어진 요일(없으면 모든 요일)에서 반별로 겹침이 가장 적은 교시를 고른다.
+  // 같은 강의의 다른 반과 같은 시간은 피한다(강사 한 명, 같은 특별실).
+  const suggestTimes = (f0 = f, pl = plan, fixedDay = null) => {
+    const per = {}; const taken = []; // [{d, ps}]
+    const days = fixedDay == null ? [0,1,2,3,4] : [Number(fixedDay)];
+    const maxP = 6 - Math.max(1, Number(f0.session)||1) + 1;
+    for (const cid of f0.classes) {
+      let best = null;
+      for (const d of days) for (let p = 1; p <= maxP; p++) {
+        const ps = sessPs(f0, p); let cost = 0;
+        if (taken.some(t => t.d===d && t.ps.some(x => ps.includes(x)))) cost += 100;
+        let n = 0;
+        for (let i = pl.startWeek; i < weeks.length && n < pl.count; i++) {
+          const date = addDays(weeks[i].start, d);
+          const rs = ps.map(x => check(cid, date, x, true));
+          if (rs.some(r => r.hard)) { cost += 1; continue; }
+          const soft = rs.flatMap(r => r.soft||[]);
+          if (soft.some(x => x.startsWith('행사')) && pl.ev === 'skip') { cost += 1; continue; }
+          if (soft.some(x => x.startsWith('전담')) && pl.les !== 'use') { cost += 1; continue; }
+          if (soft.length) cost += 0.5;
+          n++;
+        }
+        cost += (pl.count - n) * 5;
+        if (!best || cost < best.cost) best = { d, p, cost };
+      }
+      if (best) { per[cid] = { d: best.d, p: best.p }; taken.push({ d: best.d, ps: sessPs(f0, best.p) }); }
+    }
+    return per;
+  };
   const generate = (f0 = f, pl = plan) => {
     if (!weeks.length) return; if (!f0.classes.length) { toast('대상 학급을 골라 주세요.', true); return; }
     const made = []; const skipped = []; const softs = [];
@@ -2211,13 +2240,20 @@ ${weeks.map((w,i)=>`${i}: ${w.sem}학기 ${w.no}주 ${w.start}(월)~${addDays(w.
       if (typeof out.les === 'string') np.les = out.les === 'use' ? 'use' : 'skip';
       let timed = false;
       const okDP = x => x && Number.isInteger(Number(x.d)) && Number(x.d)>=0 && Number(x.d)<=4 && Number.isInteger(Number(x.p)) && Number(x.p)>=1 && Number(x.p)<=6;
-      if (okDP(out.all)) { np.same = true; for (const c of nf.classes) np.per[c] = { d: Number(out.all.d), p: Number(out.all.p) }; timed = true; }
+      const okD = x => x && Number.isInteger(Number(x.d)) && Number(x.d)>=0 && Number(x.d)<=4;
+      let suggested = false;
+      if (out.distinct || (okD(out.all) && !okDP(out.all))) { // 반마다 다른 시간 또는 요일만 말함 → 프로그램이 반별 시간 추천
+        const per = suggestTimes(nf, np, okD(out.all) ? Number(out.all.d) : null);
+        if (Object.keys(per).length) { np.same = false; np.per = { ...np.per, ...per }; timed = true; suggested = true; }
+      }
+      else if (okDP(out.all)) { np.same = true; for (const c of nf.classes) np.per[c] = { d: Number(out.all.d), p: Number(out.all.p) }; timed = true; }
       else if (out.per && typeof out.per === 'object') { const ent = Object.entries(out.per).filter(([c,x])=>nf.classes.includes(c) && okDP(x)); if (ent.length) { np.same = false; for (const c of nf.classes) np.per[c] = np.per[c] || { d:0, p:1 }; for (const [c,x] of ent) np.per[c] = { d: Number(x.d), p: Number(x.p) }; timed = ent.length === nf.classes.length; } }
       setF(nf); setPlan(np);
       const missing = [];
       if (!isNoncurr(nf) && !nf.name) missing.push('강의명');
       if (!timed) missing.push('요일·교시');
-      setAiReply((out.reply ? out.reply + '\n' : '') + (missing.length ? `${missing.join(', ')}은(는) 알 수 없어 비워 두었습니다. 아래 칸에서 채운 뒤 [반복 일정 만들기]를 누르세요.` : '칸을 채웠습니다. 미리보기에서 확인 후 [이대로 배정]을 누르면 배정됩니다.'));
+      const sugText = suggested ? '반별 추천 시간: ' + nf.classes.map(c => `${classCode(c)} ${DAYS[np.per[c].d]} ${np.per[c].p}교시${nf.session>1?'~'+(np.per[c].p+nf.session-1):''}`).join(', ') + '\n' : '';
+      setAiReply((out.reply ? out.reply + '\n' : '') + sugText + (missing.length ? `${missing.join(', ')}은(는) 알 수 없어 비워 두었습니다. 아래 칸에서 채운 뒤 [반복 일정 만들기]를 누르세요.` : '칸을 채웠습니다. 미리보기에서 확인 후 [이대로 배정]을 누르면 배정됩니다.'));
       if (timed && nf.classes.length) setTimeout(() => generate(nf, np), 50);
     } catch (e) { setAiErr(true); setAiReply(e.message || String(e)); }
     finally { setAiBusy(false); }
@@ -2286,7 +2322,8 @@ ${weeks.map((w,i)=>`${i}: ${w.sem}학기 ${w.no}주 ${w.start}(월)~${addDays(w.
         </div>; })}
         </div>
         <div style={{display:'flex',gap:8}}>
-          <button className="btn primary" onClick={generate} disabled={!weeks.length} style={{padding:'10px 18px',fontSize:15,flex:1}}>반복 일정 만들기</button>
+          {!plan.same && <button className="btn" onClick={()=>{ const per = suggestTimes(); if (!Object.keys(per).length) { toast('대상 학급을 먼저 골라 주세요.', true); return; } setPlan(pl=>({ ...pl, per: { ...pl.per, ...per } })); toast('반마다 겹침이 적은 시간을 골랐습니다. 확인 후 [반복 일정 만들기]를 누르세요.'); }} disabled={!weeks.length} title="전담·휴업일·다른 강의와 겹침이 가장 적은 요일·교시를 반마다 골라 줍니다 (같은 시간에 두 반이 되지 않게)" style={{padding:'10px 14px',fontSize:15}}>반마다 시간 추천</button>}
+          <button className="btn primary" onClick={()=>generate()} disabled={!weeks.length} style={{padding:'10px 18px',fontSize:15,flex:1}}>반복 일정 만들기</button>
           <button className="btn danger" disabled={!slots.length} onClick={()=>setModal({ type:'confirm', title:'배정한 시간을 모두 지울까요?', body:<p>현재 배정 {slots.length}칸이 지워집니다. 저장 전까지는 실제 데이터에 영향이 없습니다.</p>, actions:[{label:'취소',on:()=>setModal(null)},{label:'모두 지우기',primary:true,on:()=>{ setSlots([]); setModal(null); }}] })} style={{padding:'10px 14px'}}>시간 초기화</button>
         </div>
       </div>
