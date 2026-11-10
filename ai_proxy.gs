@@ -1,7 +1,7 @@
 // ====== 학교 통합 시간 관리 · AI 중계 (Gemini) ======
 // 이 파일 전체를 구글 앱스스크립트 새 프로젝트의 Code.gs에 붙여 넣고,
 // 프로젝트 설정 > 스크립트 속성에 GEMINI_KEY 를 추가한 뒤, 배포 > 새 배포 > 웹 앱 (액세스: 모든 사용자) 으로 배포합니다.
-// 선택 속성: MODEL (기본 gemini-2.5-flash), DAILY_LIMIT (기본 300, 하루 요청 상한)
+// 선택 속성: MODEL (비우면 사용 가능한 최신 flash 모델을 자동으로 고름), DAILY_LIMIT (기본 300, 하루 요청 상한)
 
 var PROPS = PropertiesService.getScriptProperties();
 
@@ -19,11 +19,12 @@ function doPost(e) {
       generationConfig: { temperature: 0.2, responseMimeType: body.json ? 'application/json' : 'text/plain' }
     };
     if (body.system) req.systemInstruction = { parts: [{ text: String(body.system) }] };
-    var res = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model() + ':generateContent?key=' + key,
-      { method: 'post', contentType: 'application/json', payload: JSON.stringify(req), muteHttpExceptions: true });
-    var code = res.getResponseCode();
-    var data = {};
-    try { data = JSON.parse(res.getContentText() || '{}'); } catch (err) {}
+    var res = callGemini(model(), key, req);
+    if (res.code === 404 && !PROPS.getProperty('MODEL')) { // 모델이 없어졌으면 목록에서 새로 골라 다시 시도
+      var m = pickModel(key, true);
+      if (m) res = callGemini(m, key, req);
+    }
+    var code = res.code, data = res.data;
     if (code !== 200) return out({ error: 'Gemini 오류 ' + code + ': ' + ((data.error && data.error.message) || '') });
     bump();
     var cand = (data.candidates || [])[0] || {};
@@ -34,7 +35,30 @@ function doPost(e) {
   } catch (err) { return out({ error: String(err) }); }
 }
 
-function model() { return PROPS.getProperty('MODEL') || 'gemini-2.5-flash'; }
+function callGemini(m, key, req) {
+  var res = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + m + ':generateContent?key=' + key,
+    { method: 'post', contentType: 'application/json', payload: JSON.stringify(req), muteHttpExceptions: true });
+  var data = {}; try { data = JSON.parse(res.getContentText() || '{}'); } catch (err) {}
+  return { code: res.getResponseCode(), data: data };
+}
+// 모델 이름: 스크립트 속성 MODEL이 있으면 그것, 없으면 구글 모델 목록에서 가장 최신 flash 모델을 골라 기억해 둔다
+function model() { return PROPS.getProperty('MODEL') || PROPS.getProperty('MODEL_AUTO') || pickModel(PROPS.getProperty('GEMINI_KEY'), true) || 'gemini-2.5-flash'; }
+function pickModel(key, force) {
+  if (!key) return null;
+  try {
+    var res = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models?key=' + key + '&pageSize=200', { muteHttpExceptions: true });
+    if (res.getResponseCode() !== 200) return null;
+    var list = (JSON.parse(res.getContentText()).models || []).filter(function (m) {
+      var n = m.name.replace('models/', '');
+      return /^gemini-\d/.test(n) && /flash/.test(n) && !/lite|preview|exp|image|tts|audio|live|thinking|8b/.test(n) && (m.supportedGenerationMethods || []).indexOf('generateContent') >= 0;
+    }).map(function (m) { return m.name.replace('models/', ''); });
+    if (!list.length) return null;
+    list.sort(function (a, b) { return ver(b) - ver(a) || a.length - b.length; }); // 버전 높은 것, 그다음 짧은 이름(= 기본 모델)
+    PROPS.setProperty('MODEL_AUTO', list[0]);
+    return list[0];
+  } catch (err) { return null; }
+}
+function ver(n) { var m = n.match(/gemini-(\d+(?:\.\d+)?)/); return m ? parseFloat(m[1]) : 0; }
 function limit() { return Number(PROPS.getProperty('DAILY_LIMIT') || 300); }
 function todayKey() { return 'USED_' + Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd'); }
 function used() { return Number(PROPS.getProperty(todayKey()) || 0); }
