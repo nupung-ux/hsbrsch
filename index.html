@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>화성바른초 월간 운영 계획</title>
   <link rel="icon" href="logo.png">
+  <script src="config.js"></script>
   
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -37,7 +38,7 @@
     // --- 1. 라이브러리 및 아이콘 불러오기 ---
     import React, { useState, useEffect, useMemo, useRef } from 'react';
     import { createRoot } from 'react-dom/client';
-    import { Calendar, Clock, MapPin, User, FileText, Download, Star, Edit2, Trash2, ChevronLeft, ChevronRight, AlertCircle, CheckCircle2, Plus, X, Settings, ArrowUp, ArrowDown, RotateCcw, Lock, KeyRound, Printer, ZoomIn, ZoomOut, Search, Upload, Database, ChevronUp, ChevronDown, RefreshCw, Sheet, Link2 } from 'lucide-react';
+    import { Calendar, Clock, MapPin, User, FileText, Download, Star, Edit2, Trash2, ChevronLeft, ChevronRight, AlertCircle, CheckCircle2, Plus, X, Settings, ArrowUp, ArrowDown, RotateCcw, Lock, KeyRound, Printer, ZoomIn, ZoomOut, Search, Upload, Database, ChevronUp, ChevronDown, RefreshCw, Sheet, Link2, Sparkles } from 'lucide-react';
     import { initializeApp } from 'firebase/app';
     import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
     import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, writeBatch, query } from 'firebase/firestore';
@@ -56,6 +57,7 @@
     const auth = getAuth(app);
     const db = getFirestore(app);
     const appId = 'hwaseong-barun-calendar';
+    const TT_APP_ID = (window.SCHOOL_CONFIG && window.SCHOOL_CONFIG.timetableAppId) || 'hwaseong-barun-timetable-test'; // 너펑(AI) 설정을 읽어 올 통합 시간표 appId
 
     // --- 3. 유틸리티 함수 및 상수 ---
     const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
@@ -197,6 +199,119 @@
     };
 
     // --- 4. 메인 애플리케이션 컴포넌트 ---
+    // ===== 너펑(AI): 메신저 글 → 일정 =====
+    // AI는 글에서 날짜·시간·내용·장소를 뽑기만 하고, 사람이 카드에서 고친 뒤 [등록]을 눌러야 저장된다.
+    const AI_CAL_SYSTEM = `당신은 초등학교 월간 운영 계획 도우미 "너펑"입니다. 교직원 메신저 글을 읽고 일정표에 넣을 일정을 뽑아 JSON 한 개만 출력합니다 (설명 문장 금지).
+{"events":[{"date":"YYYY-MM-DD","endDate":"YYYY-MM-DD(기간 일정만, 아니면 빈칸)","time":"HH:MM~HH:MM 또는 HH:MM 또는 빈칸","department":"부서 목록 중 하나","activity":"교육활동내용 (짧게, 20자 안팎)","manager":"담당자 (글에 있을 때만)","location":"장소 (글에 있을 때만)","note":"비고 (짧게, 없으면 빈칸)","link":"그 일정에 관한 URL (없으면 빈칸)","isImportant":false}],"reply":"무엇을 몇 개 뽑았는지 한 줄"}
+규칙:
+1. 날짜는 오늘 날짜를 기준으로 계산한다. "내일", "다음 주 월요일" 같은 말도 날짜로 바꾼다. 연도가 없으면 오늘과 가장 가까운 날짜로 하되, 글 안의 요일과 맞는 연도를 고른다.
+2. 여러 날에 걸친 한 가지 일(공사, 주간 행사, 캠프)은 date~endDate 하나로 뽑는다. 날마다 다른 일은 각각 뽑는다.
+3. 일정이 아닌 것은 뽑지 않는다: 인사말, 당부(안전지도 부탁 등), 일정표 자체의 링크 안내, 이미 지난 일에 대한 회고. 당부는 관련 일정의 note에 짧게 넣을 수 있다.
+4. department는 반드시 주어진 부서 목록 중 하나를 고른다. 글에 부서가 없으면 내용으로 가장 알맞은 것을 고른다.
+5. 사람 이름은 글에 있는 그대로, 전화번호·이메일은 넣지 않는다.
+6. 글 전체에 붙은 참고 링크는 각 일정의 link에 넣지 않는다. 특정 일정의 신청 폼·안내문 링크만 넣는다.
+7. 날짜를 정할 수 없는 일정(날짜 언급 없음)은 뽑지 않고 reply에 "날짜가 없어 뺀 것: …"이라고 적는다.`;
+    function AiImport({ departments, events, aiCall, addEvents, showToast, onClose }) {
+      const [text, setText] = useState('');
+      const [busy, setBusy] = useState(false);
+      const [items, setItems] = useState(null);   // 뽑힌 일정 카드들
+      const [reply, setReply] = useState('');
+      const [err, setErr] = useState('');
+      const todayStr = formatDate(new Date());
+      const dow = iso => ['일','월','화','수','목','금','토'][new Date(iso + 'T00:00:00').getDay()];
+      const run = async () => {
+        const t = text.trim(); if (!t || busy) return; setBusy(true); setErr(''); setItems(null);
+        try {
+          const user = `오늘: ${todayStr}(${dow(todayStr)})
+부서 목록: ${departments.map(d => d.name).join(', ')}
+
+메신저 글:
+${t}`;
+          const res = await aiCall({ system: AI_CAL_SYSTEM, user, json: true });
+          let out; try { out = JSON.parse(String(res.text || '').replace(/^\s*```(json)?/i, '').replace(/```\s*$/, '')); } catch { throw new Error('너펑의 답을 해석하지 못했습니다. 다시 보내 주세요.'); }
+          const list = (Array.isArray(out.events) ? out.events : []).slice(0, 20).map((e, i) => {
+            const date = /^\d{4}-\d{2}-\d{2}$/.test(e.date || '') ? e.date : '';
+            const endDate = /^\d{4}-\d{2}-\d{2}$/.test(e.endDate || '') && e.endDate > date ? e.endDate : '';
+            const department = departments.some(d => d.name === e.department) ? e.department : (departments[0]?.name || '');
+            const act = String(e.activity || '').trim();
+            // 같은 날 비슷한 일정이 이미 있으면 알려 주고 기본 해제
+            const key = act.replace(/\s+/g, '').slice(0, 6);
+            const dup = date && key ? events.find(ev => ev.date === date && String(ev.activity || '').replace(/\s+/g, '').includes(key)) : null;
+            return { id: i, on: !!date && !!act && !dup, date, endDate, time: String(e.time || ''), department, activity: act, manager: String(e.manager || ''), location: String(e.location || ''), note: String(e.note || ''), link: String(e.link || ''), isImportant: !!e.isImportant, deptGuess: !departments.some(d => d.name === e.department), dup };
+          });
+          setItems(list); setReply(out.reply || '');
+          if (!list.length) setErr('일정으로 넣을 내용을 찾지 못했습니다.');
+        } catch (e) { setErr(e.message || String(e)); }
+        finally { setBusy(false); }
+      };
+      const upd = (id, k, v) => setItems(cur => cur.map(it => it.id === id ? { ...it, [k]: v } : it));
+      const selected = (items || []).filter(it => it.on);
+      const save = async () => {
+        const bad = selected.find(it => !it.date || !it.activity || !it.department);
+        if (bad) { showToast('날짜, 교육활동내용, 부서가 비어 있는 일정이 있습니다.', 'error'); return; }
+        setBusy(true);
+        try { const n = await addEvents(selected); showToast(`${n}개의 일정을 등록했습니다.`); onClose(); }
+        catch (e) { showToast('등록 중 오류: ' + (e.message || e), 'error'); }
+        finally { setBusy(false); }
+      };
+      const inp = 'p-1.5 border border-gray-300 rounded text-sm w-full focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400';
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-3 border-b flex items-center justify-between bg-indigo-50 rounded-t-xl">
+              <h2 className="font-bold text-indigo-800 flex items-center gap-2"><Sparkles size={18}/> 너펑: 메신저 글로 일정 넣기</h2>
+              <button onClick={onClose} className="p-1 text-gray-500 hover:text-gray-800"><X size={20}/></button>
+            </div>
+            <div className="p-5 overflow-y-auto flex-1 space-y-4">
+              {!items && <>
+                <p className="text-sm text-gray-600">학교 메신저나 공문의 안내 글을 그대로 붙여 넣으세요. 너펑이 날짜, 시간, 내용, 장소를 뽑아 일정 카드로 보여 주고, 확인 후 [등록]을 눌러야 저장됩니다. 학생 이름은 넣지 마세요.</p>
+                <textarea value={text} onChange={e => setText(e.target.value)} rows={12} placeholder={'예)\n<11월 2주 주간교육활동 계획>\n- 11.09(월) 찾아가는 학교 컨설팅 14:40~16:20 3층 컴퓨터실\n- 11.12(목) 합동소방훈련'} className="w-full p-3 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400" autoFocus />
+                {err && <p className="text-sm text-red-600">{err}</p>}
+                <div className="flex justify-end gap-2">
+                  <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded">닫기</button>
+                  <button onClick={run} disabled={busy || !text.trim()} className="px-5 py-2 text-sm font-bold rounded bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-50 flex items-center gap-1"><Sparkles size={14}/> {busy ? '너펑이 읽는 중…' : '너펑에게 보내기'}</button>
+                </div>
+              </>}
+              {items && <>
+                {reply && <p className="text-sm text-indigo-800 bg-indigo-50 rounded p-2">{reply}</p>}
+                {err && <p className="text-sm text-red-600">{err}</p>}
+                <p className="text-xs text-gray-500">체크된 일정만 등록됩니다. 칸을 눌러 바로 고칠 수 있습니다. 기간(끝 날짜)이 있으면 주말을 뺀 날마다 하나씩 들어갑니다.</p>
+                <div className="space-y-3">
+                  {items.map(it => (
+                    <div key={it.id} className={`border rounded-lg p-3 ${it.on ? 'border-indigo-300 bg-white' : 'border-gray-200 bg-gray-50 opacity-70'}`}>
+                      <div className="flex items-start gap-3">
+                        <input type="checkbox" checked={it.on} onChange={e => upd(it.id, 'on', e.target.checked)} className="mt-2 w-4 h-4 text-indigo-600 rounded" />
+                        <div className="flex-1 grid grid-cols-12 gap-2">
+                          <div className="col-span-12 md:col-span-7"><input value={it.activity} onChange={e => upd(it.id, 'activity', e.target.value)} placeholder="교육활동내용" className={inp + ' font-semibold'} /></div>
+                          <div className="col-span-6 md:col-span-3"><select value={it.department} onChange={e => upd(it.id, 'department', e.target.value)} className={inp + (it.deptGuess ? ' border-amber-400 bg-amber-50' : '')} title={it.deptGuess ? '너펑이 추측한 부서입니다. 확인해 주세요.' : ''}>{departments.map(d => <option key={d.name} value={d.name}>{d.name}</option>)}</select></div>
+                          <div className="col-span-6 md:col-span-2"><input value={it.time} onChange={e => upd(it.id, 'time', e.target.value)} placeholder="시간" className={inp} /></div>
+                          <div className="col-span-6 md:col-span-3"><input type="date" value={it.date} onChange={e => upd(it.id, 'date', e.target.value)} className={inp} /></div>
+                          <div className="col-span-6 md:col-span-3 flex items-center gap-1"><span className="text-xs text-gray-400 whitespace-nowrap">~</span><input type="date" value={it.endDate} onChange={e => upd(it.id, 'endDate', e.target.value)} className={inp} title="기간 일정이면 끝 날짜" /></div>
+                          <div className="col-span-6 md:col-span-3"><input value={it.manager} onChange={e => upd(it.id, 'manager', e.target.value)} placeholder="담당자" className={inp} /></div>
+                          <div className="col-span-6 md:col-span-3"><input value={it.location} onChange={e => upd(it.id, 'location', e.target.value)} placeholder="장소" className={inp} /></div>
+                          <div className="col-span-12 md:col-span-8"><input value={it.note} onChange={e => upd(it.id, 'note', e.target.value)} placeholder="비고" className={inp} /></div>
+                          <div className="col-span-12 md:col-span-4"><input value={it.link} onChange={e => upd(it.id, 'link', e.target.value)} placeholder="링크" className={inp} /></div>
+                          {it.dup && <div className="col-span-12 text-xs text-amber-700">같은 날 비슷한 일정이 이미 있습니다: "{it.dup.activity}" ({it.dup.department}). 중복이 아니면 체크하세요.</div>}
+                          {it.date && <div className="col-span-12 text-xs text-gray-400">{it.date}({dow(it.date)}){it.endDate ? ` ~ ${it.endDate}(${dow(it.endDate)})` : ''}</div>}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex justify-between items-center pt-2">
+                  <button onClick={() => { setItems(null); setErr(''); }} className="px-3 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded">← 글 다시 쓰기</button>
+                  <div className="flex gap-2">
+                    <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded">닫기</button>
+                    <button onClick={save} disabled={busy || !selected.length} className="px-5 py-2 text-sm font-bold rounded bg-[#2563EB] hover:bg-blue-700 text-white disabled:opacity-50">{busy ? '등록 중…' : `선택한 ${selected.length}개 등록`}</button>
+                  </div>
+                </div>
+              </>}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     function App() {
       const [user, setUser] = useState(null);
       const [events, setEvents] = useState([]);
@@ -219,6 +334,8 @@
       const [deptAdmin, setDeptAdmin] = useState({ isOpen: false, list: [], saving: false });
       const [adminHash, setAdminHash] = useState(null);      // 저장된 관리자 암호 해시
       const [isUnlocked, setIsUnlocked] = useState(false);   // 이번 접속에서 인증 여부
+      const [aiCfg, setAiCfg] = useState(null);               // 너펑(AI) 설정: 통합 시간표 학년도 설정에서 켬
+      const [aiOpen, setAiOpen] = useState(false);
       const [gate, setGate] = useState({ isOpen: false, mode: 'verify', pw: '', pw2: '', error: '', busy: false });
       const [holidays, setHolidays] = useState(DEFAULT_HOLIDAYS);
       const [adminTab, setAdminTab] = useState('dept');
@@ -326,6 +443,36 @@
         });
         return () => unsubscribe();
       }, [user]);
+
+      // 너펑(AI) 설정 구독 — 통합 시간표의 학년도 설정 › 너펑(AI) 에서 켜고 끈다
+      useEffect(() => {
+        if (!user) return;
+        const ref = doc(db, 'artifacts', TT_APP_ID, 'public', 'data', 'settings', 'ai');
+        const un = onSnapshot(ref, (snap) => setAiCfg(snap.exists() ? snap.data() : null), () => setAiCfg(null));
+        return () => un();
+      }, [user]);
+      const aiOn = !!(aiCfg && aiCfg.enabled && aiCfg.proxyUrl);
+      const aiCall = async ({ system, user: u, json }) => {
+        const ctrl = new AbortController(); const tm = setTimeout(() => ctrl.abort(), 45000);
+        let r; try { r = await fetch(aiCfg.proxyUrl, { method: 'POST', body: JSON.stringify({ system, user: u, json: !!json }), signal: ctrl.signal }); }
+        catch (e) { throw new Error(e.name === 'AbortError' ? 'AI 응답이 45초 안에 오지 않았습니다.' : '중계 서버에 연결할 수 없습니다.'); } finally { clearTimeout(tm); }
+        let data; try { data = await r.json(); } catch { throw new Error('중계 서버 응답을 읽을 수 없습니다.'); }
+        if (data.error) throw new Error(data.error);
+        return data;
+      };
+      // 너펑이 뽑은 일정들을 한꺼번에 등록 (기간이 있으면 날마다 하나씩, 주말 제외)
+      const addEventsBulk = async (list) => {
+        const batch = writeBatch(db); let count = 0;
+        for (const ev of list) {
+          const base = { time: ev.time || '', department: ev.department || '', activity: ev.activity || '', manager: ev.manager || '', location: ev.location || '', note: ev.note || '', link: ev.link || '', isImportant: !!ev.isImportant, repeatDays: [], excludeWeekends: true, createdAt: new Date().toISOString(), source: 'ai' };
+          const start = new Date(ev.date + 'T00:00:00'); const end = new Date((ev.endDate && ev.endDate > ev.date ? ev.endDate : ev.date) + 'T00:00:00');
+          if (end > start) { const gid = generateUUID();
+            for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) { const day = d.getDay(); if (day === 0 || day === 6) continue; batch.set(doc(collection(db, 'artifacts', appId, 'public', 'data', 'school_events')), { ...base, date: formatDate(d), endDate: ev.endDate, isRepeating: true, groupId: gid }); count++; }
+          } else { batch.set(doc(collection(db, 'artifacts', appId, 'public', 'data', 'school_events')), { ...base, date: ev.date, endDate: ev.date, isRepeating: false, groupId: null }); count++; }
+        }
+        if (count) await batch.commit();
+        return count;
+      };
 
       // 공휴일 실시간 구독 (저장된 값이 있으면 그것이 기준)
       useEffect(() => {
@@ -1420,6 +1567,7 @@
 
       return (
         <div className="h-screen w-full flex bg-gray-50 font-sans text-gray-800 overflow-hidden">
+          {aiOpen && <AiImport departments={departments} events={events} aiCall={aiCall} addEvents={addEventsBulk} showToast={showToast} onClose={() => setAiOpen(false)} />}
           {toast.show && (
             <div className={`fixed top-4 left-1/2 transform -translate-x-1/2 z-50 px-4 py-2 rounded shadow-lg flex items-center space-x-2 text-white ${toast.type === 'error' ? 'bg-red-500' : 'bg-green-500'}`}>
               {toast.type === 'error' ? <AlertCircle size={18} /> : <CheckCircle2 size={18} />}
@@ -2050,6 +2198,9 @@
                 {isEditing ? '일정 수정' : '새 일정 등록'}
               </h2>
               <div className="flex items-center gap-3">
+                {aiOn && !isEditing && (
+                  <button onClick={() => setAiOpen(true)} className="text-sm px-3 py-1.5 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold flex items-center gap-1 shadow" title="메신저 글을 붙여 넣으면 너펑(AI)이 일정을 뽑아 줍니다"><Sparkles size={14}/> 너펑: 글 붙여넣기</button>
+                )}
                 {isEditing && (
                   <button onClick={resetForm} className="text-sm text-gray-500 hover:text-gray-700 underline">취소</button>
                 )}
