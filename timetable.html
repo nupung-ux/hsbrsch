@@ -382,7 +382,7 @@ const TEST_Q = DEMO_ONLY ? '' : '?test';
 const APP_ID = SANDBOX ? (ROOM ? `${SANDBOX_BASE}-${ROOM}` : SANDBOX_BASE) : (CFG.timetableAppId || 'school-timetable');
 if (SANDBOX) document.title = `[연습용] ${document.title}`;
 if (SANDBOX) document.body.classList.add('sandbox');
-const VERSION = 'v11.3';
+const VERSION = 'v11.4';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -1274,15 +1274,14 @@ function MemoPad({ id, memo, canEdit, saveMemo, title }) {
 // AI는 말을 해석해 "어느 칸을 어디로"만 뽑고, 겹침 검사·권한 확인·실제 이동은 기존 코드(requestMove)가 한다.
 function AiBox({ aiOn, isAdmin, scope, examples, run }) {
   const [text, setText] = useState(''); const [busy, setBusy] = useState(false); const [items, setItems] = useState([]);
-  if (!aiOn) return isAdmin ? <div className="aibox"><div className="ah"><b>AI 도우미</b><span className="hint">꺼져 있음</span></div><div className="ex">학년도 설정 › AI 도우미에서 켤 수 있습니다. 말로 전담 시간을 옮기고 시간표에 대해 물어볼 수 있습니다.</div></div> : null;
+  if (!aiOn) return isAdmin ? <div className="aibox"><div className="ah"><b>너펑</b><span className="hint">꺼져 있음</span></div><div className="ex">학년도 설정 › 너펑(AI)에서 켤 수 있습니다. 말로 전담 시간을 옮기고 시간표에 대해 물어볼 수 있습니다.</div></div> : null;
   const submit = async (q) => { const t = (q ?? text).trim(); if (!t || busy) return; setBusy(true); setText('');
     try { const res = await run(t); setItems(cur => [{ q: t, ...res }, ...cur].slice(0, 6)); }
     catch (e) { setItems(cur => [{ q: t, error: e.message || String(e) }, ...cur].slice(0, 6)); }
     finally { setBusy(false); } };
   return <div className="aibox">
-    <div className="ah"><b>AI 도우미</b><span className="hint">{scope}</span></div>
-    <form onSubmit={e=>{ e.preventDefault(); submit(); }}><input type="text" value={text} onChange={e=>setText(e.target.value)} placeholder={busy ? '생각하는 중…' : '말로 적어 보세요. 예) 17일 3교시 과학을 19일 5교시로'} disabled={busy} /><button className="btn primary" type="submit" disabled={busy} style={{padding:'6px 12px'}}>{busy ? '…' : '보내기'}</button></form>
-    {!items.length && <div className="ex">{examples.map(x => <span key={x} onClick={()=>submit(x)}>{x}</span>)}</div>}
+    <div className="ah"><b>너펑</b><span className="hint">{scope}</span></div>
+    <form onSubmit={e=>{ e.preventDefault(); submit(); }}><input type="text" value={text} onChange={e=>setText(e.target.value)} placeholder={busy ? '너펑이 생각하는 중…' : '너펑에게 말로 적어 보세요'} disabled={busy} /><button className="btn primary" type="submit" disabled={busy} style={{padding:'6px 12px'}}>{busy ? '…' : '보내기'}</button></form>
     {items.length>0 && <div className="out">{items.map((it, i) => <div key={i} className={'aicard'+(it.error?' err':'')}>
       <div className="src">▶ {it.q}</div>
       {it.error ? <div className="warn">{it.error}</div> : <div className="reply">{it.reply}</div>}
@@ -1299,11 +1298,12 @@ function AiBox({ aiOn, isAdmin, scope, examples, run }) {
 const AI_MOVE_SYSTEM = `당신은 초등학교 시간표 도우미입니다. 사용자의 말을 읽고 아래 JSON 한 개만 출력합니다 (설명 문장 금지).
 {"intent":"move"|"answer"|"clarify","reply":"존댓말 한두 문장","moves":[{"classId":"4-1","from":"2026-11-17_3","to":"2026-11-19_5"}]}
 규칙:
+0. 당신의 이름은 "너펑"입니다. 이름을 물으면 너펑이라고 답합니다.
 1. 전담 수업을 다른 날짜/교시로 옮겨 달라는 요청이면 intent는 "move". from은 반드시 아래 "전담 수업 목록"에 있는 키(날짜_교시)만 쓰고, to는 월~금 날짜와 1~6교시로 "YYYY-MM-DD_교시" 형식. 여러 개를 옮기라면 moves에 여러 개.
 2. "다음 주 화요일", "내일", "17일"처럼 상대적이거나 월이 없는 날짜는 오늘 날짜를 기준으로 계산한다. 월이 없으면 오늘 이후 가장 가까운 날짜.
 3. 어느 수업을 말하는지 하나로 정해지지 않으면 intent "clarify"로 하고 reply에 후보를 적어 되묻는다. 임의로 고르지 않는다.
 4. 시간표에 대한 질문이면 목록을 근거로 intent "answer"로 답한다. 목록에 없는 내용은 모른다고 한다.
-5. 삭제, 추가, 다른 반 시간표 변경, 설정 변경 등 옮기기와 질문 이외의 요청은 intent "answer"로 "이 도우미는 전담 시간 이동과 시간표 질문만 할 수 있습니다"라고 안내한다.
+5. 삭제, 추가, 다른 반 시간표 변경, 설정 변경 등 옮기기와 질문 이외의 요청은 intent "answer"로 "너펑은 전담 시간 이동과 시간표 질문만 할 수 있습니다"라고 안내한다.
 6. reply는 짧게. move일 때 reply에는 무엇을 어디로 옮기는지 한 줄로.`;
 function aiMoveRunner({ mode, aiCall, log, edit, sem, weeks, cellsOf, slots, lectureAt, lessons, teachers, requestMove, scopeLabel, fixedClass, allowedClasses }) {
   const tName = id => teachers.find(t=>t.id===id)?.name || '전담';
@@ -1942,7 +1942,7 @@ function Settings({ year, teachers, roles, isAdmin, classList, toast, log, onBla
     await setDoc(sref('teachers'), { list }); toast('전담 교사를 저장했습니다.'); log('settings','전담 교사 저장'); };
   const upd = (i, k, v) => setTs(a => a.map((t,j)=> j===i ? { ...t, [k]: v } : t));
   const pick = k => { setSt(k); writePref('settingsTab', k); };
-  const TABS = [['year','학년도 · 학급'],['bell','시정표 · 점심'],['teachers','전담 교사'],['roles','역할 · 관리자'],['ai','AI 도우미'],['backup','백업 · 마감']];
+  const TABS = [['year','학년도 · 학급'],['bell','시정표 · 점심'],['teachers','전담 교사'],['roles','역할 · 관리자'],['ai','너펑 (AI)'],['backup','백업 · 마감']];
   return <div style={{paddingTop:16}}>
     <div className="seg" style={{marginBottom:14,background:'#fff'}}>{TABS.map(([k,n])=><button key={k} className={st===k?'on':''} style={{padding:'7px 16px',fontSize:15}} onClick={()=>pick(k)}>{n}</button>)}</div>
     {st==='year' && <div className="card"><h3>학년도 · 학급</h3>
@@ -1991,11 +1991,11 @@ function Settings({ year, teachers, roles, isAdmin, classList, toast, log, onBla
         <button className="btn primary" onClick={saveTeachers}>전담 교사 저장</button>
       </div>
     </div>}
-    {st==='ai' && <div className="card"><h3>AI 도우미 (Gemini)</h3>
-      <p style={{margin:'0 0 10px',lineHeight:1.6}}>담임·전담 화면 오른쪽에 「AI 도우미」 칸이 생깁니다. "17일 3교시 과학을 19일 5교시로"처럼 말로 적으면 AI가 어느 칸을 어디로인지 알아듣고, 겹침 검사와 실제 이동은 지금과 똑같이 프로그램이 합니다. 저장은 항상 확인 창을 거칩니다. 학생 이름은 AI에 보내지 않습니다.</p>
+    {st==='ai' && <div className="card"><h3>너펑 (AI 도우미, Gemini)</h3>
+      <p style={{margin:'0 0 10px',lineHeight:1.6}}>담임·전담 화면 오른쪽에 「너펑」 칸이 생깁니다. "17일 3교시 과학을 19일 5교시로"처럼 말로 적으면 AI가 어느 칸을 어디로인지 알아듣고, 겹침 검사와 실제 이동은 지금과 똑같이 프로그램이 합니다. 저장은 항상 확인 창을 거칩니다. 학생 이름은 AI에 보내지 않습니다.</p>
       <table className="form"><tbody>
         <tr><th style={{width:150}}>중계 주소</th><td><input value={aiUrl} onChange={e=>setAiUrl(e.target.value)} placeholder="https://script.google.com/macros/s/…/exec" style={{width:'100%',maxWidth:620}}/><div className="hint">아래 순서대로 만든 앱스스크립트 웹 앱 주소 (끝이 /exec)</div></td></tr>
-        <tr><th>사용</th><td><label><input type="checkbox" checked={aiOnF} onChange={e=>setAiOnF(e.target.checked)}/> AI 도우미 켜기</label></td></tr>
+        <tr><th>사용</th><td><label><input type="checkbox" checked={aiOnF} onChange={e=>setAiOnF(e.target.checked)}/> 너펑 켜기</label></td></tr>
         <tr><th></th><td className="row" style={{gap:8}}>
           <button className="btn primary" onClick={async()=>{ const url = aiUrl.trim(); if (aiOnF && !/^https:\/\/script\.google(usercontent)?\.com\/.*\/exec$/.test(url)) { toast('앱스스크립트 웹 앱 주소(…/exec)를 넣어 주세요.', true); return; } await saveAi({ proxyUrl: url, enabled: aiOnF }); toast('저장했습니다.'); log('AI 설정', aiOnF ? '켬' : '끔'); }}>저장</button>
           <button className="btn" disabled={!aiUrl.trim()} onClick={async()=>{ setAiTest('확인 중…'); try { const r = await fetch(aiUrl.trim(), { method:'POST', body: JSON.stringify({ ping: true }) }).then(x=>x.json()); setAiTest(r.error ? '오류: '+r.error : `연결됨 · 모델 ${r.model} · 오늘 ${r.used}/${r.limit}회${r.models?.length ? ' · 쓸 수 있는 모델: '+r.models.join(', ') : ''}`); } catch (e) { setAiTest('연결 실패: 주소가 맞는지, 배포 액세스가 "모든 사용자"인지 확인해 주세요.'); } }}>연결 확인</button>
@@ -2007,7 +2007,7 @@ function Settings({ year, teachers, roles, isAdmin, classList, toast, log, onBla
         <li><b>앱스스크립트 만들기</b>: <code>script.google.com</code> → [새 프로젝트]. 기존 <code>Code.gs</code> 내용을 모두 지우고 아래 [중계 코드 복사]로 복사한 것을 붙여 넣고 저장(Ctrl+S). 프로젝트 이름은 "시간표 AI 중계" 정도로.</li>
         <li><b>키 넣기</b>: 왼쪽 톱니(프로젝트 설정) → 맨 아래 [스크립트 속성] → [스크립트 속성 추가] → 속성 <code>GEMINI_KEY</code>, 값에 1번 키 → 저장. (선택: <code>DAILY_LIMIT</code> 하루 상한, 기본 300)</li>
         <li><b>배포</b>: 오른쪽 위 [배포] → [새 배포] → 톱니에서 유형 <b>웹 앱</b> → 실행 주체 <b>나</b>, 액세스 권한 <b>모든 사용자</b> → [배포]. 처음에는 권한 승인 창이 뜹니다(고급 → 안전하지 않음으로 이동 → 허용). 나오는 <b>웹 앱 URL</b>(…/exec)을 복사합니다.</li>
-        <li>위 「중계 주소」에 붙여 넣고 [연결 확인] → "연결됨"이 나오면 [AI 도우미 켜기] 체크 후 [저장].</li>
+        <li>위 「중계 주소」에 붙여 넣고 [연결 확인] → "연결됨"이 나오면 [너펑 켜기] 체크 후 [저장].</li>
       </ol>
       <div className="row" style={{gap:8}}>
         <button className="btn" onClick={()=>{ const code = document.getElementById('ai-proxy-code')?.textContent || ''; navigator.clipboard.writeText(code).then(()=>toast('중계 코드를 복사했습니다. 앱스스크립트 Code.gs에 붙여 넣으세요.')).catch(()=>setShowCode(true)); }}>중계 코드 복사</button>
