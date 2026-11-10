@@ -96,28 +96,9 @@
   .memopad .ph{position:absolute;left:14px;top:12px;right:14px;color:#9a9a9a;font-size:14px;line-height:1.6;white-space:pre-wrap;pointer-events:none}
   .memopad .med font[size="1"]{font-size:11px}.memopad .med font[size="2"]{font-size:13px}.memopad .med font[size="3"]{font-size:15px}.memopad .med font[size="4"]{font-size:18px}.memopad .med font[size="5"]{font-size:22px}.memopad .med font[size="6"]{font-size:28px}.memopad .med font[size="7"]{font-size:36px}
   .memopad .med ul,.memopad .med ol{margin:4px 0;padding-left:22px}
-  .aside{flex:1 1 280px;min-width:260px;max-width:520px;display:flex;flex-direction:column;gap:10px;position:sticky;top:calc(var(--fixed, 60px) + 10px);height:calc(100vh - var(--fixed, 60px) - 60px)}
-  .aside .memopad{position:static;height:auto;flex:1;min-height:180px;max-width:none;min-width:0}
-  .aibox{background:#fff;border:1px solid #c7d7f5;border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,.05);display:flex;flex-direction:column;max-height:55%}
-  .aibox .ah{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid #dde7f8;font-size:14px;background:#f3f7ff;border-radius:10px 10px 0 0}
-  .aibox .ah b{color:#1e4fb8}
-  .aibox .ah .hint{flex:1;text-align:right;font-size:12px}
-  .aibox form{display:flex;gap:6px;padding:8px 10px}
-  .aibox input[type=text]{flex:1;padding:7px 10px;border:1px solid var(--line-strong);border-radius:6px;font-size:14px}
-  .aibox .ex{padding:0 12px 8px;font-size:12px;color:var(--muted);line-height:1.5}
-  .aibox .ex span{cursor:pointer;text-decoration:underline dotted;margin-right:8px}
-  .aibox .out{overflow:auto;padding:0 10px 10px;display:flex;flex-direction:column;gap:8px}
-  .aicard{border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:14px;background:#fafcff}
-  .aicard .reply{white-space:pre-wrap;line-height:1.55}
-  .aicard .mv{margin-top:6px;padding:6px 8px;border-radius:6px;background:#fff;border:1px solid #e3e8f0}
-  .aicard .mv .warn{font-size:13px;margin-top:3px}
-  .aicard .row{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
-  .aicard .row .btn{padding:3px 10px;font-size:13px}
-  .aicard.err{border-color:#f3c0c0;background:#fff6f6}
-  .aicard .src{font-size:12px;color:var(--muted);margin-top:4px}
   .roomside{flex-wrap:wrap}
   .roomside .memopad{height:calc(100vh - var(--fixed, 60px) - 60px)}
-  @media (max-width:1500px){.withmemo{flex-direction:column}.memopad,.roomside .memopad{position:static;height:260px;max-width:none;width:100%}.aside{position:static;height:auto;max-width:none;width:100%}.aside .memopad{height:260px;flex:none}.aibox{max-height:none}}
+  @media (max-width:1500px){.withmemo{flex-direction:column}.memopad,.roomside .memopad{position:static;height:260px;max-width:none;width:100%}}
   table.tt thead th{position:sticky;z-index:6;background-clip:padding-box;box-shadow:inset 0 -1px 0 var(--line),inset -1px 0 0 var(--line)}
   table.tt thead tr:first-child th{top:var(--fixed,var(--topbar,53px))}
   table.tt thead tr:nth-child(2) th{top:calc(var(--fixed,var(--topbar,53px)) + 35px)}
@@ -382,7 +363,7 @@ const TEST_Q = DEMO_ONLY ? '' : '?test';
 const APP_ID = SANDBOX ? (ROOM ? `${SANDBOX_BASE}-${ROOM}` : SANDBOX_BASE) : (CFG.timetableAppId || 'school-timetable');
 if (SANDBOX) document.title = `[연습용] ${document.title}`;
 if (SANDBOX) document.body.classList.add('sandbox');
-const VERSION = 'v11.8';
+const VERSION = 'v11.9';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -1128,8 +1109,8 @@ function App() {
       <span className="hint" style={{fontSize:12,whiteSpace:'nowrap'}}>made by 너펑이 · {VERSION}</span>
     </div>
 
-    {tab==='class' && <ClassView key={'c'+homeKey} aiOn={aiOn} aiCall={aiCall} log={log} isAdmin={isAdmin} defaultCid={myRole?.classId} myTeacherId={myRole?.type==='전담' ? myRole.teacherId : null} memos={memos} saveMemo={saveMemo} requestMoveLecture={requestMoveLecture} {...{ year, classList, teachers, ctt, lessons, lectures, canEditClass, requestMove, onUpload, toast, addLesson, askRepeat, addLessonKeys, deleteLesson, setModal, askText, saveClassWeekNote, markEvent, unmarkEvent, requestMoveEvent, createBlank }} />}
-    {tab==='teacher' && <TeacherView key={'t'+homeKey} aiOn={aiOn} aiCall={aiCall} log={log} isAdmin={isAdmin} defaultTid={myRole?.teacherId} memos={memos} saveMemo={saveMemo} myClassId={myRole?.type==='담임' ? myRole.classId : null} onSelfEdit={tid=>setModal({type:'teacherSelf', teacherId:tid})} setModal={setModal} {...{ year, teachers, ctt, lessons, lectures, canEditTeacher, requestMove, addLesson, askRepeat, addLessonKeys, deleteLesson, toast, teacherNotes, saveTeacherCell, saveTeacherWeekNote, askText }} />}
+    {tab==='class' && <ClassView key={'c'+homeKey} defaultCid={myRole?.classId} myTeacherId={myRole?.type==='전담' ? myRole.teacherId : null} memos={memos} saveMemo={saveMemo} requestMoveLecture={requestMoveLecture} {...{ year, classList, teachers, ctt, lessons, lectures, canEditClass, requestMove, onUpload, toast, addLesson, askRepeat, addLessonKeys, deleteLesson, setModal, askText, saveClassWeekNote, markEvent, unmarkEvent, requestMoveEvent, createBlank }} />}
+    {tab==='teacher' && <TeacherView key={'t'+homeKey} defaultTid={myRole?.teacherId} memos={memos} saveMemo={saveMemo} myClassId={myRole?.type==='담임' ? myRole.classId : null} onSelfEdit={tid=>setModal({type:'teacherSelf', teacherId:tid})} setModal={setModal} {...{ year, teachers, ctt, lessons, lectures, canEditTeacher, requestMove, addLesson, askRepeat, addLessonKeys, deleteLesson, toast, teacherNotes, saveTeacherCell, saveTeacherWeekNote, askText }} />}
     {tab==='lecture' && <LectureView key={'l'+homeKey} aiOn={aiOn} aiCall={aiCall} log={log} defaultGrade={myRole?.grade || gradeOf(myRole?.classId)} {...{ year, bell, classList, teachers, ctt, lessons, lectures, bookings, canEditLecture, saveLecture, deleteLecture, toast, setModal }} />}
     {tab==='room' && <RoomView {...{ year, bell, classList, teachers, ctt, lessons, bookings, lectures, canBook, addBooking, deleteBooking, myRole, toast, setModal, memos, saveMemo, goLecture: ()=>setTab('lecture') }} />}
     {tab==='calendar' && <CalendarView {...{ calEvents, calAppId, lectures }} />}
@@ -1270,33 +1251,9 @@ function MemoPad({ id, memo, canEdit, saveMemo, title }) {
     </div>
   </div>;
 }
-// ===== AI 도우미 =====
-// AI는 말을 해석해 "어느 칸을 어디로"만 뽑고, 겹침 검사·권한 확인·실제 이동은 기존 코드(requestMove)가 한다.
+// ===== AI 도우미 (너펑): 월간운영계획 글 붙여넣기(index.html), 외부강의 조건 입력(LectureEditor) =====
 // AI 표시 (반짝이 모양)
 const AiMark = ({ size = 15 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{verticalAlign:'-2px',marginRight:4}} aria-label="AI"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 17l.7 1.8 1.8.7-1.8.7L19 22l-.7-1.8-1.8-.7 1.8-.7z"/><path d="M4.5 3l.5 1.3 1.3.5-1.3.5L4.5 6.6 4 5.3 2.7 4.8 4 4.3z"/></svg>;
-function AiBox({ aiOn, isAdmin, scope, examples, run }) {
-  const [text, setText] = useState(''); const [busy, setBusy] = useState(false); const [items, setItems] = useState([]);
-  if (!aiOn) return isAdmin ? <div className="aibox"><div className="ah"><b><AiMark/>너펑</b><span className="hint">꺼져 있음</span></div><div className="ex">학년도 설정 › 너펑(AI)에서 켤 수 있습니다. 말로 전담 시간을 옮기고 시간표에 대해 물어볼 수 있습니다.</div></div> : null;
-  const submit = async (q) => { const t = (q ?? text).trim(); if (!t || busy) return; setBusy(true); setText('');
-    try { const res = await run(t); setItems(cur => [{ q: t, ...res }, ...cur].slice(0, 6)); }
-    catch (e) { setItems(cur => [{ q: t, error: e.message || String(e) }, ...cur].slice(0, 6)); }
-    finally { setBusy(false); } };
-  return <div className="aibox">
-    <div className="ah"><b><AiMark/>너펑</b><span className="hint">{scope}</span></div>
-    <form onSubmit={e=>{ e.preventDefault(); submit(); }}><input type="text" value={text} onChange={e=>setText(e.target.value)} placeholder={busy ? '너펑이 생각하는 중…' : '너펑에게 말로 적어 보세요'} disabled={busy} /><button className="btn primary" type="submit" disabled={busy} style={{padding:'6px 12px'}}>{busy ? '…' : '보내기'}</button></form>
-    {items.length>0 && <div className="out">{items.map((it, i) => <div key={i} className={'aicard'+(it.error?' err':'')}>
-      <div className="src">▶ {it.q}</div>
-      {it.error ? <div className="warn">{it.error}</div> : <div className="reply">{it.reply}</div>}
-      {(it.moves||[]).map((m, j) => <div key={j} className="mv">
-        <div><b>{m.label}</b></div>
-        {m.warns.map((w,k)=><div key={k} className="warn">· {w}</div>)}
-        <div className="row">{m.actions.map((a,k)=><button key={k} className={'btn'+(a.primary?' primary':'')} onClick={a.on}>{a.label}</button>)}</div>
-      </div>)}
-    </div>)}
-      <div className="row" style={{justifyContent:'flex-end'}}><button className="btn" style={{padding:'2px 8px',fontSize:12}} onClick={()=>setItems([])}>지우기</button></div>
-    </div>}
-  </div>;
-}
 const AI_LEC_SYSTEM = `당신은 초등학교 시간표 도우미 "너펑"입니다. 외부강의(또는 영양·보건·상담 수업) 배정 조건을 말로 들으면 입력 칸에 넣을 값을 JSON 한 개로 출력합니다 (설명 문장 금지). 배치 계산은 프로그램이 합니다.
 {"kind":"외부강의|영양|보건|상담","name":"강의명","subject":"과목 코드 한 글자 또는 빈칸","instructor":"강사·담당 또는 빈칸","room":"특별실 목록 중 하나 또는 빈칸(각 교실)","session":1,"classes":["4-1","4-2"],"count":4,"startWeek":12,"all":{"d":2,"p":3},"per":{"4-1":{"d":2,"p":3}},"distinct":false,"ev":"skip|use","les":"skip|use","reply":"알아들은 내용 한두 문장"}
 규칙:
@@ -1309,77 +1266,6 @@ const AI_LEC_SYSTEM = `당신은 초등학교 시간표 도우미 "너펑"입니
 7. subject는 과목 코드 목록 중 한 글자. 강의와 관련된 과목이 분명할 때만 (예: 소프트웨어 교육→실, 안전교육→없음).
 8. ev: "행사 시간에도 넣어"면 use, 아니면 skip. les: "전담 시간에 겹쳐도 돼"면 use, 아니면 skip.
 9. 전화번호, 이메일은 넣지 않는다. 모르는 값은 키를 생략한다.`;
-const AI_MOVE_SYSTEM = `당신은 초등학교 시간표 도우미입니다. 사용자의 말을 읽고 아래 JSON 한 개만 출력합니다 (설명 문장 금지).
-{"intent":"move"|"answer"|"clarify","reply":"존댓말 한두 문장","moves":[{"classId":"4-1","from":"2026-11-17_3","to":"2026-11-19_5"}]}
-규칙:
-0. 당신의 이름은 "너펑"입니다. 이름을 물으면 너펑이라고 답합니다.
-1. 전담 수업을 다른 날짜/교시로 옮겨 달라는 요청이면 intent는 "move". from은 반드시 아래 "전담 수업 목록"에 있는 키(날짜_교시)만 쓰고, to는 월~금 날짜와 1~6교시로 "YYYY-MM-DD_교시" 형식. 여러 개를 옮기라면 moves에 여러 개.
-2. "다음 주 화요일", "내일", "17일"처럼 상대적이거나 월이 없는 날짜는 오늘 날짜를 기준으로 계산한다. 월이 없으면 오늘 이후 가장 가까운 날짜.
-3. 어느 수업을 말하는지 하나로 정해지지 않으면 intent "clarify"로 하고 reply에 후보를 적어 되묻는다. 임의로 고르지 않는다.
-4. 시간표에 대한 질문이면 목록을 근거로 intent "answer"로 답한다. 목록에 없는 내용은 모른다고 한다.
-5. 삭제, 추가, 다른 반 시간표 변경, 설정 변경 등 옮기기와 질문 이외의 요청은 intent "answer"로 "너펑은 전담 시간 이동과 시간표 질문만 할 수 있습니다"라고 안내한다.
-6. reply는 짧게. move일 때 reply에는 무엇을 어디로 옮기는지 한 줄로.`;
-function aiMoveRunner({ mode, aiCall, log, edit, sem, weeks, cellsOf, slots, lectureAt, lessons, teachers, requestMove, scopeLabel, fixedClass, allowedClasses }) {
-  const tName = id => teachers.find(t=>t.id===id)?.name || '전담';
-  const dow = iso => ['일','월','화','수','목','금','토'][new Date(iso+'T00:00:00').getDay()];
-  const fromD = addDays(TODAY, -14), toD = addDays(TODAY, 42);
-  const inWin = d => d >= fromD && d <= toD;
-  return async (text) => {
-    // 1) AI에게 보여 줄 목록 (최근 2주 ~ 앞 6주)
-    const lines = slots.filter(x => inWin(parseKey(x.key).date)).sort((a,b)=>a.key.localeCompare(b.key)).map(x => { const { date, p } = parseKey(x.key); return `${x.key} = ${date}(${dow(date)}) ${p}교시 ${mode==='teacher' ? classLabel(x.classId)+' ' : ''}${x.subject}${mode==='class' ? ' ['+tName(x.teacherId)+']' : ''}`; });
-    const extra = []; const seenH = new Set();
-    for (const w of (weeks||[])) for (let d=0; d<5; d++) { const date = addDays(w.start, d); if (!inWin(date)) continue;
-      const classes = mode==='class' ? [fixedClass] : (allowedClasses||[]);
-      for (const c of classes) { const cells = cellsOf(c); for (let p=1; p<=7; p++) { const k = slotKey(date, p); const cell = cells[k]; if (!cell) continue;
-        if (cell.k==='h' && !seenH.has(date+c)) { seenH.add(date+c); extra.push(`${date}(${dow(date)}) ${mode==='teacher'?classLabel(c)+' ':''}휴업일/행사: ${cell.t||''}`); }
-        const lec = lectureAt(c, k); if (lec) extra.push(`${date}(${dow(date)}) ${p}교시 ${mode==='teacher'?classLabel(c)+' ':''}외부강의·비교과: ${lec.kind}${lec.name?' '+lec.name:''}`); } } }
-    const user = `오늘: ${TODAY}(${dow(TODAY)}) · 사용자: ${scopeLabel} · ${sem}학기 (${weeks?.[0]?.start||''} ~ ${weeks?.length ? addDays(weeks[weeks.length-1].start, 4) : ''})
-${mode==='class' ? '이 반: '+classLabel(fixedClass) : '맡은 반: '+(allowedClasses||[]).map(classLabel).join(', ')}
-전담 수업 목록 (옮길 수 있는 것, 키 = 날짜_교시):
-${lines.join('\n') || '(이 기간에 전담 수업 없음)'}
-그 밖의 일정:
-${extra.join('\n') || '(없음)'}
-
-사용자의 말: ${text}`;
-    const res = await aiCall({ system: AI_MOVE_SYSTEM, user, json: true });
-    let out; try { out = JSON.parse(String(res.text||'').replace(/^\s*```(json)?/i,'').replace(/```\s*$/,'')); } catch { throw new Error('AI 답을 해석하지 못했습니다. 다시 말해 주세요.'); }
-    log('AI 요청', `${scopeLabel}: ${text} → ${out.intent||''}`);
-    const moves = [];
-    for (const m of (Array.isArray(out.moves) ? out.moves : []).slice(0, 5)) {
-      const classId = mode==='class' ? fixedClass : (m.classId || '');
-      const from = String(m.from||''), to = String(m.to||'');
-      const slot = slots.find(x => x.key===from && x.classId===classId);
-      const warns = []; const actions = [];
-      const fp = parseKey(from), tp = parseKey(to);
-      const fd = d => /^\d{4}-\d{2}-\d{2}$/.test(d||'') ? fmtDate(d) : '?';
-      const label = `${mode==='teacher' ? classLabel(classId)+' ' : ''}${slot ? slot.subject : '?'}${mode==='class' && slot ? ' ('+tName(slot.teacherId)+')' : ''}: ${fd(fp.date)} ${fp.p||''}교시 → ${fd(tp.date)} ${tp.p||''}교시`;
-      if (!edit) { warns.push(mode==='class' ? '이 반 시간표는 담임 선생님(또는 관리자)만 바꿀 수 있습니다. 질문은 할 수 있어요.' : '이 전담 시간표는 본인(또는 관리자)만 바꿀 수 있습니다.'); moves.push({ label, warns, actions }); continue; }
-      if (mode==='teacher' && !(allowedClasses||[]).includes(classId)) { warns.push(`${classLabel(classId)||'그 반'}은 맡은 반이 아닙니다.`); moves.push({ label, warns, actions }); continue; }
-      if (!slot) { warns.push('그 시간에 옮길 전담 수업이 없습니다. 날짜와 교시를 다시 확인해 주세요.'); moves.push({ label, warns, actions }); continue; }
-      if (!/^\d{4}-\d{2}-\d{2}_\d$/.test(to)) { warns.push('옮겨 갈 날짜/교시를 알아듣지 못했습니다.'); moves.push({ label, warns, actions }); continue; }
-      const cells = cellsOf(classId); const cell = cells[to];
-      if (!cell) warns.push('시간표에 없는 칸입니다 (학기 밖이거나 그 교시 수업이 없는 날).');
-      else if (cell.k==='h') warns.push(`휴업일·학교행사(${cell.t||''}) 칸입니다.`);
-      else {
-        if (slotsAt(classId, to)) warns.push(`그 시간에 이미 ${slotsAt(classId, to)} 수업이 있습니다.`);
-        if (lectureAt(classId, to)) warns.push(`외부강의·비교과(${lectureAt(classId, to).kind})와 겹칩니다.`);
-        const busy = teacherBusy(slot.teacherId, to, classId); if (busy) warns.push(`${tName(slot.teacherId)} 선생님이 그 시간에 ${busy} 수업이 있습니다.`);
-      }
-      const ok = cell && cell.k!=='h';
-      if (ok) actions.push({ label: warns.length ? '그래도 옮기기 (확인 창)' : '옮기기', primary: true, on: () => requestMove(classId, sem, from, to) });
-      // 같은 주 빈 시간 추천 (겹침 없는 칸)
-      const wk = (weeks||[]).find(w => tp.date && weekHas(w, tp.date)) || (weeks||[]).find(w => weekHas(w, fp.date));
-      if (wk) { const cands = [];
-        for (let d=0; d<5 && cands.length<4; d++) for (let p=1; p<=7 && cands.length<4; p++) { const date = addDays(wk.start, d); const k = slotKey(date, p); if (k===from || k===to || date < TODAY) continue; const c = cells[k]; if (!c || c.k==='h' || c.k==='e') continue;
-          if (slotsAt(classId, k) || lectureAt(classId, k) || teacherBusy(slot.teacherId, k, classId)) continue; cands.push(k); }
-        for (const k of cands) { const q = parseKey(k); actions.push({ label: `→ ${shortDate(q.date)} ${q.p}교시`, on: () => requestMove(classId, sem, from, k) }); } }
-      moves.push({ label, warns, actions });
-    }
-    return { reply: out.reply || (moves.length ? '' : '무엇을 도와드릴까요?'), moves };
-    function slotsAt(classId, k) { const v = lessons[`${classId}_${sem}`]?.slots?.[k]; return v ? `${v.t}(${tName(v.teacherId)})` : ''; }
-    function teacherBusy(teacherId, k, exceptClass) { for (const [id, L] of Object.entries(lessons)) { if (!id.endsWith('_'+sem)) continue; const c = id.slice(0, -('_'+sem).length); if (c===exceptClass) continue; if (L.slots?.[k]?.teacherId===teacherId) return classLabel(c); } return ''; }
-  };
-}
 // 연간시간표 올리는 방법 안내
 function UploadHelp({ onClose, onPick }) {
   return <Modal title="연간시간표 올리는 방법" onClose={onClose}>
@@ -1393,7 +1279,7 @@ function UploadHelp({ onClose, onPick }) {
     <div className="row"><button className="btn" onClick={onClose}>닫기</button>{onPick && <button className="btn primary" onClick={()=>{ onClose(); onPick(); }}>파일 고르기</button>}</div>
   </Modal>;
 }
-function ClassView({ aiOn, aiCall, log, isAdmin, year, classList, teachers, ctt, lessons, lectures, canEditClass, requestMove, requestMoveLecture, onUpload, toast, defaultCid, myTeacherId, memos, saveMemo, addLesson, askRepeat, addLessonKeys, deleteLesson, setModal, askText, saveClassWeekNote, markEvent, unmarkEvent, requestMoveEvent, createBlank }) {
+function ClassView({ year, classList, teachers, ctt, lessons, lectures, canEditClass, requestMove, requestMoveLecture, onUpload, toast, defaultCid, myTeacherId, memos, saveMemo, addLesson, askRepeat, addLessonKeys, deleteLesson, setModal, askText, saveClassWeekNote, markEvent, unmarkEvent, requestMoveEvent, createBlank }) {
   const [dimPast, setDimPast] = useState(readPref('dimPast', true));
   const [headRef, fixedStyle] = useFixedHead();
   // 전담이면 내가 맡은 학급을 목록 위에, 처음 열 때도 그중 첫 반
@@ -1479,17 +1365,13 @@ function ClassView({ aiOn, aiCall, log, isAdmin, year, classList, teachers, ctt,
           {myLectures.map(l => <div key={l.id} style={{marginBottom:6}}><span className={'tag'+(isNoncurr(l)?' b':'')}>{l.kind}{l.subject&&!isNoncurr(l)?` · ${subjectName(l.subject)}`:''}</span> <b>{lecName(l)}</b> {l.instructor && `· ${l.instructor}`} {l.room && `· ${l.room}`} — {l.mine.map(sl=>`${shortDate(sl.date)} ${sl.p}교시`).join(', ')}</div>)}
         </div>}
         </div>
-        <div className="aside">
-          <AiBox aiOn={aiOn} isAdmin={isAdmin} scope={`${classLabel(cid)} 시간표`} examples={['17일 3교시 과학을 19일 5교시로', '다음 주 화요일 2교시 음악 목요일 4교시로', '다음 주 우리 반 외부강의 있어?']}
-            run={aiMoveRunner({ mode:'class', aiCall, log, edit, sem, weeks: T.weeks, cells: T.cells||{}, cellsOf: ()=>T.cells||{}, slots: Object.entries(L).map(([key,v])=>({ key, classId: cid, teacherId: v.teacherId, subject: v.t })), lectureAt: (c,k)=>lecAt[k], lessons, teachers, requestMove, scopeLabel: `${classLabel(cid)} 담임`, fixedClass: cid })} />
-          <MemoPad id={`class_${cid}`} memo={memos?.[`class_${cid}`]} canEdit={edit} saveMemo={saveMemo} title={`${classLabel(cid)} 메모`} />
-        </div>
+        <MemoPad id={`class_${cid}`} memo={memos?.[`class_${cid}`]} canEdit={edit} saveMemo={saveMemo} title={`${classLabel(cid)} 메모`} />
       </div></div>}
   </div>;
 }
 
 // ---------- 전담시간표 ----------
-function TeacherView({ aiOn, aiCall, log, isAdmin, year, teachers, ctt, lessons, lectures, canEditTeacher, requestMove, defaultTid, myClassId, memos, saveMemo, onSelfEdit, setModal, addLesson, askRepeat, addLessonKeys, deleteLesson, toast, teacherNotes, saveTeacherCell, saveTeacherWeekNote, askText }) {
+function TeacherView({ year, teachers, ctt, lessons, lectures, canEditTeacher, requestMove, defaultTid, myClassId, memos, saveMemo, onSelfEdit, setModal, addLesson, askRepeat, addLessonKeys, deleteLesson, toast, teacherNotes, saveTeacherCell, saveTeacherWeekNote, askText }) {
   const [dimPast, setDimPast] = useState(readPref('dimPast', true));
   const [headRef, fixedStyle] = useFixedHead();
   // 담임이면 우리 반을 맡는 전담을 앞에, 나머지는 흐리게
@@ -1564,11 +1446,7 @@ function TeacherView({ aiOn, aiCall, log, isAdmin, year, teachers, ctt, lessons,
               actions:[{label:'취소',on:()=>setModal(null)}, ...arr.map(l=>({ label: classLabel(l.classId)+' 옮기기', primary:true, on:()=>requestMove(l.classId, sem, from, k) }))] }); }} />
         <p className="hint">빨간 테두리 = 같은 시간에 두 반. {edit && '빈 칸 누르면 추가, 수업 칸 누르면 삭제, 끌어서 놓으면 이동, 수업 칸 오른쪽 아래 점을 끌면(아래·옆) 같은 수업 채우기 — 모두 그 반 담임시간표에도 함께 반영됩니다.'}</p>
         </div>
-        <div className="aside">
-          <AiBox aiOn={aiOn} isAdmin={isAdmin} scope={`${t?.name||''} 전담 시간표`} examples={['17일 3교시 4-1 수업을 19일 5교시로', '다음 주 수요일 내 수업 뭐 있어?']}
-            run={aiMoveRunner({ mode:'teacher', aiCall, log, edit, sem, weeks, cellsOf: (c)=>ctt[`${c}_${sem}`]?.cells||{}, slots: Object.entries(mine).flatMap(([key,arr])=>arr.map(l=>({ key, classId: l.classId, teacherId: tid, subject: l.t }))), lectureAt: (c,k)=>lecClash[`${c}|${k}`], lessons, teachers, requestMove, scopeLabel: `전담 ${t?.name||''}`, allowedClasses: teacherClasses(t||{}) })} />
-          <MemoPad id={`teacher_${tid}`} memo={memos?.[`teacher_${tid}`]} canEdit={edit} saveMemo={saveMemo} title={`${t?.name||''} 메모`} />
-        </div>
+        <MemoPad id={`teacher_${tid}`} memo={memos?.[`teacher_${tid}`]} canEdit={edit} saveMemo={saveMemo} title={`${t?.name||''} 메모`} />
       </div></div>}
   </div>;
 }
@@ -2006,7 +1884,7 @@ function Settings({ year, teachers, roles, isAdmin, classList, toast, log, onBla
       </div>
     </div>}
     {st==='ai' && <div className="card"><h3><AiMark size={17}/>너펑 (AI 도우미, Gemini)</h3>
-      <p style={{margin:'0 0 10px',lineHeight:1.6}}>담임·전담 화면 오른쪽에 「너펑」 칸이 생깁니다. "17일 3교시 과학을 19일 5교시로"처럼 말로 적으면 AI가 어느 칸을 어디로인지 알아듣고, 겹침 검사와 실제 이동은 지금과 똑같이 프로그램이 합니다. 저장은 항상 확인 창을 거칩니다. 학생 이름은 AI에 보내지 않습니다.</p>
+      <p style={{margin:'0 0 10px',lineHeight:1.6}}>켜면 두 곳에 너펑이 생깁니다. <b>월간운영계획</b>의 [너펑: 글 붙여넣기] — 메신저 글을 붙여 넣으면 일정 카드로 뽑아 주고 확인 후 등록합니다. <b>외부강의</b> 편집 화면의 너펑 입력줄 — 조건을 말로 적으면 강의 정보와 반복 일정 칸을 채우고, 배치 계산과 미리보기는 지금과 똑같이 프로그램이 합니다. 저장은 항상 사람이 확인합니다. 학생 이름은 AI에 보내지 않습니다.</p>
       <table className="form"><tbody>
         <tr><th style={{width:150}}>중계 주소</th><td><input value={aiUrl} onChange={e=>setAiUrl(e.target.value)} placeholder="https://script.google.com/macros/s/…/exec" style={{width:'100%',maxWidth:620}}/><div className="hint">아래 순서대로 만든 앱스스크립트 웹 앱 주소 (끝이 /exec)</div></td></tr>
         <tr><th>사용</th><td><label><input type="checkbox" checked={aiOnF} onChange={e=>setAiOnF(e.target.checked)}/> 너펑 켜기</label></td></tr>
