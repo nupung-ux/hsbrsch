@@ -347,7 +347,7 @@ const SCHOOL = CFG.schoolName || '우리 학교';
 const SHOW_PLAN_TAB = CFG.showCalendarTab !== false;
 const CAL_APP_ID = CFG.calendarAppId || 'school-calendar';
 document.title = `${SCHOOL} 통합 시간표`;
-// 브라우저 탭 아이콘: 학년도 설정에서 올린 마크 > config.js의 logoUrl
+// 브라우저 탭 아이콘: 설정에서 올린 마크 > config.js의 logoUrl
 const setFavicon = src => { if (!src) return; let l = document.querySelector('link[rel="icon"]'); if (!l) { l = document.createElement('link'); l.rel = 'icon'; document.head.appendChild(l); } if (l.href !== src) l.href = src; };
 setFavicon(CFG.logoUrl);
 const firebaseConfig = CONFIG_OK ? CFG.firebase : { apiKey:'x', authDomain:'x', projectId:'x', appId:'x' };
@@ -363,7 +363,7 @@ const TEST_Q = DEMO_ONLY ? '' : '?test';
 const APP_ID = SANDBOX ? (ROOM ? `${SANDBOX_BASE}-${ROOM}` : SANDBOX_BASE) : (CFG.timetableAppId || 'school-timetable');
 if (SANDBOX) document.title = `[연습용] ${document.title}`;
 if (SANDBOX) document.body.classList.add('sandbox');
-const VERSION = 'v11.9';
+const VERSION = 'v12.0';
 const isAdminPage = () => location.hash.startsWith('#/admin');
 const base = ['artifacts', APP_ID, 'public', 'data'];
 const sref = (name) => doc(db, ...base, 'settings', name);
@@ -1028,7 +1028,7 @@ function App() {
 
   // ----- 빈 연간시간표 (한글 파일 없이 시작) -----
   const createBlank = async (classId, sem) => {
-    const weeks = year.semesters?.[sem]?.weeks; if (!weeks?.length) { toast(`학년도 설정에서 ${sem}학기 기간을 먼저 정해 주세요.`, true); return; }
+    const weeks = year.semesters?.[sem]?.weeks; if (!weeks?.length) { toast(`설정에서 ${sem}학기 기간을 먼저 정해 주세요.`, true); return; }
     const id = `${classId}_${sem}`; if (ctt[id]) return;
     await setDoc(dref('class_timetables', id), { classId, sem, year: year.year, weeks: weeks.map(w=>({ ...w, note: w.note||'' })), cells: blankCells(weeks), totals: {}, source:'blank', uploadedAt: nowIso(), uploadedBy: editorName() });
     if (!lessons[id]) await setDoc(dref('lessons', id), { classId, sem, slots: {}, updatedAt: nowIso(), updatedBy: editorName() });
@@ -1088,7 +1088,7 @@ function App() {
         <button className={tab==='sep'?'on':''} onClick={()=>{ if (isAdmin || sepOpen) setTab('sep'); else setModal({ type:'sepauth' }); }} title="개별학생 교육지원 (개별지도) — 비밀번호가 있어야 들어갑니다. 보결과 서로 연동"><span className="w">{(isAdmin||sepOpen)?'개별':'🔒개별'}</span><span className="w">지도</span></button>
         <button className={tab==='status'?'on':''} onClick={()=>setTab('status')}>현황</button>
         {SHOW_PLAN_TAB && <button className={tab==='plan'?'on':''} onClick={()=>setTab('plan')} title="월간운영계획을 이 안에서 그대로 봅니다"><span className="w">월간</span><span className="w">계획</span></button>}
-        <button className={tab==='settings'?'on':''} onClick={()=>setTab('settings')} title="학년도 설정"><span className="w">학년도</span><span className="w">설정</span></button>
+        <button className={tab==='settings'?'on':''} onClick={()=>setTab('settings')} title="설정"><span className="w">⚙️ 설정</span></button>
       </div>
       <div className="spacer"/>
       {undoN>0 && <button className="btn" onClick={undo}>되돌리기 ({undoN})</button>}
@@ -1352,8 +1352,8 @@ function ClassView({ year, classList, teachers, ctt, lessons, lectures, canEditC
       <button className="btn primary" disabled={!edit} onClick={()=>fileRef.current.click()} title="여러 파일을 한 번에 선택하거나, 파일을 이 화면에 끌어다 놓아도 됩니다">연간시간표(hwpx) 올리기</button>
       <button className="btn" onClick={()=>setModal({type:'uploadHelp', pick: edit ? ()=>fileRef.current.click() : null})} title="스쿨마스터 파일 준비 방법">올리는 방법 ?</button>
     </div></div>
-    {!classList.length ? <div className="empty">학년도 설정에서 학급 수를 먼저 입력해 주세요.</div>
-    : !T ? <div className="empty"><p>{classLabel(cid)} {sem}학기 시간표가 아직 없습니다.</p>{edit ? <div style={{display:'flex',gap:10,justifyContent:'center'}}><button className="btn primary" onClick={()=>fileRef.current.click()}>스쿨마스터 연간시간표(hwpx) 올리기</button>{year.semesters?.[sem]?.weeks?.length ? <button className="btn" onClick={()=>createBlank(cid, sem)}>빈 시간표로 시작</button> : <span className="hint" style={{alignSelf:'center'}}>빈 시간표로 시작하려면 학년도 설정에서 {sem}학기 기간을 정해 주세요.</span>}</div> : <p className="hint">담임 선생님이 올리면 여기에 나타납니다.</p>}<p className="hint" style={{marginTop:12}}>스쿨마스터 연간시간표를 한글에서 열어 전담 칸에 배경색을 칠하고 <b>hwpx 형식으로 저장</b>해서 올립니다 (기본 hwp는 안 됩니다). <a href="#" onClick={e=>{ e.preventDefault(); setModal({type:'uploadHelp'}); }}>자세한 방법 보기</a><br/>빈 시간표로 시작하면 전담, 외부강의, 행사를 바로 넣을 수 있고, 나중에 한글 파일을 올리면 입력한 내용은 유지한 채 나머지가 채워집니다.</p></div>
+    {!classList.length ? <div className="empty">설정에서 학급 수를 먼저 입력해 주세요.</div>
+    : !T ? <div className="empty"><p>{classLabel(cid)} {sem}학기 시간표가 아직 없습니다.</p>{edit ? <div style={{display:'flex',gap:10,justifyContent:'center'}}><button className="btn primary" onClick={()=>fileRef.current.click()}>스쿨마스터 연간시간표(hwpx) 올리기</button>{year.semesters?.[sem]?.weeks?.length ? <button className="btn" onClick={()=>createBlank(cid, sem)}>빈 시간표로 시작</button> : <span className="hint" style={{alignSelf:'center'}}>빈 시간표로 시작하려면 설정에서 {sem}학기 기간을 정해 주세요.</span>}</div> : <p className="hint">담임 선생님이 올리면 여기에 나타납니다.</p>}<p className="hint" style={{marginTop:12}}>스쿨마스터 연간시간표를 한글에서 열어 전담 칸에 배경색을 칠하고 <b>hwpx 형식으로 저장</b>해서 올립니다 (기본 hwp는 안 됩니다). <a href="#" onClick={e=>{ e.preventDefault(); setModal({type:'uploadHelp'}); }}>자세한 방법 보기</a><br/>빈 시간표로 시작하면 전담, 외부강의, 행사를 바로 넣을 수 있고, 나중에 한글 파일을 올리면 입력한 내용은 유지한 채 나머지가 채워집니다.</p></div>
     : <div className="wrap"><div className="withmemo"><div className="main">
         <Grid weeks={T.weeks} renderCell={renderCell} canDrop={canDrop} dimPast={dimPast} onCellClick={onCellClick} onNoteClick={edit ? (no, cur)=>askText(`${no}주 비고`, cur, v=>saveClassWeekNote(cid, sem, no, v)) : undefined}
           onFill={edit ? (from, keys)=>{ const l = L[from]; if (l) addLessonKeys(cid, sem, keys, l.teacherId, l.t); } : undefined}
@@ -1434,7 +1434,7 @@ function TeacherView({ year, teachers, ctt, lessons, lectures, canEditTeacher, r
         <tr><td className="wk">과목</td>{hourRows.map(r=><td key={r.subject+r.classId}>{r.subject}</td>)}<td/></tr></tbody></table>
       {hourRows.some(r=>r.mode==='year') && <div className="hint" style={{marginTop:4}}>"연" 표시 과목은 1·2학기를 합친 연간 시수 기준입니다.</div>}
     </div>}</div>
-    {!t ? <div className="empty"><p>등록된 전담 교사가 없습니다.</p><button className="btn primary" onClick={()=>onSelfEdit('__new')}>+ 새 전담 등록</button><p className="hint" style={{marginTop:10}}>학년도 설정 → 전담 교사 탭에서 여러 명을 한꺼번에 넣을 수도 있습니다.</p></div>
+    {!t ? <div className="empty"><p>등록된 전담 교사가 없습니다.</p><button className="btn primary" onClick={()=>onSelfEdit('__new')}>+ 새 전담 등록</button><p className="hint" style={{marginTop:10}}>설정 → 전담 교사 탭에서 여러 명을 한꺼번에 넣을 수도 있습니다.</p></div>
     : !normTeacher(t).subjects.length ? <div className="empty">{t.name} 선생님의 담당 과목·학급이 아직 없습니다. {edit ? '[내 담당 설정]을 눌러 넣어 주세요.' : '전담 선생님이 설정하면 여기에 나타납니다.'}</div>
     : !weeks.length ? <div className="empty">{sem}학기 연간시간표가 아직 하나도 올라오지 않았습니다. 담임시간표 탭에서 학급 파일을 올리면 주차가 만들어집니다.</div>
     : <div className="wrap"><div className="withmemo"><div className="main">
@@ -1620,7 +1620,7 @@ $('bCopy').onclick=async()=>{ const tsv=[COLS,...cur.map(line)].map(r=>r.join(St
   };
   const onCellClick = (key, date, p) => {
     const cell = p===LUNCH ? T?.cells?.[slotKey(date,1)] : T?.cells?.[key]; if (!cell || cell.k==='h') return;
-    if (p===LUNCH && !lunchTime(bell, gradeOf(cid))) { toast('학년도 설정의 시정표에 이 학년군 점심시간을 먼저 넣어 주세요.', true); return; }
+    if (p===LUNCH && !lunchTime(bell, gradeOf(cid))) { toast('설정의 시정표에 이 학년군 점심시간을 먼저 넣어 주세요.', true); return; }
     const curList = recsAt(key); const cur = curList[0];
     if (!canEdit) { if (cur) toast(`${KIND}: ${curList.map(c=>c.label+(c.student?' ('+c.student+')':'')).join(', ')}`); return; }
     const cands = candidates(date, p); const les = L[key]; const lec = lecAt[key];
@@ -1861,7 +1861,7 @@ function Settings({ year, teachers, roles, isAdmin, classList, toast, log, onBla
           <div className="hint">연간시간표(hwpx)를 올리면 그 파일의 주차로 자동 설정됩니다. 파일 없이 시작하려면 여기서 주차를 만든 뒤 빈 시간표를 만드세요.</div>
         </td></tr>
       </tbody></table>
-      <div className="row" style={{display:'flex',justifyContent:'flex-end',marginTop:12}}><button className="btn primary" onClick={saveYear}>학년도 설정 저장</button></div>
+      <div className="row" style={{display:'flex',justifyContent:'flex-end',marginTop:12}}><button className="btn primary" onClick={saveYear}>저장</button></div>
     </div>}
     {st==='bell' && <div className="card"><h3>시정표 (학년군별)</h3>
       <p className="hint" style={{marginTop:0}}>같은 교시라도 학년군에 따라 시간이 다르면 여기서 맞춰 주세요. 특별실 겹침은 이 시간으로 판정합니다.</p>
@@ -1873,7 +1873,7 @@ function Settings({ year, teachers, roles, isAdmin, classList, toast, log, onBla
         <button className="btn danger" style={{padding:'2px 8px'}} onClick={()=>setBell(bellG.filter((_,j)=>j!==gi))}>×</button>
       </div>)}
       <div className="hint" style={{margin:'4px 0 8px'}}>점심시간은 보결 탭에서 급식 지도 보결과 보결 교사의 점심 확보 판정에 씁니다. 보결 교사 점심 확보 최소 <input type="number" min="0" max="60" value={y.lunchMin ?? 30} onChange={e=>setY({...y, lunchMin:Number(e.target.value)})} style={{width:56,padding:3,border:'1px solid var(--line)',borderRadius:4}}/> 분 (0이면 확인 안 함)</div>
-      <div style={{display:'flex',justifyContent:'space-between'}}><button className="btn" onClick={()=>setBell([...bellG,{name:'새 학년군',grades:[],periods:{...DEFAULT_BELL.groups[0].periods},lunch:[...DEFAULT_BELL.groups[0].lunch]}])}>+ 학년군 추가</button><button className="btn primary" onClick={saveYear}>학년도 설정 저장</button></div>
+      <div style={{display:'flex',justifyContent:'space-between'}}><button className="btn" onClick={()=>setBell([...bellG,{name:'새 학년군',grades:[],periods:{...DEFAULT_BELL.groups[0].periods},lunch:[...DEFAULT_BELL.groups[0].lunch]}])}>+ 학년군 추가</button><button className="btn primary" onClick={saveYear}>저장</button></div>
     </div>}
     {st==='teachers' && <div className="card"><h3>전담 교사</h3>
       <p className="hint" style={{marginTop:0}}>학급 수를 먼저 저장해야 학급 버튼이 나타납니다. 한 사람이 여러 과목을 맡으면 담당 항목을 줄로 추가합니다(예: 체육 전담이 1학년 통합 놀이체육도 맡는 경우). 창체는 "창"을 고르면 파일의 창·자·동·봉·진 칸을 모두 창체로 인식합니다. "일부 전담"은 담임과 나누는 과목으로 파일의 색칠 칸만 잡습니다. 시수(학급당)를 넣으면 시간표에서 개수를 대조합니다. 창체처럼 1년 합계로만 맞추는 과목은 시수 기준을 "연간"으로 두세요. 담당 항목 줄마다 그 과목 수업이 열리는 특별실을 고르세요(과학은 과학실, 창체는 컴퓨터실). 교실에서 하면 비워 둡니다.</p>
@@ -2227,7 +2227,7 @@ ${weeks.map((w,i)=>`${i}: ${w.sem}학기 ${w.no}주 ${w.start}(월)~${addDays(w.
         <div className="legend">{f.classes.map(c=><span key={c} className="chip" style={{background:gradeColor(c)}}>{classCode(c)} <b>{counts[c]||0}</b></span>)}</div>
       </div>
       <div className="ttscroll">
-      {!weeks.length ? <div className="empty">연간시간표가 아직 없습니다. 담임시간표에서 올리거나 학년도 설정에서 학기 기간을 정해 주세요.</div>
+      {!weeks.length ? <div className="empty">연간시간표가 아직 없습니다. 담임시간표에서 올리거나 설정에서 학기 기간을 정해 주세요.</div>
       : shownWeeks.map(x => <div key={x.i} style={{marginBottom:18}}>
         <table className="tt">
           <thead><tr><th style={{width:64,background:x.i===curWeekIdx?'#fff3b0':undefined,fontSize:12}}>{x.sem}학기 {x.no}주</th>{DAYS.map((d,di)=><th key={d} colSpan={6} className="day">{d} <span className="hint">{shortDate(addDays(x.start,di)).slice(0,-3)}</span></th>)}</tr>
@@ -2288,7 +2288,7 @@ function RoomView({ year, bell, classList, teachers, ctt, lessons, bookings, lec
       <div className="spacer"/>
       <div className="legend"><span><i style={{background:'#dff4ec'}}/>전담 수업{roomTeachers.length?` (${roomTeachers.map(t=>t.name).join(', ')})`:''}</span><span><i style={{background:'#fff0c2'}}/>예약</span><span><i style={{background:'#e9dcff'}}/>외부강의(잠금)</span><span style={{color:'var(--danger)'}}>빨간 테두리 = 겹침</span></div>
     </div></div>
-    {!rooms.length ? <div className="empty">학년도 설정에서 특별실을 먼저 등록해 주세요.</div>
+    {!rooms.length ? <div className="empty">설정에서 특별실을 먼저 등록해 주세요.</div>
     : !weeks.length ? <div className="empty">{sem}학기 연간시간표가 아직 없습니다.</div>
     : <div className="roomside">
       <div className="roombtns">{rooms.map(r=><button key={r.name} className={room===r.name?'on':''} onClick={()=>setRoom(r.name)}>{r.name}</button>)}</div>
@@ -2355,7 +2355,7 @@ function CalendarView({ calEvents, calAppId, lectures }) {
   const dates = Object.keys(groups).sort();
   const firstTodayOrAfter = dates.find(d=>d>=today);
   return <>
-    <div className="bar"><span className="hint">연동 대상: <b>{calAppId===CAL_APP_ID ? '월간운영계획' : '별도 보관 (연동 안 함)'}</b> (학년도 설정에서 바꿀 수 있습니다) · 보라색 표시는 외부강의에서 자동으로 들어온 줄입니다. 실제 화면은 월간운영계획에서 확인하세요.</span></div>
+    <div className="bar"><span className="hint">연동 대상: <b>{calAppId===CAL_APP_ID ? '월간운영계획' : '별도 보관 (연동 안 함)'}</b> (설정에서 바꿀 수 있습니다) · 보라색 표시는 외부강의에서 자동으로 들어온 줄입니다. 실제 화면은 월간운영계획에서 확인하세요.</span></div>
     <div className="list" style={{maxWidth:1100}}>
       {!dates.length && <div className="it hint">일정이 없습니다. 외부강의를 저장하면 여기에 나타납니다.</div>}
       {dates.map(d=><div key={d} ref={d===firstTodayOrAfter?ref:null}>
@@ -2392,7 +2392,7 @@ function TextModal({ title, value, hint, onSave, onClose }) {
 function SepAuthModal({ sepHash, onOk, onClose, onAdmin }) {
   const [pw, setPw] = useState('');
   return <Modal title="개별학생 교육지원 — 비밀번호" onClose={onClose}>
-    {sepHash===null ? <><p className="warn">아직 비밀번호가 정해지지 않았습니다. 관리자가 학년도 설정 → 학년도 · 학급 탭에서 「개별지도 비밀번호」를 먼저 정해 주세요.</p><div className="row"><button className="btn" onClick={onClose}>닫기</button><button className="btn primary" onClick={onAdmin}>관리자 암호로 들어가기</button></div></>
+    {sepHash===null ? <><p className="warn">아직 비밀번호가 정해지지 않았습니다. 관리자가 설정 → 학년도 · 학급 탭에서 「개별지도 비밀번호」를 먼저 정해 주세요.</p><div className="row"><button className="btn" onClick={onClose}>닫기</button><button className="btn primary" onClick={onAdmin}>관리자 암호로 들어가기</button></div></>
     : <><p className="hint" style={{marginTop:0}}>학생 정보가 있는 화면이라 비밀번호를 아는 분만 볼 수 있습니다. 이 브라우저 탭을 닫거나 [잠그기]를 누르기 전까지 유지됩니다.</p>
       <input type="password" value={pw} autoFocus onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==='Enter'&&onOk(pw)} style={{width:'100%',padding:8,border:'1px solid var(--line-strong)',borderRadius:6}}/>
       <div className="row"><button className="btn" onClick={onClose}>취소</button><button className="btn primary" onClick={()=>onOk(pw)}>확인</button></div></>}
