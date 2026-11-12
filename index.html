@@ -1387,9 +1387,7 @@ ${t}`;
           endDate: dateStr
         });
         setIsFormOpen(true);
-        // 등록 칸으로 안내: 날짜가 들어갔음을 알리고 내용 칸에 커서를 둔다
-        const [yy, mm, dd] = dateStr.split('-').map(Number);
-        showToast(`${mm}월 ${dd}일(${getDayName(dateStr)}) 새 일정 — 오른쪽 등록 칸에 내용을 입력하세요.`);
+        // 등록 칸의 내용 칸에 커서를 둔다
         setTimeout(() => { const el = document.querySelector('input[name="activity"]'); if (el) { el.focus(); el.scrollIntoView({ block: 'nearest' }); } }, 80);
       };
 
