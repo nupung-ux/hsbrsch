@@ -1377,13 +1377,20 @@ ${t}`;
       };
 
       const handleRowClick = (dateStr) => {
-        if (isEditing) return;
+        if (isEditing) {
+          if (!window.confirm('지금 수정 중인 일정이 있습니다. 수정을 취소하고 이 날짜에 새 일정을 만들까요?')) return;
+          setIsEditing(false); setEditingId(null);
+        }
         setFormData({
           ...initialFormState,
           date: dateStr,
           endDate: dateStr
         });
         setIsFormOpen(true);
+        // 등록 칸으로 안내: 날짜가 들어갔음을 알리고 내용 칸에 커서를 둔다
+        const [yy, mm, dd] = dateStr.split('-').map(Number);
+        showToast(`${mm}월 ${dd}일(${getDayName(dateStr)}) 새 일정 — 오른쪽 등록 칸에 내용을 입력하세요.`);
+        setTimeout(() => { const el = document.querySelector('input[name="activity"]'); if (el) { el.focus(); el.scrollIntoView({ block: 'nearest' }); } }, 80);
       };
 
       // 링크: 주소 앞에 http(s):// 가 없으면 붙여서 연다
