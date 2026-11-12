@@ -30,6 +30,8 @@
 
   <!-- SheetJS: 엑셀(xlsx) 가져오기·양식 다운로드용 -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <!-- JSZip: 스쿨마스터 hwpx(zip) 학사일정 가져오기용 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 </head>
 <body class="bg-gray-50">
   <div id="root"></div>
@@ -199,6 +201,120 @@
     };
 
     // --- 4. 메인 애플리케이션 컴포넌트 ---
+      // ===== 스쿨마스터(학교 교육과정 프로그램) hwpx 학사일정 읽기 =====
+      // 두 양식: ① 학년별 상세 학사일정표 (6개월 × 날짜/내용 12열, 상반기·하반기 두 표)  ② 주요 학사일정 (종류/일시/비고)
+      const SM_HOLIDAY_SKIP = /^(토요휴업일|삼일절|대체공휴일|어린이날|부처님오신날|석가탄신일|현충일|광복절|추석|추석연휴|개천절|한글날|기독탄신일|성탄절|신정|설날|설연휴|근로자의날)$/;
+      const smText = (el) => Array.from(el.getElementsByTagNameNS('*', 't')).map(t => t.textContent || '').join('');
+      // 셀 안의 문단들을 줄 단위로 (중첩 표 제외)
+      const smLines = (tc) => {
+        const out = [];
+        for (const p of Array.from(tc.getElementsByTagNameNS('*', 'p'))) {
+          if (p.parentNode && p.parentNode.localName === 'tbl') continue;
+          let inNested = false; let n = p.parentNode; while (n && n !== tc) { if (n.localName === 'tbl') { inNested = true; break; } n = n.parentNode; }
+          if (inNested) continue;
+          const t = smText(p).replace(/\s+/g, ' ').trim(); if (t) out.push(t);
+        }
+        return out;
+      };
+      const smRows = (tbl) => Array.from(tbl.children).filter(n => n.localName === 'tr').map(tr => Array.from(tr.children).filter(n => n.localName === 'tc'));
+      const smGradeDept = (g, departments) => { const name = g === '유' ? '유치원' : `${g}학년`; return departments.some(d => d.name === name) ? name : name; };
+      // "(1,3,4,6학년)", "(1~4학년)", "(6학년)", "(유치원)" → ['1','3','4','6'] ; 없으면 []
+      const smGrades = (s) => {
+        const m = s.match(/\(([0-9유치원,\s~\-·]+학년?|유치원)\)\s*$/);
+        if (!m) return { text: s, grades: [] };
+        const inner = m[1].replace(/학년$/, '').replace(/\s/g, '');
+        const grades = [];
+        if (/유치원|유/.test(inner)) grades.push('유');
+        for (const part of inner.replace(/유치원|유/g, '').split(/[,·]/).filter(Boolean)) {
+          const r = part.match(/^(\d)[~\-](\d)$/);
+          if (r) { for (let g = Number(r[1]); g <= Number(r[2]); g++) grades.push(String(g)); }
+          else if (/^\d$/.test(part)) grades.push(part);
+        }
+        return { text: s.slice(0, m.index).trim(), grades };
+      };
+      // "(-6.5)" "(~6.5)" "(-11.6)" → 끝 날짜 (같은 학년도 기준)
+      const smUntil = (s, startDate, schoolYear) => {
+        const m = s.match(/\(\s*[-~]\s*(\d{1,2})\.(\d{1,2})\s*\)/);
+        if (!m) return { text: s, endDate: '' };
+        const mo = Number(m[1]), d = Number(m[2]);
+        const y = mo >= 3 ? schoolYear : schoolYear + 1;
+        const endDate = `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        return { text: (s.slice(0, m.index) + s.slice(m.index + m[0].length)).replace(/\s+/g, ' ').trim(), endDate: endDate > startDate ? endDate : '' };
+      };
+      const smDate = (schoolYear, mo, d) => `${mo >= 3 ? schoolYear : schoolYear + 1}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const smDow = (iso) => ['일', '월', '화', '수', '목', '금', '토'][new Date(iso + 'T00:00:00').getDay()];
+      // 기간 → 줄들: 14일 이하면 주말을 뺀 날마다(반복 묶음), 길면 시작·끝 두 줄
+      const smExpand = (base, date, endDate) => {
+        if (!endDate || endDate <= date) return [{ ...base, date, endDate: date, isRepeating: false, groupId: null }];
+        const days = Math.round((new Date(endDate + 'T00:00:00') - new Date(date + 'T00:00:00')) / 86400000);
+        if (days > 14) return [
+          { ...base, activity: `${base.activity} 시작`, note: [base.note, `~ ${endDate.slice(5).replace('-', '.')}`].filter(Boolean).join(' '), date, endDate: date, isRepeating: false, groupId: null },
+          { ...base, activity: `${base.activity} 끝`, date: endDate, endDate, isRepeating: false, groupId: null }];
+        const gid = generateUUID(); const out = [];
+        for (let d = new Date(date + 'T00:00:00'); formatDate(d) <= endDate; d.setDate(d.getDate() + 1)) { const dow = d.getDay(); if (dow === 0 || dow === 6) continue; out.push({ ...base, date: formatDate(d), endDate, isRepeating: true, groupId: gid, repeatDays: [], excludeWeekends: true }); }
+        return out;
+      };
+      // 스쿨마스터 hwpx → 가져오기 줄들. { rows, kind, skipped }
+      const parseSchoolMaster = (xmlText, departments) => {
+        const dom = new DOMParser().parseFromString(xmlText, 'application/xml');
+        const all = Array.from(dom.getElementsByTagNameNS('*', 'tbl'));
+        const fullText = smText(dom.documentElement);
+        const ym = fullText.match(/(\d{4})\s*학년도/); const schoolYear = ym ? Number(ym[1]) : new Date().getFullYear();
+        const rows = []; const skipped = [];
+        const mk = (activity, date, dept, extra = {}) => ({ time: '', department: dept, activity, manager: '', location: '', note: '', link: '', isImportant: false, ...extra, date });
+        let kind = '';
+        for (const tbl of all) {
+          const trs = smRows(tbl); if (!trs.length) continue;
+          const head = smLines(trs[0][0] || tbl).join(' ');
+          // ② 주요 학사일정
+          if (/주요\s*학사일정/.test(head)) {
+            kind = kind || '주요 학사일정';
+            for (const tcs of trs) {
+              const cells = tcs.map(tc => smLines(tc).join(' '));
+              if (cells.length < 2) continue;
+              const type = cells[0].replace(/\s+/g, ' ').trim(); const when = cells[1] || ''; const note = (cells[2] || '').trim();
+              if (!type || /^(종류|화성|.*학교$)/.test(type) || /수업\s*일수|^계$/.test(type) || !/\d+\s*월\s*\d+\s*일/.test(when)) continue;
+              if (/^공휴일$/.test(type)) { skipped.push('공휴일 (일정표의 공휴일 자동 표시와 겹쳐 뺌)'); continue; }
+              // ∎ 로 나뉜 항목들, 각 항목: [이름:] M월 D일(요일) [~ M월 D일(요일)]
+              for (const item of when.split(/[∎■●•]/).map(x => x.trim()).filter(Boolean)) {
+                const label = item.includes(':') ? item.split(':')[0].trim() : '';
+                const ds = Array.from(item.matchAll(/(\d{1,2})\s*월\s*(\d{1,2})\s*일/g)).map(m => smDate(schoolYear, Number(m[1]), Number(m[2])));
+                if (!ds.length) continue;
+                const act = label && label !== type ? `${type} (${label})` : type;
+                if (/~/.test(item) && ds.length >= 2) rows.push(...smExpand(mk(act, ds[0], '전체', { note: /방학/.test(type) ? '' : note }), ds[0], ds[1]));
+                else for (const d of ds) rows.push(...smExpand(mk(act, d, '전체', { note: '' }), d, ''));
+              }
+            }
+            continue;
+          }
+          // ① 상세 학사일정표: 월 머리글 행 찾기 ("3 월" … 6개, 각 colSpan 2)
+          const mi = trs.findIndex(tcs => tcs.length >= 6 && tcs.every(tc => /^\d{1,2}\s*월$/.test(smLines(tc).join(''))));
+          if (mi < 0) continue;
+          kind = kind || '학년별 상세 학사일정';
+          const months = trs[mi].map(tc => Number(smLines(tc).join('').replace(/\D/g, '')));
+          for (const tcs of trs.slice(mi + 1)) {
+            for (let c = 0; c + 1 < tcs.length && c / 2 < months.length; c += 2) {
+              const dayTxt = smLines(tcs[c]).join(' '); const dm = dayTxt.match(/^(\d{1,2})/); if (!dm) continue;
+              const mo = months[c / 2]; const day = Number(dm[1]);
+              const date = smDate(schoolYear, mo, day);
+              if (isNaN(new Date(date + 'T00:00:00').getTime()) || new Date(date + 'T00:00:00').getDate() !== day) continue;
+              for (let line of smLines(tcs[c + 1])) {
+                line = line.replace(/^[‣▸▪•·\-\s]+/, '').trim(); if (!line) continue;
+                if (SM_HOLIDAY_SKIP.test(line.replace(/\s/g, ''))) continue;
+                const g = smGrades(line); const u = smUntil(g.text, date, schoolYear);
+                const activity = u.text.replace(/\s*\(\s*\)\s*$/, '').trim(); if (!activity) continue;
+                if (!g.grades.length) rows.push(...smExpand(mk(activity, date, '전체'), date, u.endDate));
+                else for (const gr of g.grades) rows.push(...smExpand(mk(activity, date, smGradeDept(gr, departments)), date, u.endDate));
+              }
+            }
+          }
+        }
+        // 같은 날 같은 내용·부서 중복 제거 (상반기·하반기 표가 겹칠 때)
+        const seen = new Set();
+        const uniq = rows.filter(r => { const k = `${r.date}|${r.department}|${r.activity}`; if (seen.has(k)) return false; seen.add(k); return true; });
+        return { rows: uniq, kind, schoolYear, skipped };
+      };
+
     // ===== 너펑(AI): 메신저 글 → 일정 =====
     // AI는 글에서 날짜·시간·내용·장소를 뽑기만 하고, 사람이 카드에서 고친 뒤 [등록]을 눌러야 저장된다.
     const AI_CAL_SYSTEM = `당신은 초등학교 월간 운영 계획 도우미 "너펑"입니다. 교직원 메신저 글을 읽고 일정표에 넣을 일정을 뽑아 JSON 한 개만 출력합니다 (설명 문장 금지).
@@ -858,11 +974,28 @@ ${t}`;
         const file = e.target.files && e.target.files[0];
         if (!file) return;
         const reader = new FileReader();
-        reader.onload = () => {
+        reader.onload = async () => {
           try {
             let raw = [];
             const name = file.name.toLowerCase();
             const buffer = reader.result;
+
+            // 스쿨마스터 학사일정 hwpx: 표를 직접 읽어 일정 줄로 만든다 (학년 괄호 → 부서, 기간 → 날마다)
+            if (name.endsWith('.hwpx') || name.endsWith('.hwp')) {
+              if (name.endsWith('.hwp')) throw new Error('hwp 파일은 읽을 수 없습니다. 한글에서 [다른 이름으로 저장] → hwpx 로 저장한 뒤 올려 주세요.');
+              if (typeof JSZip === 'undefined') throw new Error('압축 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인해 주세요.');
+              const zip = await JSZip.loadAsync(buffer);
+              const secs = Object.keys(zip.files).filter(p => /^Contents\/section\d+\.xml$/i.test(p)).sort();
+              if (!secs.length) throw new Error('hwpx 안에서 본문을 찾지 못했습니다.');
+              let rows = [], kind = '', skipped = [];
+              for (const p of secs) { const r = parseSchoolMaster(await zip.file(p).async('string'), departments); rows = rows.concat(r.rows); kind = kind || r.kind; skipped = skipped.concat(r.skipped); }
+              if (!kind) throw new Error('스쿨마스터 학사일정 양식(학년별 상세 학사일정표 또는 주요 학사일정)이 아닌 것 같습니다.');
+              if (!rows.length) throw new Error(kind + ' 파일이지만 읽을 일정이 없습니다.');
+              const unknownDept = Array.from(new Set(rows.map(r => r.department).filter(d => d && !departments.some(x => x.name === d))));
+              const info = `스쿨마스터 「${kind}」 ${rows.length}건을 읽었습니다. 학년 표시는 부서로 들어가고 내용에서는 뺐습니다.` + (skipped.length ? ' 뺀 것: ' + skipped.join(', ') + '.' : '') + (unknownDept.length ? ` 부서 목록에 없는 부서(${unknownDept.join(', ')})는 관리자 › 부서에서 추가하거나 등록 후 고쳐 주세요.` : '');
+              setImportState(prev => ({ ...prev, fileName: file.name, rows, error: info }));
+              return;
+            }
 
             if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
               if (typeof XLSX === 'undefined') throw new Error('엑셀 라이브러리를 불러오지 못했습니다.');
@@ -1767,10 +1900,10 @@ ${t}`;
                       </button>
                     </div>
 
-                    <p className="text-xs text-gray-600 font-semibold mb-1">② 작성한 파일 올리기:</p>
-                    <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv,.json" onChange={handleImportFile} className="hidden" />
+                    <p className="text-xs text-gray-600 font-semibold mb-1">② 작성한 파일 올리기 <span className="font-normal text-gray-500">— 스쿨마스터에서 내려받은 「학년별 상세 학사일정표」「주요 학사일정」 hwpx도 그대로 올릴 수 있습니다 (끝의 (1,4학년) 같은 학년 표시는 학년별로 나뉘어 부서로 들어가고, (-6.5) 같은 기간은 날마다 들어갑니다. 토요휴업일과 공휴일은 뺍니다)</span></p>
+                    <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv,.json,.hwpx" onChange={handleImportFile} className="hidden" />
                     <button onClick={() => fileInputRef.current && fileInputRef.current.click()} className="w-full py-3 border-2 border-dashed border-gray-300 rounded text-sm text-gray-500 hover:border-blue-400 hover:text-blue-600 flex items-center justify-center gap-1">
-                      <Upload size={16} /> {importState.fileName || '엑셀 / CSV / JSON 파일 선택'}
+                      <Upload size={16} /> {importState.fileName || '엑셀 / CSV / JSON / 스쿨마스터 hwpx 파일 선택'}
                     </button>
 
                     {importState.error && <p className="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">{importState.error}</p>}
